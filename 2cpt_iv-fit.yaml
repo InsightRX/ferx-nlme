@@ -1,0 +1,54 @@
+model:
+  converged: true
+  method: FOCE
+
+objective_function:
+  ofv: -996.803503
+  aic: -978.803503
+  bic: -936.641997
+
+data:
+  n_subjects: 100
+  n_observations: 800
+  n_parameters: 9
+
+theta:
+  TVCL:
+    estimate: 4.775430
+    se: 0.087726
+    rse_pct: 1.84
+  TVV1:
+    estimate: 19.974699
+    se: 0.368813
+    rse_pct: 1.85
+  TVQ:
+    estimate: 2.616456
+    se: 0.074642
+    rse_pct: 2.85
+  TVV2:
+    estimate: 35.088165
+    se: 1.619017
+    rse_pct: 4.61
+
+omega:
+  omega_11:
+    variance: 0.091176
+    cv_pct: 30.20
+    se: 0.006891
+  omega_22:
+    variance: 0.077314
+    cv_pct: 27.81
+    se: 0.006269
+  omega_33:
+    variance: 0.120451
+    cv_pct: 34.71
+    se: 0.012134
+  omega_44:
+    variance: 0.065748
+    cv_pct: 25.64
+    se: 0.013875
+
+sigma:
+  sigma_1:
+    estimate: 0.193037
+    se: 0.005118

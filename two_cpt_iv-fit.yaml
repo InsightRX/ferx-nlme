@@ -1,0 +1,57 @@
+model:
+  converged: true
+  method: FOCE
+
+objective_function:
+  ofv: -859.866238
+  aic: -841.866238
+  bic: -814.830721
+
+data:
+  n_subjects: 15
+  n_observations: 149
+  n_parameters: 9
+
+theta:
+  TVCL:
+    estimate: 3.426315
+    se: ~
+    rse_pct: ~
+  TVV1:
+    estimate: 15.750524
+    se: ~
+    rse_pct: ~
+  TVQ:
+    estimate: 3.194284
+    se: ~
+    rse_pct: ~
+  TVV2:
+    estimate: 29.972576
+    se: ~
+    rse_pct: ~
+
+omega:
+  omega_11:
+    variance: 0.140021
+    cv_pct: 37.42
+    se: ~
+  omega_22:
+    variance: 0.104516
+    cv_pct: 32.33
+    se: ~
+  omega_33:
+    variance: 0.101741
+    cv_pct: 31.90
+    se: ~
+  omega_44:
+    variance: 0.156283
+    cv_pct: 39.53
+    se: ~
+
+sigma:
+  sigma_1:
+    estimate: 0.008957
+    se: ~
+
+warnings:
+  - "Covariance step failed"
