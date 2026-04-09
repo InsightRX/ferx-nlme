@@ -9,7 +9,7 @@ name = "ferx"
 path = "src/bin/run_model.rs"
 
 [features]
-default = []
+default = ["autodiff"]
 autodiff = []
 
 [dependencies]

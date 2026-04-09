@@ -1,5 +1,13 @@
 #![cfg_attr(feature = "autodiff", feature(autodiff))]
 
+#[cfg(not(feature = "autodiff"))]
+compile_error!(
+    "The `autodiff` feature is required. Finite-difference gradients are not supported. \
+     Build with: cargo build --release (autodiff is now the default feature), \
+     or explicitly: cargo build --release --features autodiff. \
+     Requires the Enzyme Rust toolchain: rustup toolchain install enzyme"
+);
+
 pub mod types;
 pub mod pk;
 pub mod stats;
