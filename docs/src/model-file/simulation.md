@@ -1,0 +1,61 @@
+# Simulation
+
+The optional `[simulation]` block defines a virtual clinical trial design for generating simulated data. This is useful for model validation and testing.
+
+## Syntax
+
+```
+[simulation]
+  subjects = N
+  dose = AMOUNT
+  cmt = COMPARTMENT
+  seed = SEED
+  times = [t1, t2, t3, ...]
+```
+
+| Key | Description |
+|-----|-------------|
+| `subjects` | Number of virtual subjects to simulate |
+| `dose` | Dose amount administered to each subject |
+| `cmt` | Dosing compartment (1-indexed) |
+| `seed` | Random seed for reproducible simulations |
+| `times` | Observation time points |
+
+## Example
+
+```
+[simulation]
+  subjects = 100
+  dose = 100
+  cmt = 1
+  seed = 12345
+  times = [0.5, 1, 2, 4, 8, 12, 24]
+```
+
+This simulates 100 subjects, each receiving a dose of 100 units into compartment 1, with observations at 0.5, 1, 2, 4, 8, 12, and 24 hours.
+
+## Usage
+
+Run a simulation-estimation study from the CLI:
+
+```bash
+ferx model.ferx --simulate
+```
+
+This will:
+1. Parse the model and `[simulation]` block
+2. Generate simulated data using the model's default parameters and random effects
+3. Fit the model to the simulated data
+4. Report parameter estimates and diagnostics
+
+## Simulation Process
+
+1. For each subject, random effects are sampled from \\( \eta_i \sim N(0, \Omega) \\)
+2. Individual parameters are computed using the `[individual_parameters]` equations
+3. Predictions are generated using the structural model
+4. Residual error is added: \\( DV = IPRED + \epsilon \\), where \\( \epsilon \sim N(0, V) \\)
+5. Observations below 0.001 are clipped to 0.001
+
+## Covariates in Simulation
+
+Covariates can be specified per subject in the `[simulation]` block. Currently, the simulated population uses default covariate values (covariates are not randomized).

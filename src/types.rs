@@ -251,6 +251,7 @@ pub struct SubjectResult {
 /// Full fit result
 #[derive(Debug, Clone)]
 pub struct FitResult {
+    pub method: EstimationMethod,
     pub converged: bool,
     pub ofv: f64,
     pub aic: f64,
@@ -275,6 +276,7 @@ pub struct FitResult {
 /// Options for fit()
 #[derive(Debug, Clone)]
 pub struct FitOptions {
+    pub method: EstimationMethod,
     pub outer_maxiter: usize,
     pub outer_gtol: f64,
     pub inner_maxiter: usize,
@@ -284,11 +286,22 @@ pub struct FitOptions {
     pub verbose: bool,
     pub optimizer: Optimizer,
     pub lbfgs_memory: usize,
+    /// Run a gradient-free global pre-search (NLopt GN_CRS2_LM) before local optimization.
+    pub global_search: bool,
+    /// Max evaluations for the global pre-search (0 = auto).
+    pub global_maxeval: usize,
+    // SAEM-specific options
+    pub saem_n_exploration: usize,
+    pub saem_n_convergence: usize,
+    pub saem_n_mh_steps: usize,
+    pub saem_adapt_interval: usize,
+    pub saem_seed: Option<u64>,
 }
 
 impl Default for FitOptions {
     fn default() -> Self {
         Self {
+            method: EstimationMethod::Foce,
             outer_maxiter: 500,
             outer_gtol: 1e-6,
             inner_maxiter: 200,
@@ -298,6 +311,13 @@ impl Default for FitOptions {
             verbose: true,
             optimizer: Optimizer::Slsqp,
             lbfgs_memory: 5,
+            global_search: false,
+            global_maxeval: 0,
+            saem_n_exploration: 150,
+            saem_n_convergence: 250,
+            saem_n_mh_steps: 3,
+            saem_adapt_interval: 50,
+            saem_seed: None,
         }
     }
 }
@@ -312,6 +332,14 @@ pub enum Optimizer {
     NloptLbfgs,
     /// NLopt LD_MMA — Method of Moving Asymptotes
     Mma,
+}
+
+/// Estimation method
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EstimationMethod {
+    Foce,
+    FoceI,
+    Saem,
 }
 
 /// Trial design specification parsed from [simulation] block

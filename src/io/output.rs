@@ -10,7 +10,12 @@ pub fn print_results(result: &FitResult) {
         "\nConverged: {}",
         if result.converged { "YES" } else { "NO" }
     );
-    eprintln!("Estimation method: FOCE{}", if result.interaction { "I" } else { "" });
+    let method_str = match result.method {
+        EstimationMethod::Saem => "SAEM",
+        EstimationMethod::FoceI => "FOCEI",
+        EstimationMethod::Foce => "FOCE",
+    };
+    eprintln!("Estimation method: {}", method_str);
     eprintln!("Iterations: {}", result.n_iterations);
 
     eprintln!("\n--- Objective Function ---");

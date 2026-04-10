@@ -1,0 +1,99 @@
+# Fitting Functions
+
+## `fit()`
+
+The primary estimation entry point. Runs FOCE, FOCEI, or SAEM depending on `options.method`.
+
+```rust
+pub fn fit(
+    model: &CompiledModel,
+    population: &Population,
+    init_params: &ModelParameters,
+    options: &FitOptions,
+) -> Result<FitResult, String>
+```
+
+**Parameters:**
+- `model`: Compiled model from `parse_model_file()` or `parse_full_model_file()`
+- `population`: Population data from `read_nonmem_csv()`
+- `init_params`: Initial parameter values
+- `options`: Estimation configuration
+
+**Returns:** `FitResult` with parameter estimates, standard errors, and per-subject diagnostics.
+
+**Example:**
+```rust
+let model = parse_model_file(Path::new("model.ferx"))?;
+let population = read_nonmem_csv(Path::new("data.csv"), None)?;
+let options = FitOptions::default();
+
+let result = fit(&model, &population, &model.default_params, &options)?;
+println!("OFV: {:.4}", result.ofv);
+```
+
+## `fit_from_files()`
+
+Convenience wrapper that handles parsing and data reading.
+
+```rust
+pub fn fit_from_files(
+    model_path: &str,
+    data_path: &str,
+    covariate_columns: Option<&[&str]>,
+    options: Option<FitOptions>,
+) -> Result<FitResult, String>
+```
+
+**Example:**
+```rust
+let result = fit_from_files(
+    "model.ferx",
+    "data.csv",
+    None,          // Auto-detect covariates
+    None,          // Default options
+)?;
+```
+
+## `run_model_with_data()`
+
+Full pipeline: parse model file, read data, fit. Returns both the fit result and the population.
+
+```rust
+pub fn run_model_with_data(
+    model_path: &str,
+    data_path: &str,
+) -> Result<(FitResult, Population), String>
+```
+
+Uses the `[initial_values]` and `[fit_options]` from the model file.
+
+## `run_model_simulate()`
+
+Simulation-estimation: parse model, generate data from `[simulation]` block, fit.
+
+```rust
+pub fn run_model_simulate(
+    model_path: &str,
+) -> Result<(FitResult, Population), String>
+```
+
+Requires a `[simulation]` block in the model file.
+
+## `build_fit_inputs()`
+
+Extract initial parameters and fit options from a parsed model, separating parsing from estimation for timing purposes.
+
+```rust
+pub fn build_fit_inputs(
+    parsed: &ParsedModel,
+) -> Result<(ModelParameters, FitOptions), String>
+```
+
+**Example:**
+```rust
+let parsed = parse_full_model_file(Path::new("model.ferx"))?;
+let (init_params, options) = build_fit_inputs(&parsed)?;
+
+let population = read_nonmem_csv(Path::new("data.csv"), None)?;
+let result = fit(&parsed.model, &population, &init_params, &options)?;
+```

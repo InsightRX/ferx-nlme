@@ -222,9 +222,15 @@ fn parse_fit_options(lines: &[String]) -> Result<FitOptions, String> {
         if parts.len() != 2 { continue; }
         match parts[0] {
             "method" => {
-                opts.interaction = parts[1].to_lowercase().contains("focei")
-                    || parts[1].to_lowercase().contains("foce-i")
-                    || parts[1].to_lowercase().contains("interaction");
+                let val = parts[1].to_lowercase();
+                if val.trim() == "saem" {
+                    opts.method = EstimationMethod::Saem;
+                } else if val.contains("focei") || val.contains("foce-i") || val.contains("interaction") {
+                    opts.method = EstimationMethod::FoceI;
+                    opts.interaction = true;
+                } else {
+                    opts.method = EstimationMethod::Foce;
+                }
             }
             "maxiter" => opts.outer_maxiter = parts[1].parse().unwrap_or(500),
             "covariance" => opts.run_covariance_step = parts[1].trim() == "true",
@@ -237,6 +243,13 @@ fn parse_fit_options(lines: &[String]) -> Result<FitOptions, String> {
                     _ => Optimizer::Slsqp,
                 };
             }
+            "global_search" => opts.global_search = parts[1].trim() == "true",
+            "global_maxeval" => opts.global_maxeval = parts[1].parse().unwrap_or(0),
+            "n_exploration" => opts.saem_n_exploration = parts[1].trim().parse().unwrap_or(150),
+            "n_convergence" => opts.saem_n_convergence = parts[1].trim().parse().unwrap_or(250),
+            "n_mh_steps" => opts.saem_n_mh_steps = parts[1].trim().parse().unwrap_or(3),
+            "adapt_interval" => opts.saem_adapt_interval = parts[1].trim().parse().unwrap_or(50),
+            "seed" => opts.saem_seed = parts[1].trim().parse().ok(),
             _ => {}
         }
     }

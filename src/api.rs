@@ -1,5 +1,6 @@
 use crate::estimation::outer_optimizer::optimize_population;
 use crate::estimation::parameterization::packed_len;
+use crate::estimation::saem;
 use crate::io::datareader::read_nonmem_csv;
 use crate::io::output;
 use crate::pk;
@@ -137,8 +138,13 @@ pub fn fit(
     init_params: &ModelParameters,
     options: &FitOptions,
 ) -> Result<FitResult, String> {
+    let method_name = match options.method {
+        EstimationMethod::Saem => "SAEM",
+        EstimationMethod::FoceI => "FOCEI",
+        EstimationMethod::Foce => "FOCE",
+    };
     if options.verbose {
-        eprintln!("Starting FOCE{} estimation...", if options.interaction { "I" } else { "" });
+        eprintln!("Starting {} estimation...", method_name);
         eprintln!(
             "  {} subjects, {} observations",
             population.subjects.len(),
@@ -150,8 +156,11 @@ pub fn fit(
         );
     }
 
-    // Run outer optimization
-    let result = optimize_population(model, population, init_params, options);
+    // Run estimation
+    let result = match options.method {
+        EstimationMethod::Saem => saem::run_saem(model, population, init_params, options)?,
+        _ => optimize_population(model, population, init_params, options),
+    };
 
     // Compute per-subject diagnostics
     let subjects = compute_subject_results(
@@ -177,6 +186,7 @@ pub fn fit(
     );
 
     let fit_result = FitResult {
+        method: options.method,
         converged: result.converged,
         ofv,
         aic,

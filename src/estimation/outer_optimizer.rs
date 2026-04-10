@@ -591,7 +591,7 @@ fn backtracking_line_search_warm(
 }
 
 /// Compute covariance matrix via finite-difference Hessian at convergence.
-fn compute_covariance(
+pub(crate) fn compute_covariance(
     x_hat: &[f64],
     template: &ModelParameters,
     model: &CompiledModel,

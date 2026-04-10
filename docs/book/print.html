@@ -1,0 +1,2289 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>FeRx-NLME Documentation</title>
+        <meta name="robots" content="noindex">
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="favicon-de23e50b.svg">
+        <link rel="shortcut icon" href="favicon-8114d1fc.png">
+        <link rel="stylesheet" href="css/variables-8adf115d.css">
+        <link rel="stylesheet" href="css/general-2459343d.css">
+        <link rel="stylesheet" href="css/chrome-ae938929.css">
+        <link rel="stylesheet" href="css/print-9e4910d8.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="fonts/fonts-9644e21d.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="mdbook-highlight-css" href="highlight-493f70e1.css">
+        <link rel="stylesheet" id="mdbook-tomorrow-night-css" href="tomorrow-night-4c0ae647.css">
+        <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="ayu-highlight-3fdfc3ac.css">
+
+        <!-- Custom theme stylesheets -->
+
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "";
+            const default_light_theme = "light";
+            const default_dark_theme = "ayu";
+            window.path_to_searchindex_js = "searchindex-073890e9.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="toc-6e3bedd3.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="mdbook-body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="mdbook-sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("mdbook-sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="mdbook-sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="toc.html"></iframe>
+            </noscript>
+            <div id="mdbook-sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="mdbook-page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="mdbook-menu-bar-hover-placeholder"></div>
+                <div id="mdbook-menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="mdbook-sidebar-toggle" class="icon-button" for="mdbook-sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="mdbook-sidebar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M0 96C0 78.3 14.3 64 32 64H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32C14.3 128 0 113.7 0 96zM0 256c0-17.7 14.3-32 32-32H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32c-17.7 0-32-14.3-32-32zM448 416c0 17.7-14.3 32-32 32H32c-17.7 0-32-14.3-32-32s14.3-32 32-32H416c17.7 0 32 14.3 32 32z"/></svg></span>
+                        </label>
+                        <button id="mdbook-theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="mdbook-theme-list">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M371.3 367.1c27.3-3.9 51.9-19.4 67.2-42.9L600.2 74.1c12.6-19.5 9.4-45.3-7.6-61.2S549.7-4.4 531.1 9.6L294.4 187.2c-24 18-38.2 46.1-38.4 76.1L371.3 367.1zm-19.6 25.4l-116-104.4C175.9 290.3 128 339.6 128 400c0 3.9 .2 7.8 .6 11.6c1.8 17.5-10.2 36.4-27.8 36.4H96c-17.7 0-32 14.3-32 32s14.3 32 32 32H240c61.9 0 112-50.1 112-112c0-2.5-.1-5-.2-7.5z"/></svg></span>
+                        </button>
+                        <ul id="mdbook-theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-ayu">Ayu</button></li>
+                        </ul>
+                        <button id="mdbook-search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="mdbook-searchbar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M416 208c0 45.9-14.9 88.3-40 122.7L502.6 457.4c12.5 12.5 12.5 32.8 0 45.3s-32.8 12.5-45.3 0L330.7 376c-34.4 25.2-76.8 40-122.7 40C93.1 416 0 322.9 0 208S93.1 0 208 0S416 93.1 416 208zM208 352c79.5 0 144-64.5 144-144s-64.5-144-144-144S64 128.5 64 208s64.5 144 144 144z"/></svg></span>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">FeRx-NLME Documentation</h1>
+
+                    <div class="right-buttons">
+                        <a href="print.html" title="Print this book" aria-label="Print this book">
+                            <span class=fa-svg id="print-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M128 0C92.7 0 64 28.7 64 64v96h64V64H354.7L384 93.3V160h64V93.3c0-17-6.7-33.3-18.7-45.3L400 18.7C388 6.7 371.7 0 354.7 0H128zM384 352v32 64H128V384 368 352H384zm64 32h32c17.7 0 32-14.3 32-32V256c0-35.3-28.7-64-64-64H64c-35.3 0-64 28.7-64 64v96c0 17.7 14.3 32 32 32H64v64c0 35.3 28.7 64 64 64H384c35.3 0 64-28.7 64-64V384zm-16-88c-13.3 0-24-10.7-24-24s10.7-24 24-24s24 10.7 24 24s-10.7 24-24 24z"/></svg></span>
+                        </a>
+                        <a href="https://github.com/insightrx/ferx-nlme" title="Git repository" aria-label="Git repository">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6zm-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3zm44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9zM244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8zM97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1zm-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7zm32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1zm-11.4-14.7c-1.6 1-1.6 3.6 0 5.9 1.6 2.3 4.3 3.3 5.6 2.3 1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2z"/></svg></span>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="mdbook-search-wrapper" class="hidden">
+                    <form id="mdbook-searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="mdbook-searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="mdbook-searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <span class=fa-svg id="fa-spin"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M304 48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zm0 416c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM48 304c26.5 0 48-21.5 48-48s-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48zm464-48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM142.9 437c18.7-18.7 18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zm0-294.2c18.7-18.7 18.7-49.1 0-67.9S93.7 56.2 75 75s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zM369.1 437c18.7 18.7 49.1 18.7 67.9 0s18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9z"/></svg></span>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="mdbook-searchresults-outer" class="searchresults-outer hidden">
+                        <div id="mdbook-searchresults-header" class="searchresults-header"></div>
+                        <ul id="mdbook-searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('mdbook-sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('mdbook-sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#mdbook-sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="mdbook-content" class="content">
+                    <main>
+                        <h1 id="introduction"><a class="header" href="#introduction">Introduction</a></h1>
+<p>FeRx-NLME is a high-performance Nonlinear Mixed Effects (NLME) modeling engine written in Rust. It is designed for population pharmacokinetic (PopPK) analysis, implementing the same statistical methodology as established tools like NONMEM, Monolix, and Pumas.</p>
+<h2 id="key-features"><a class="header" href="#key-features">Key Features</a></h2>
+<ul>
+<li><strong>FOCE/FOCEI estimation</strong> – First-Order Conditional Estimation with optional interaction, the gold standard for PopPK</li>
+<li><strong>SAEM estimation</strong> – Stochastic Approximation EM for robust convergence on complex models</li>
+<li><strong>Analytical PK solutions</strong> – Built-in one- and two-compartment models (IV bolus, oral, infusion) with numerical stability guarantees</li>
+<li><strong>ODE solver</strong> – Dormand-Prince RK45 adaptive integrator for custom kinetic models (e.g. Michaelis-Menten)</li>
+<li><strong>Automatic differentiation</strong> – Enzyme-based reverse-mode AD for fast, exact gradients</li>
+<li><strong>Simple model DSL</strong> – Declarative <code>.ferx</code> model files that read like equations</li>
+<li><strong>NONMEM-compatible data</strong> – Reads standard NONMEM CSV datasets directly</li>
+<li><strong>Covariate support</strong> – Time-constant and time-varying covariates with automatic detection</li>
+<li><strong>Parallel estimation</strong> – Per-subject computations parallelized via Rayon</li>
+</ul>
+<h2 id="how-it-compares"><a class="header" href="#how-it-compares">How It Compares</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Feature</th><th>FeRx</th><th>NONMEM</th><th>Monolix</th><th>Pumas</th></tr>
+</thead>
+<tbody>
+<tr><td>Language</td><td>Rust</td><td>Fortran</td><td>C++</td><td>Julia</td></tr>
+<tr><td>FOCE/FOCEI</td><td>Yes</td><td>Yes</td><td>No</td><td>Yes</td></tr>
+<tr><td>SAEM</td><td>Yes</td><td>No</td><td>Yes</td><td>Yes</td></tr>
+<tr><td>Analytical PK</td><td>Yes</td><td>Yes</td><td>Yes</td><td>Yes</td></tr>
+<tr><td>ODE models</td><td>Yes</td><td>Yes</td><td>Yes</td><td>Yes</td></tr>
+<tr><td>Auto-diff</td><td>Yes (Enzyme)</td><td>No</td><td>No</td><td>Yes (ForwardDiff)</td></tr>
+<tr><td>Open source</td><td>Yes</td><td>No</td><td>No</td><td>No</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="architecture-overview"><a class="header" href="#architecture-overview">Architecture Overview</a></h2>
+<p>FeRx uses a two-level optimization structure:</p>
+<ul>
+<li><strong>Outer loop</strong>: Optimizes population parameters (theta, omega, sigma) using NLopt or built-in BFGS</li>
+<li><strong>Inner loop</strong>: For each subject, finds empirical Bayes estimates (EBEs) of random effects by minimizing individual negative log-likelihood</li>
+</ul>
+<p>Parameters are internally transformed for unconstrained optimization: theta and sigma are log-transformed, and omega uses Cholesky factorization to guarantee positive-definiteness.</p>
+<h2 id="project-structure"><a class="header" href="#project-structure">Project Structure</a></h2>
+<pre><code>src/
+  types.rs          -- Core data structures
+  api.rs            -- Public API (fit, simulate, predict)
+  parser/           -- .ferx model file parser
+  pk/               -- Analytical PK solutions
+  ode/              -- ODE solver and predictions
+  estimation/       -- FOCE, FOCEI, SAEM algorithms
+  stats/            -- Likelihood and residual computations
+  io/               -- Data reading and output writing
+  ad/               -- Automatic differentiation
+  bin/run_model.rs  -- CLI binary
+</code></pre>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="getting-started"><a class="header" href="#getting-started">Getting Started</a></h1>
+<p>This section covers installing FeRx and running your first model.</p>
+<ul>
+<li><a href="#installation">Installation</a> – Setting up the Rust toolchain and building FeRx</li>
+<li><a href="#quick-start">Quick Start</a> – Running a complete PopPK analysis in under 5 minutes</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="installation"><a class="header" href="#installation">Installation</a></h1>
+<h2 id="prerequisites"><a class="header" href="#prerequisites">Prerequisites</a></h2>
+<p>FeRx requires the Enzyme Rust toolchain for automatic differentiation. This is a nightly Rust toolchain with Enzyme support.</p>
+<h3 id="1-install-the-enzyme-rust-toolchain"><a class="header" href="#1-install-the-enzyme-rust-toolchain">1. Install the Enzyme Rust toolchain</a></h3>
+<pre><code class="language-bash">rustup toolchain install enzyme
+</code></pre>
+<p>If the <code>enzyme</code> toolchain is not available via rustup, follow the <a href="https://enzyme.mit.edu/Getting%20Started/RustInstallation/">Enzyme project instructions</a> to install it manually.</p>
+<h3 id="2-clone-and-build"><a class="header" href="#2-clone-and-build">2. Clone and build</a></h3>
+<pre><code class="language-bash">git clone https://github.com/insightrx/ferx-nlme.git
+cd ferx-nlme
+
+# Build in release mode (recommended for performance)
+cargo build --release --features autodiff
+
+# The binary is at target/release/ferx
+</code></pre>
+<h3 id="3-verify-the-installation"><a class="header" href="#3-verify-the-installation">3. Verify the installation</a></h3>
+<pre><code class="language-bash">cargo run --release --features autodiff --bin ferx -- examples/warfarin.ferx --simulate
+</code></pre>
+<p>You should see output showing a successful model fit with parameter estimates.</p>
+<h2 id="build-options"><a class="header" href="#build-options">Build Options</a></h2>
+<pre><code class="language-bash"># Debug build (faster compilation, slower execution)
+cargo build --features autodiff
+
+# Release build with fat LTO (slower compilation, fastest execution)
+cargo build --release --features autodiff
+
+# Check compilation without building
+cargo check --features autodiff
+
+# Run clippy lints
+cargo clippy --features autodiff
+</code></pre>
+<h2 id="dependencies"><a class="header" href="#dependencies">Dependencies</a></h2>
+<p>FeRx depends on the following crates (managed automatically by Cargo):</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Crate</th><th>Purpose</th></tr>
+</thead>
+<tbody>
+<tr><td><code>nalgebra</code></td><td>Linear algebra (matrices, Cholesky)</td></tr>
+<tr><td><code>nlopt</code></td><td>Nonlinear optimization (SLSQP, L-BFGS, MMA)</td></tr>
+<tr><td><code>rayon</code></td><td>Parallel computation</td></tr>
+<tr><td><code>rand</code>, <code>rand_distr</code></td><td>Random number generation (SAEM)</td></tr>
+<tr><td><code>csv</code></td><td>CSV data file reading</td></tr>
+<tr><td><code>regex</code></td><td>Model file expression parsing</td></tr>
+</tbody>
+</table>
+</div>
+<p>The <code>nlopt</code> crate requires the NLopt C library. On most systems this is handled automatically. If you encounter build errors related to NLopt, install it via your system package manager:</p>
+<pre><code class="language-bash"># macOS
+brew install nlopt
+
+# Ubuntu/Debian
+sudo apt-get install libnlopt-dev
+
+# Fedora
+sudo dnf install NLopt-devel
+</code></pre>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="quick-start"><a class="header" href="#quick-start">Quick Start</a></h1>
+<p>This walkthrough fits a one-compartment oral PK model to warfarin data.</p>
+<h2 id="1-create-a-model-file"><a class="header" href="#1-create-a-model-file">1. Create a model file</a></h2>
+<p>Save the following as <code>warfarin.ferx</code>:</p>
+<pre><code>[parameters]
+  theta TVCL(0.134, 0.001, 10.0)
+  theta TVV(8.1, 0.1, 500.0)
+  theta TVKA(1.0, 0.01, 50.0)
+
+  omega ETA_CL ~ 0.07
+  omega ETA_V  ~ 0.02
+  omega ETA_KA ~ 0.40
+
+  sigma PROP_ERR ~ 0.01
+
+[individual_parameters]
+  CL = TVCL * exp(ETA_CL)
+  V  = TVV  * exp(ETA_V)
+  KA = TVKA * exp(ETA_KA)
+
+[structural_model]
+  pk one_cpt_oral(cl=CL, v=V, ka=KA)
+
+[error_model]
+  DV ~ proportional(PROP_ERR)
+
+[initial_values]
+  theta = [0.2, 10.0, 1.5]
+  omega = [0.09, 0.04, 0.30]
+  sigma = [0.02]
+
+[fit_options]
+  method     = foce
+  maxiter    = 300
+  covariance = true
+</code></pre>
+<h2 id="2-prepare-your-data"><a class="header" href="#2-prepare-your-data">2. Prepare your data</a></h2>
+<p>Data must be in NONMEM CSV format. The minimum required columns are <code>ID</code>, <code>TIME</code>, and <code>DV</code>. Dosing records use <code>EVID=1</code> with <code>AMT</code>:</p>
+<pre><code class="language-csv">ID,TIME,DV,EVID,AMT,CMT,MDV
+1,0,.,1,100,1,1
+1,0.5,9.49,0,.,.,0
+1,1,14.42,0,.,.,0
+1,2,17.56,0,.,.,0
+1,4,15.23,0,.,.,0
+1,8,10.15,0,.,.,0
+1,12,6.75,0,.,.,0
+1,24,2.24,0,.,.,0
+</code></pre>
+<h2 id="3-run-the-fit"><a class="header" href="#3-run-the-fit">3. Run the fit</a></h2>
+<pre><code class="language-bash">ferx warfarin.ferx --data warfarin.csv
+</code></pre>
+<h2 id="4-interpret-the-output"><a class="header" href="#4-interpret-the-output">4. Interpret the output</a></h2>
+<p>The console output shows the estimation progress and final results:</p>
+<pre><code>Starting FOCE estimation...
+  10 subjects, 110 observations
+  3 thetas, 3 etas, 1 sigmas
+...
+Final OFV = -280.1838
+
+============================================================
+NONLINEAR MIXED EFFECTS MODEL ESTIMATION
+============================================================
+
+Converged: YES
+Estimation method: FOCE
+
+--- Objective Function ---
+OFV:  -280.1838
+AIC:  -266.1838
+BIC:  -247.2804
+
+--- THETA Estimates ---
+Parameter            Estimate           SE       %RSE
+----------------------------------------------------
+TVCL                 0.132735     0.014549       11.0
+TVV                  7.694842     0.293028        3.8
+TVKA                 0.757498     0.034986        4.6
+
+--- OMEGA Estimates (variances) ---
+  OMEGA(1,1) = 0.028584  (CV% = 16.9)  SE = 0.006394
+  OMEGA(2,2) = 0.009613  (CV% = 9.8)   SE = 0.002165
+  OMEGA(3,3) = 0.340868  (CV% = 58.4)  SE = 0.076351
+
+--- SIGMA Estimates ---
+  SIGMA(1) = 0.010638  SE = 0.000788
+</code></pre>
+<h2 id="5-output-files"><a class="header" href="#5-output-files">5. Output files</a></h2>
+<p>Three files are generated:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>File</th><th>Contents</th></tr>
+</thead>
+<tbody>
+<tr><td><code>warfarin-sdtab.csv</code></td><td>Per-observation diagnostics (PRED, IPRED, CWRES, IWRES, ETAs)</td></tr>
+<tr><td><code>warfarin-fit.yaml</code></td><td>Parameter estimates with standard errors in YAML format</td></tr>
+<tr><td><code>warfarin-timing.txt</code></td><td>Wall-clock estimation time</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="next-steps"><a class="header" href="#next-steps">Next Steps</a></h2>
+<ul>
+<li>Learn the full <a href="model-file/README.html">Model File Reference</a></li>
+<li>Explore <a href="estimation/README.html">Estimation Methods</a> (FOCE, FOCEI, SAEM)</li>
+<li>See more <a href="examples/README.html">Examples</a></li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="model-file-reference"><a class="header" href="#model-file-reference">Model File Reference</a></h1>
+<p>FeRx models are defined in <code>.ferx</code> files using a declarative DSL. Each file is organized into blocks, each denoted by a <code>[block_name]</code> header.</p>
+<h2 id="block-overview"><a class="header" href="#block-overview">Block Overview</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Block</th><th>Required</th><th>Purpose</th></tr>
+</thead>
+<tbody>
+<tr><td><code>[parameters]</code></td><td>Yes</td><td>Define theta, omega, and sigma parameters</td></tr>
+<tr><td><code>[individual_parameters]</code></td><td>Yes</td><td>Map population parameters to individual PK parameters</td></tr>
+<tr><td><code>[structural_model]</code></td><td>Yes</td><td>Specify the PK model (analytical or ODE)</td></tr>
+<tr><td><code>[error_model]</code></td><td>Yes</td><td>Define the residual error model</td></tr>
+<tr><td><code>[odes]</code></td><td>If ODE</td><td>ODE right-hand-side equations</td></tr>
+<tr><td><code>[initial_values]</code></td><td>No</td><td>Override default starting values</td></tr>
+<tr><td><code>[fit_options]</code></td><td>No</td><td>Configure estimation method and optimizer</td></tr>
+<tr><td><code>[simulation]</code></td><td>No</td><td>Define a simulation trial design</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="minimal-example"><a class="header" href="#minimal-example">Minimal Example</a></h2>
+<pre><code>[parameters]
+  theta TVCL(0.1, 0.001, 10.0)
+  theta TVV(10.0, 0.1, 500.0)
+  omega ETA_CL ~ 0.09
+  omega ETA_V  ~ 0.04
+  sigma ADD_ERR ~ 1.0
+
+[individual_parameters]
+  CL = TVCL * exp(ETA_CL)
+  V  = TVV  * exp(ETA_V)
+
+[structural_model]
+  pk one_cpt_iv_bolus(cl=CL, v=V)
+
+[error_model]
+  DV ~ additive(ADD_ERR)
+</code></pre>
+<p>Lines beginning with <code>#</code> are treated as comments.</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="parameters"><a class="header" href="#parameters">Parameters</a></h1>
+<p>The <code>[parameters]</code> block defines all model parameters: fixed effects (theta), between-subject variability (omega), and residual error (sigma).</p>
+<h2 id="theta-fixed-effects"><a class="header" href="#theta-fixed-effects">Theta (Fixed Effects)</a></h2>
+<pre><code>theta NAME(initial_value, lower_bound, upper_bound)
+</code></pre>
+<ul>
+<li><strong>NAME</strong>: Parameter name (used in <code>[individual_parameters]</code> expressions)</li>
+<li><strong>initial_value</strong>: Starting value for estimation</li>
+<li><strong>lower_bound</strong>: Lower bound constraint (must be &gt; 0; parameters are log-transformed internally)</li>
+<li><strong>upper_bound</strong>: Upper bound constraint</li>
+</ul>
+<p>Example:</p>
+<pre><code>theta TVCL(0.134, 0.001, 10.0)
+theta TVV(8.1, 0.1, 500.0)
+theta TVKA(1.0, 0.01, 50.0)
+</code></pre>
+<h2 id="omega-between-subject-variability"><a class="header" href="#omega-between-subject-variability">Omega (Between-Subject Variability)</a></h2>
+<pre><code>omega NAME ~ variance
+</code></pre>
+<ul>
+<li><strong>NAME</strong>: Random effect name (used in <code>[individual_parameters]</code> as <code>ETA_XXX</code>)</li>
+<li><strong>variance</strong>: Initial variance estimate (diagonal element of the omega matrix)</li>
+</ul>
+<p>Example:</p>
+<pre><code>omega ETA_CL ~ 0.07
+omega ETA_V  ~ 0.02
+omega ETA_KA ~ 0.40
+</code></pre>
+<p>The omega matrix is currently estimated as a diagonal matrix (no covariances between random effects). Each variance represents the between-subject variability for that parameter.</p>
+<p>The coefficient of variation (CV%) is approximately <code>sqrt(variance) * 100</code> for log-normally distributed parameters. For example, <code>omega ETA_CL ~ 0.09</code> corresponds to ~30% CV.</p>
+<h2 id="sigma-residual-error"><a class="header" href="#sigma-residual-error">Sigma (Residual Error)</a></h2>
+<pre><code>sigma NAME ~ value
+</code></pre>
+<ul>
+<li><strong>NAME</strong>: Residual error parameter name (referenced in <code>[error_model]</code>)</li>
+<li><strong>value</strong>: Initial value</li>
+</ul>
+<p>Example:</p>
+<pre><code>sigma PROP_ERR ~ 0.01
+sigma ADD_ERR  ~ 1.0
+</code></pre>
+<p>The interpretation of sigma depends on the error model:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Error Model</th><th>Sigma Meaning</th></tr>
+</thead>
+<tbody>
+<tr><td>Additive</td><td>Standard deviation of additive error</td></tr>
+<tr><td>Proportional</td><td>Coefficient of proportional error</td></tr>
+<tr><td>Combined</td><td>First sigma = proportional coefficient, second = additive SD</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="complete-example"><a class="header" href="#complete-example">Complete Example</a></h2>
+<pre><code>[parameters]
+  # Fixed effects
+  theta TVCL(0.134, 0.001, 10.0)
+  theta TVV(8.1, 0.1, 500.0)
+  theta TVKA(1.0, 0.01, 50.0)
+
+  # Between-subject variability
+  omega ETA_CL ~ 0.07
+  omega ETA_V  ~ 0.02
+  omega ETA_KA ~ 0.40
+
+  # Residual error
+  sigma PROP_ERR ~ 0.01
+</code></pre>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="individual-parameters"><a class="header" href="#individual-parameters">Individual Parameters</a></h1>
+<p>The <code>[individual_parameters]</code> block defines how population parameters (theta), random effects (eta), and covariates combine to produce individual PK parameters.</p>
+<h2 id="syntax"><a class="header" href="#syntax">Syntax</a></h2>
+<pre><code>PARAM = expression
+</code></pre>
+<p>Each line assigns a PK parameter using an arithmetic expression that can reference:</p>
+<ul>
+<li><strong>Theta parameters</strong> – names defined in <code>[parameters]</code> (e.g., <code>TVCL</code>, <code>TVV</code>)</li>
+<li><strong>Eta random effects</strong> – names defined as omega parameters (e.g., <code>ETA_CL</code>, <code>ETA_V</code>)</li>
+<li><strong>Covariates</strong> – column names from the data file (e.g., <code>WT</code>, <code>CRCL</code>)</li>
+<li><strong>Constants</strong> – numeric literals (e.g., <code>70</code>, <code>0.75</code>)</li>
+</ul>
+<h2 id="supported-operators-and-functions"><a class="header" href="#supported-operators-and-functions">Supported Operators and Functions</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Operator/Function</th><th>Example</th></tr>
+</thead>
+<tbody>
+<tr><td><code>+</code>, <code>-</code>, <code>*</code>, <code>/</code></td><td><code>TVCL * WT / 70</code></td></tr>
+<tr><td><code>^</code> (power)</td><td><code>(WT/70)^0.75</code></td></tr>
+<tr><td><code>exp()</code></td><td><code>exp(ETA_CL)</code></td></tr>
+<tr><td><code>log()</code>, <code>ln()</code></td><td><code>log(TVCL)</code></td></tr>
+<tr><td><code>sqrt()</code></td><td><code>sqrt(WT)</code></td></tr>
+<tr><td><code>abs()</code></td><td><code>abs(ETA_CL)</code></td></tr>
+<tr><td>Parentheses</td><td><code>TVCL * (WT/70)^0.75</code></td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="common-parameterizations"><a class="header" href="#common-parameterizations">Common Parameterizations</a></h2>
+<h3 id="exponential-log-normal-random-effects"><a class="header" href="#exponential-log-normal-random-effects">Exponential (log-normal) random effects</a></h3>
+<p>The standard approach for PK parameters that must be positive:</p>
+<pre><code>[individual_parameters]
+  CL = TVCL * exp(ETA_CL)
+  V  = TVV  * exp(ETA_V)
+  KA = TVKA * exp(ETA_KA)
+</code></pre>
+<h3 id="allometric-scaling-with-covariates"><a class="header" href="#allometric-scaling-with-covariates">Allometric scaling with covariates</a></h3>
+<pre><code>[individual_parameters]
+  CL = TVCL * (WT/70)^0.75 * exp(ETA_CL)
+  V  = TVV  * (WT/70)^1.0  * exp(ETA_V)
+</code></pre>
+<h3 id="estimated-covariate-effects"><a class="header" href="#estimated-covariate-effects">Estimated covariate effects</a></h3>
+<p>Use additional theta parameters for covariate coefficients:</p>
+<pre><code>[parameters]
+  theta TVCL(0.134, 0.001, 10.0)
+  theta THETA_WT(0.75, 0.01, 2.0)
+  theta THETA_CRCL(0.5, 0.01, 2.0)
+
+[individual_parameters]
+  CL = TVCL * (WT/70)^THETA_WT * (CRCL/100)^THETA_CRCL * exp(ETA_CL)
+</code></pre>
+<h2 id="covariate-detection"><a class="header" href="#covariate-detection">Covariate Detection</a></h2>
+<p>Any uppercase identifier in the expression that does not match a theta name or eta name is automatically treated as a covariate. The covariate value is read from the corresponding column in the data file.</p>
+<p>For example, in <code>CL = TVCL * (WT/70)^0.75 * exp(ETA_CL)</code>:</p>
+<ul>
+<li><code>TVCL</code> matches a theta parameter</li>
+<li><code>ETA_CL</code> matches an omega parameter</li>
+<li><code>WT</code> matches neither, so it is treated as a covariate column</li>
+</ul>
+<h2 id="pk-parameter-names"><a class="header" href="#pk-parameter-names">PK Parameter Names</a></h2>
+<p>The parameter names on the left side of each assignment must map to recognized PK parameter names:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Name</th><th>PK Parameter</th></tr>
+</thead>
+<tbody>
+<tr><td><code>CL</code></td><td>Clearance</td></tr>
+<tr><td><code>V</code> or <code>V1</code></td><td>Volume of distribution (central compartment)</td></tr>
+<tr><td><code>Q</code></td><td>Intercompartmental clearance</td></tr>
+<tr><td><code>V2</code></td><td>Peripheral volume</td></tr>
+<tr><td><code>KA</code></td><td>Absorption rate constant</td></tr>
+<tr><td><code>F</code></td><td>Bioavailability (default 1.0 if omitted)</td></tr>
+</tbody>
+</table>
+</div>
+<p>For ODE models, the parameter names are user-defined and passed as a flat vector to the ODE right-hand side function.</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="structural-model"><a class="header" href="#structural-model">Structural Model</a></h1>
+<p>The <code>[structural_model]</code> block specifies the pharmacokinetic model used to generate predictions.</p>
+<h2 id="analytical-pk-models"><a class="header" href="#analytical-pk-models">Analytical PK Models</a></h2>
+<p>For standard compartmental models, use the <code>pk</code> keyword with a model function:</p>
+<pre><code>pk MODEL_NAME(param=VALUE, param=VALUE, ...)
+</code></pre>
+<h3 id="available-models"><a class="header" href="#available-models">Available Models</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Model Function</th><th>Compartments</th><th>Route</th><th>Required Parameters</th></tr>
+</thead>
+<tbody>
+<tr><td><code>one_cpt_iv_bolus</code></td><td>1</td><td>IV bolus</td><td><code>cl</code>, <code>v</code></td></tr>
+<tr><td><code>one_cpt_oral</code></td><td>1</td><td>Oral</td><td><code>cl</code>, <code>v</code>, <code>ka</code></td></tr>
+<tr><td><code>one_cpt_infusion</code></td><td>1</td><td>IV infusion</td><td><code>cl</code>, <code>v</code></td></tr>
+<tr><td><code>two_cpt_iv_bolus</code></td><td>2</td><td>IV bolus</td><td><code>cl</code>, <code>v1</code>, <code>q</code>, <code>v2</code></td></tr>
+<tr><td><code>two_cpt_oral</code></td><td>2</td><td>Oral</td><td><code>cl</code>, <code>v1</code>, <code>q</code>, <code>v2</code>, <code>ka</code></td></tr>
+<tr><td><code>two_cpt_infusion</code></td><td>2</td><td>IV infusion</td><td><code>cl</code>, <code>v1</code>, <code>q</code>, <code>v2</code></td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="examples"><a class="header" href="#examples">Examples</a></h3>
+<p>One-compartment oral:</p>
+<pre><code>[structural_model]
+  pk one_cpt_oral(cl=CL, v=V, ka=KA)
+</code></pre>
+<p>Two-compartment IV bolus:</p>
+<pre><code>[structural_model]
+  pk two_cpt_iv_bolus(cl=CL, v1=V1, q=Q, v2=V2)
+</code></pre>
+<p>Two-compartment oral:</p>
+<pre><code>[structural_model]
+  pk two_cpt_oral(cl=CL, v1=V1, q=Q, v2=V2, ka=KA)
+</code></pre>
+<h3 id="bioavailability"><a class="header" href="#bioavailability">Bioavailability</a></h3>
+<p>For oral models, bioavailability (F) defaults to 1.0. To estimate it, define an <code>F</code> parameter in <code>[individual_parameters]</code> – it will be automatically used by the oral PK functions.</p>
+<h3 id="dose-handling"><a class="header" href="#dose-handling">Dose Handling</a></h3>
+<p>Analytical models support:</p>
+<ul>
+<li><strong>Bolus doses</strong>: Instantaneous input (default when <code>RATE=0</code> in data)</li>
+<li><strong>Infusions</strong>: Zero-order input (when <code>RATE&gt;0</code> in data)</li>
+<li><strong>Steady-state</strong>: Pre-computed steady-state concentrations (when <code>SS=1</code> and <code>II&gt;0</code> in data)</li>
+<li><strong>Dose superposition</strong>: Multiple doses are handled by summing contributions from each dose event</li>
+</ul>
+<h3 id="numerical-stability"><a class="header" href="#numerical-stability">Numerical Stability</a></h3>
+<p>The analytical solutions include special handling for:</p>
+<ul>
+<li><strong>Near-equal rate constants</strong>: When absorption and elimination rates are similar (KA ~ k), L’Hopital’s rule is used to avoid division by zero</li>
+<li><strong>Two-compartment eigenvalues</strong>: Vieta’s formula is used for robust computation of alpha and beta</li>
+</ul>
+<h2 id="ode-models"><a class="header" href="#ode-models">ODE Models</a></h2>
+<p>For non-standard kinetics (e.g., saturable elimination), use the ODE specification:</p>
+<pre><code>[structural_model]
+  ode(obs_cmt=COMPARTMENT_NAME, states=[state1, state2, ...])
+</code></pre>
+<p>See <a href="#ode-models-1">ODE Models</a> for full ODE syntax.</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="error-model"><a class="header" href="#error-model">Error Model</a></h1>
+<p>The <code>[error_model]</code> block defines the residual error structure, specifying how observed data (DV) relates to model predictions.</p>
+<h2 id="syntax-1"><a class="header" href="#syntax-1">Syntax</a></h2>
+<pre><code>DV ~ ERROR_TYPE(SIGMA_PARAMS)
+</code></pre>
+<h2 id="available-error-models"><a class="header" href="#available-error-models">Available Error Models</a></h2>
+<h3 id="additive"><a class="header" href="#additive">Additive</a></h3>
+<pre><code>DV ~ additive(SIGMA_NAME)
+</code></pre>
+<p>The residual variance is constant across all predictions:</p>
+<p>\[ \text{Var}(DV) = \sigma^2 \]</p>
+<p>Use when measurement error is independent of concentration (e.g., assay with fixed precision).</p>
+<h3 id="proportional"><a class="header" href="#proportional">Proportional</a></h3>
+<pre><code>DV ~ proportional(SIGMA_NAME)
+</code></pre>
+<p>The residual variance scales with the predicted value:</p>
+<p>\[ \text{Var}(DV) = (\sigma \cdot f)^2 \]</p>
+<p>where \( f \) is the model prediction. Use when measurement error increases with concentration (most common in PK).</p>
+<h3 id="combined"><a class="header" href="#combined">Combined</a></h3>
+<pre><code>DV ~ combined(SIGMA_PROP, SIGMA_ADD)
+</code></pre>
+<p>Combines proportional and additive components:</p>
+<p>\[ \text{Var}(DV) = (\sigma_1 \cdot f)^2 + \sigma_2^2 \]</p>
+<p>Use when both proportional and additive error sources are present. Requires two sigma parameters defined in <code>[parameters]</code>.</p>
+<h2 id="examples-1"><a class="header" href="#examples-1">Examples</a></h2>
+<p>Proportional error (most common):</p>
+<pre><code>[parameters]
+  sigma PROP_ERR ~ 0.01
+
+[error_model]
+  DV ~ proportional(PROP_ERR)
+</code></pre>
+<p>Additive error:</p>
+<pre><code>[parameters]
+  sigma ADD_ERR ~ 1.0
+
+[error_model]
+  DV ~ additive(ADD_ERR)
+</code></pre>
+<p>Combined error:</p>
+<pre><code>[parameters]
+  sigma PROP_ERR ~ 0.1
+  sigma ADD_ERR  ~ 0.5
+
+[error_model]
+  DV ~ combined(PROP_ERR, ADD_ERR)
+</code></pre>
+<h2 id="impact-on-estimation"><a class="header" href="#impact-on-estimation">Impact on Estimation</a></h2>
+<p>The error model affects:</p>
+<ul>
+<li><strong>Individual weighted residuals (IWRES)</strong>: <code>(DV - IPRED) / sqrt(Var)</code></li>
+<li><strong>Conditional weighted residuals (CWRES)</strong>: Accounts for uncertainty in random effect estimates</li>
+<li><strong>Objective function value (OFV)</strong>: The likelihood includes <code>log(Var)</code> terms, so the error model structure directly influences parameter estimates</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="ode-models-1"><a class="header" href="#ode-models-1">ODE Models</a></h1>
+<p>For pharmacokinetic models without analytical solutions (e.g., saturable elimination, target-mediated drug disposition), FeRx provides an ODE solver.</p>
+<h2 id="structural-model-declaration"><a class="header" href="#structural-model-declaration">Structural Model Declaration</a></h2>
+<pre><code>[structural_model]
+  ode(obs_cmt=OBSERVABLE_COMPARTMENT, states=[state1, state2, ...])
+</code></pre>
+<ul>
+<li><strong>obs_cmt</strong>: The compartment whose concentration is observed (matched to DV)</li>
+<li><strong>states</strong>: List of state variable names (compartments)</li>
+</ul>
+<h2 id="ode-equations"><a class="header" href="#ode-equations">ODE Equations</a></h2>
+<p>The <code>[odes]</code> block defines the right-hand side of the ODE system:</p>
+<pre><code>[odes]
+  d/dt(state_name) = expression
+</code></pre>
+<p>Expressions can reference:</p>
+<ul>
+<li>State variables by name</li>
+<li>Individual parameters defined in <code>[individual_parameters]</code></li>
+<li>Arithmetic operators and functions (<code>exp</code>, <code>log</code>, <code>sqrt</code>, etc.)</li>
+</ul>
+<h2 id="example-michaelis-menten-elimination"><a class="header" href="#example-michaelis-menten-elimination">Example: Michaelis-Menten Elimination</a></h2>
+<p>A one-compartment oral model with saturable (Michaelis-Menten) elimination:</p>
+<pre><code>[parameters]
+  theta TVVMAX(10.0, 0.1, 1000.0)
+  theta TVKM(2.0, 0.01, 100.0)
+  theta TVV(10.0, 0.1, 500.0)
+  theta TVKA(1.0, 0.01, 50.0)
+
+  omega ETA_VMAX ~ 0.09
+  omega ETA_V    ~ 0.04
+
+  sigma PROP_ERR ~ 0.1
+
+[individual_parameters]
+  VMAX = TVVMAX * exp(ETA_VMAX)
+  KM   = TVKM
+  V    = TVV * exp(ETA_V)
+  KA   = TVKA
+
+[structural_model]
+  ode(obs_cmt=central, states=[depot, central])
+
+[odes]
+  d/dt(depot)   = -KA * depot
+  d/dt(central) = KA * depot / V - VMAX * central / (KM + central)
+
+[error_model]
+  DV ~ proportional(PROP_ERR)
+</code></pre>
+<h2 id="solver-details"><a class="header" href="#solver-details">Solver Details</a></h2>
+<p>FeRx uses a Dormand-Prince RK45 adaptive solver:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Setting</th><th>Value</th></tr>
+</thead>
+<tbody>
+<tr><td>Method</td><td>Explicit Runge-Kutta 4(5)</td></tr>
+<tr><td>Absolute tolerance</td><td>1e-6</td></tr>
+<tr><td>Relative tolerance</td><td>1e-4</td></tr>
+<tr><td>Max steps</td><td>10,000</td></tr>
+<tr><td>Initial step size</td><td>0.1</td></tr>
+<tr><td>Minimum step size</td><td>1e-12</td></tr>
+</tbody>
+</table>
+</div>
+<p>The solver automatically adapts step sizes based on local error estimates.</p>
+<h2 id="dose-handling-1"><a class="header" href="#dose-handling-1">Dose Handling</a></h2>
+<ul>
+<li><strong>Bolus doses</strong>: Applied as instantaneous state changes at dose times. The dose amount is added to the target compartment: <code>state[cmt] += amt</code></li>
+<li><strong>Compartment indexing</strong>: Compartments are 1-indexed in the data file (<code>CMT=1</code> corresponds to the first state in the <code>states</code> list)</li>
+<li><strong>Multiple doses</strong>: The ODE is integrated in segments between dose events, with state discontinuities at each dose</li>
+</ul>
+<h2 id="limitations"><a class="header" href="#limitations">Limitations</a></h2>
+<ul>
+<li>Infusion doses (<code>RATE &gt; 0</code>) are not currently supported for ODE models. Use bolus approximations or analytical models for infusions</li>
+<li>The observable compartment contains the amount (not concentration). Divide by volume in the ODE equations if needed</li>
+<li>Steady-state (<code>SS=1</code>) is not directly supported for ODE models</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="initial-values"><a class="header" href="#initial-values">Initial Values</a></h1>
+<p>The optional <code>[initial_values]</code> block overrides the default starting values for the optimizer. If omitted, the values from the <code>[parameters]</code> block are used.</p>
+<h2 id="syntax-2"><a class="header" href="#syntax-2">Syntax</a></h2>
+<pre><code>[initial_values]
+  theta = [val1, val2, ...]
+  omega = [var1, var2, ...]
+  sigma = [val1, ...]
+</code></pre>
+<p>Values are listed in the same order as parameters are declared in <code>[parameters]</code>.</p>
+<h2 id="example"><a class="header" href="#example">Example</a></h2>
+<p>Given parameters:</p>
+<pre><code>[parameters]
+  theta TVCL(0.134, 0.001, 10.0)
+  theta TVV(8.1, 0.1, 500.0)
+  theta TVKA(1.0, 0.01, 50.0)
+  omega ETA_CL ~ 0.07
+  omega ETA_V  ~ 0.02
+  omega ETA_KA ~ 0.40
+  sigma PROP_ERR ~ 0.01
+</code></pre>
+<p>Override initial values:</p>
+<pre><code>[initial_values]
+  theta = [0.2, 10.0, 1.5]
+  omega = [0.09, 0.04, 0.30]
+  sigma = [0.02]
+</code></pre>
+<p>This sets TVCL=0.2, TVV=10.0, TVKA=1.5, etc., regardless of the values in <code>[parameters]</code>.</p>
+<h2 id="when-to-use"><a class="header" href="#when-to-use">When to Use</a></h2>
+<ul>
+<li><strong>Starting from known estimates</strong>: If you have prior estimates from a previous run or the literature, provide them as initial values for faster convergence</li>
+<li><strong>Troubleshooting convergence</strong>: Poor initial values can lead to convergence failure. Try starting closer to expected parameter values</li>
+<li><strong>Sensitivity analysis</strong>: Run the model with different starting points to check for local minima</li>
+</ul>
+<h2 id="notes"><a class="header" href="#notes">Notes</a></h2>
+<ul>
+<li>Theta initial values must be within the bounds specified in <code>[parameters]</code></li>
+<li>Omega values are the diagonal variances (not standard deviations or Cholesky factors)</li>
+<li>The number of values must match the number of parameters declared</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="fit-options"><a class="header" href="#fit-options">Fit Options</a></h1>
+<p>The optional <code>[fit_options]</code> block configures the estimation method and optimizer settings.</p>
+<h2 id="syntax-3"><a class="header" href="#syntax-3">Syntax</a></h2>
+<pre><code>[fit_options]
+  key = value
+</code></pre>
+<h2 id="general-options"><a class="header" href="#general-options">General Options</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Key</th><th>Values</th><th>Default</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>method</code></td><td><code>foce</code>, <code>focei</code>, <code>saem</code></td><td><code>foce</code></td><td>Estimation method</td></tr>
+<tr><td><code>maxiter</code></td><td>integer</td><td><code>500</code></td><td>Maximum outer loop iterations</td></tr>
+<tr><td><code>covariance</code></td><td><code>true</code>, <code>false</code></td><td><code>true</code></td><td>Compute covariance matrix and standard errors</td></tr>
+<tr><td><code>optimizer</code></td><td><code>slsqp</code>, <code>lbfgs</code>, <code>nlopt_lbfgs</code>, <code>mma</code>, <code>bfgs</code></td><td><code>slsqp</code></td><td>Optimization algorithm</td></tr>
+<tr><td><code>global_search</code></td><td><code>true</code>, <code>false</code></td><td><code>false</code></td><td>Run gradient-free pre-search before local optimization</td></tr>
+<tr><td><code>global_maxeval</code></td><td>integer</td><td>auto</td><td>Max evaluations for global search</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="estimation-methods"><a class="header" href="#estimation-methods">Estimation Methods</a></h2>
+<h3 id="foce-default"><a class="header" href="#foce-default">FOCE (default)</a></h3>
+<pre><code>method = foce
+</code></pre>
+<p>First-Order Conditional Estimation. Linearizes the model around the empirical Bayes estimates. Fast and reliable for most models.</p>
+<h3 id="focei"><a class="header" href="#focei">FOCEI</a></h3>
+<pre><code>method = focei
+</code></pre>
+<p>FOCE with Interaction. Includes the dependence of the residual error on random effects. More accurate than FOCE when the error model depends on individual predictions, but slightly slower.</p>
+<h3 id="saem"><a class="header" href="#saem">SAEM</a></h3>
+<pre><code>method = saem
+</code></pre>
+<p>Stochastic Approximation EM. Uses Metropolis-Hastings sampling instead of MAP optimization for random effects. More robust to local minima; recommended for complex models with many random effects.</p>
+<h2 id="saem-specific-options"><a class="header" href="#saem-specific-options">SAEM-Specific Options</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Key</th><th>Default</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>n_exploration</code></td><td><code>150</code></td><td>Phase 1 iterations (step size = 1)</td></tr>
+<tr><td><code>n_convergence</code></td><td><code>250</code></td><td>Phase 2 iterations (step size = 1/k)</td></tr>
+<tr><td><code>n_mh_steps</code></td><td><code>3</code></td><td>Metropolis-Hastings steps per subject per iteration</td></tr>
+<tr><td><code>adapt_interval</code></td><td><code>50</code></td><td>Iterations between MH step-size adaptation</td></tr>
+<tr><td><code>seed</code></td><td><code>12345</code></td><td>RNG seed for reproducibility</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="optimizer-choices"><a class="header" href="#optimizer-choices">Optimizer Choices</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Optimizer</th><th>Description</th><th>Recommended For</th></tr>
+</thead>
+<tbody>
+<tr><td><code>slsqp</code></td><td>Sequential Least Squares Programming (NLopt)</td><td>General use (default)</td></tr>
+<tr><td><code>bfgs</code></td><td>Built-in BFGS quasi-Newton</td><td>When NLopt is unavailable</td></tr>
+<tr><td><code>lbfgs</code></td><td>Limited-memory BFGS</td><td>Large parameter spaces</td></tr>
+<tr><td><code>nlopt_lbfgs</code></td><td>NLopt L-BFGS</td><td>Alternative L-BFGS</td></tr>
+<tr><td><code>mma</code></td><td>Method of Moving Asymptotes (NLopt)</td><td>Constrained problems</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="global-search"><a class="header" href="#global-search">Global Search</a></h2>
+<p>Setting <code>global_search = true</code> runs a gradient-free pre-search (NLopt CRS2-LM) before the local optimizer. This helps escape local minima on challenging datasets.</p>
+<p>The number of global evaluations is auto-scaled based on the number of parameters and observations, or can be set explicitly with <code>global_maxeval</code>.</p>
+<h2 id="examples-2"><a class="header" href="#examples-2">Examples</a></h2>
+<p>Standard FOCE with defaults:</p>
+<pre><code>[fit_options]
+  method     = foce
+  maxiter    = 300
+  covariance = true
+</code></pre>
+<p>FOCEI with global search:</p>
+<pre><code>[fit_options]
+  method        = focei
+  maxiter       = 500
+  covariance    = true
+  global_search = true
+</code></pre>
+<p>SAEM with custom settings:</p>
+<pre><code>[fit_options]
+  method        = saem
+  n_exploration = 200
+  n_convergence = 300
+  n_mh_steps    = 5
+  seed          = 42
+  covariance    = true
+</code></pre>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="simulation"><a class="header" href="#simulation">Simulation</a></h1>
+<p>The optional <code>[simulation]</code> block defines a virtual clinical trial design for generating simulated data. This is useful for model validation and testing.</p>
+<h2 id="syntax-4"><a class="header" href="#syntax-4">Syntax</a></h2>
+<pre><code>[simulation]
+  subjects = N
+  dose = AMOUNT
+  cmt = COMPARTMENT
+  seed = SEED
+  times = [t1, t2, t3, ...]
+</code></pre>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Key</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>subjects</code></td><td>Number of virtual subjects to simulate</td></tr>
+<tr><td><code>dose</code></td><td>Dose amount administered to each subject</td></tr>
+<tr><td><code>cmt</code></td><td>Dosing compartment (1-indexed)</td></tr>
+<tr><td><code>seed</code></td><td>Random seed for reproducible simulations</td></tr>
+<tr><td><code>times</code></td><td>Observation time points</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="example-1"><a class="header" href="#example-1">Example</a></h2>
+<pre><code>[simulation]
+  subjects = 100
+  dose = 100
+  cmt = 1
+  seed = 12345
+  times = [0.5, 1, 2, 4, 8, 12, 24]
+</code></pre>
+<p>This simulates 100 subjects, each receiving a dose of 100 units into compartment 1, with observations at 0.5, 1, 2, 4, 8, 12, and 24 hours.</p>
+<h2 id="usage"><a class="header" href="#usage">Usage</a></h2>
+<p>Run a simulation-estimation study from the CLI:</p>
+<pre><code class="language-bash">ferx model.ferx --simulate
+</code></pre>
+<p>This will:</p>
+<ol>
+<li>Parse the model and <code>[simulation]</code> block</li>
+<li>Generate simulated data using the model’s default parameters and random effects</li>
+<li>Fit the model to the simulated data</li>
+<li>Report parameter estimates and diagnostics</li>
+</ol>
+<h2 id="simulation-process"><a class="header" href="#simulation-process">Simulation Process</a></h2>
+<ol>
+<li>For each subject, random effects are sampled from \( \eta_i \sim N(0, \Omega) \)</li>
+<li>Individual parameters are computed using the <code>[individual_parameters]</code> equations</li>
+<li>Predictions are generated using the structural model</li>
+<li>Residual error is added: \( DV = IPRED + \epsilon \), where \( \epsilon \sim N(0, V) \)</li>
+<li>Observations below 0.001 are clipped to 0.001</li>
+</ol>
+<h2 id="covariates-in-simulation"><a class="header" href="#covariates-in-simulation">Covariates in Simulation</a></h2>
+<p>Covariates can be specified per subject in the <code>[simulation]</code> block. Currently, the simulated population uses default covariate values (covariates are not randomized).</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="estimation-methods-1"><a class="header" href="#estimation-methods-1">Estimation Methods</a></h1>
+<p>FeRx implements two families of estimation methods for nonlinear mixed effects models:</p>
+<ul>
+<li>
+<p><strong><a href="#foce--focei">FOCE / FOCEI</a></strong> – First-Order Conditional Estimation (with or without interaction). The workhorse of population PK, using nested optimization to find maximum likelihood estimates.</p>
+</li>
+<li>
+<p><strong><a href="#saem-1">SAEM</a></strong> – Stochastic Approximation Expectation-Maximization. Uses MCMC sampling for random effects, providing more robust convergence on complex models.</p>
+</li>
+</ul>
+<h2 id="quick-comparison"><a class="header" href="#quick-comparison">Quick Comparison</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Feature</th><th>FOCE/FOCEI</th><th>SAEM</th></tr>
+</thead>
+<tbody>
+<tr><td>Random effect estimation</td><td>MAP (optimization)</td><td>MCMC (sampling)</td></tr>
+<tr><td>Convergence speed</td><td>Fast (~50-100 iterations)</td><td>Slower (~400 iterations)</td></tr>
+<tr><td>Local minima robustness</td><td>Can get stuck</td><td>More robust</td></tr>
+<tr><td>Gradient required</td><td>Yes (AD or FD)</td><td>No (for E-step)</td></tr>
+<tr><td>Stochastic</td><td>No</td><td>Yes</td></tr>
+<tr><td>Best for</td><td>Simple models, quick iteration</td><td>Complex models, many random effects</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="choosing-a-method"><a class="header" href="#choosing-a-method">Choosing a Method</a></h2>
+<p><strong>Start with FOCE</strong> for standard 1- or 2-compartment models with 2-4 random effects. It is fast and deterministic.</p>
+<p><strong>Switch to SAEM</strong> when:</p>
+<ul>
+<li>FOCE fails to converge or produces implausible estimates</li>
+<li>The model has many random effects (&gt;4)</li>
+<li>You suspect the FOCE solution is a local minimum</li>
+<li>The model has complex nonlinear random effect structure</li>
+</ul>
+<p>Both methods produce comparable results on well-behaved models. The final OFV from SAEM is computed using the FOCE approximation, so AIC/BIC values are directly comparable.</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="foce--focei"><a class="header" href="#foce--focei">FOCE / FOCEI</a></h1>
+<p>First-Order Conditional Estimation (FOCE) and its interaction variant (FOCEI) are the primary estimation methods in FeRx. They use a two-level nested optimization to find maximum likelihood estimates of population parameters.</p>
+<h2 id="algorithm-overview"><a class="header" href="#algorithm-overview">Algorithm Overview</a></h2>
+<h3 id="outer-loop-population-parameters"><a class="header" href="#outer-loop-population-parameters">Outer Loop (Population Parameters)</a></h3>
+<p>The outer loop optimizes the population parameters \( \theta \), \( \Omega \), and \( \sigma \) by minimizing the population objective function value (OFV):</p>
+<p>\[ \text{OFV} = -2 \log L = \sum_{i=1}^{N} \text{OFV}_i \]</p>
+<p>Parameters are internally transformed for unconstrained optimization:</p>
+<ul>
+<li><strong>Theta</strong>: Log-transformed (ensures positivity)</li>
+<li><strong>Omega</strong>: Cholesky factorization (ensures positive-definiteness)</li>
+<li><strong>Sigma</strong>: Log-transformed (ensures positivity)</li>
+</ul>
+<h3 id="inner-loop-empirical-bayes-estimates"><a class="header" href="#inner-loop-empirical-bayes-estimates">Inner Loop (Empirical Bayes Estimates)</a></h3>
+<p>For each subject, the inner loop finds the empirical Bayes estimate (EBE) of the random effects \( \hat{\eta}_i \) by minimizing the individual negative log-likelihood:</p>
+<p>\[ -\log p(\eta_i | y_i, \theta, \Omega, \sigma) = \frac{1}{2} \left[ \eta_i^T \Omega^{-1} \eta_i + \log|\Omega| + \sum_j \left( \frac{(y_{ij} - f_{ij})^2}{V_{ij}} + \log V_{ij} \right) \right] \]</p>
+<p>The inner loop uses BFGS with automatic differentiation gradients, falling back to Nelder-Mead simplex if BFGS fails.</p>
+<h2 id="foce-vs-focei"><a class="header" href="#foce-vs-focei">FOCE vs FOCEI</a></h2>
+<h3 id="standard-foce"><a class="header" href="#standard-foce">Standard FOCE</a></h3>
+<p>Uses linearized predictions around the EBEs:</p>
+<p>\[ f_0 = f(\hat{\eta}) - H \hat{\eta} \]</p>
+<p>where \( H \) is the Jacobian matrix \( \partial f / \partial \eta \). The per-subject objective is:</p>
+<p>\[ \text{OFV}_i = (y - f_0)^T \tilde{R}^{-1} (y - f_0) + \log|\tilde{R}| \]</p>
+<p>where \( \tilde{R} = H \Omega H^T + R(f_0) \).</p>
+<h3 id="focei-interaction"><a class="header" href="#focei-interaction">FOCEI (Interaction)</a></h3>
+<p>Uses individual predictions directly without linearization:</p>
+<p>\[ \text{OFV}_i = (y - \hat{f})^T V^{-1} (y - \hat{f}) + \hat{\eta}^T \Omega^{-1} \hat{\eta} + \log|\tilde{R}| \]</p>
+<p>FOCEI is more accurate when the residual variance depends on the predicted value (proportional or combined error models), because it captures the interaction between random effects and residual error.</p>
+<h2 id="optimizer-options"><a class="header" href="#optimizer-options">Optimizer Options</a></h2>
+<h3 id="nlopt-algorithms-recommended"><a class="header" href="#nlopt-algorithms-recommended">NLopt Algorithms (Recommended)</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Algorithm</th><th>Key</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td>SLSQP</td><td><code>slsqp</code></td><td>Sequential Least Squares Programming. Handles bounds well. <strong>Default and recommended.</strong></td></tr>
+<tr><td>L-BFGS</td><td><code>nlopt_lbfgs</code></td><td>Limited-memory BFGS. Good for large parameter spaces.</td></tr>
+<tr><td>MMA</td><td><code>mma</code></td><td>Method of Moving Asymptotes. Alternative constrained optimizer.</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="built-in-algorithms"><a class="header" href="#built-in-algorithms">Built-in Algorithms</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Algorithm</th><th>Key</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td>BFGS</td><td><code>bfgs</code></td><td>Quasi-Newton with backtracking line search.</td></tr>
+<tr><td>L-BFGS</td><td><code>lbfgs</code></td><td>Memory-efficient BFGS variant.</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="global-search-1"><a class="header" href="#global-search-1">Global Search</a></h2>
+<p>Enable gradient-free pre-search to help escape local minima:</p>
+<pre><code>[fit_options]
+  method        = foce
+  global_search = true
+  global_maxeval = 2000
+</code></pre>
+<p>The pre-search uses NLopt’s CRS2-LM algorithm (Controlled Random Search) to explore the parameter space before handing off to the local optimizer. The number of evaluations auto-scales with model complexity if <code>global_maxeval</code> is not set.</p>
+<h2 id="covariance-step"><a class="header" href="#covariance-step">Covariance Step</a></h2>
+<p>When <code>covariance = true</code>, FeRx computes the variance-covariance matrix of the parameter estimates using a finite-difference Hessian at the converged solution. This provides:</p>
+<ul>
+<li><strong>Standard errors (SE)</strong> for all parameters</li>
+<li><strong>Relative standard errors (%RSE)</strong> for assessing estimation precision</li>
+<li><strong>Omega SEs</strong> via delta method from the Cholesky parameterization</li>
+</ul>
+<h2 id="convergence"><a class="header" href="#convergence">Convergence</a></h2>
+<p>The outer loop terminates when any of:</p>
+<ul>
+<li>The gradient norm falls below <code>outer_gtol</code> (default 1e-6)</li>
+<li>The maximum number of iterations (<code>maxiter</code>) is reached</li>
+<li>The optimizer reports convergence (NLopt <code>XtolReached</code> or <code>FtolReached</code>)</li>
+</ul>
+<p>The inner loop terminates when the gradient norm falls below <code>inner_tol</code> (default 1e-8) or <code>inner_maxiter</code> (default 200) iterations are reached.</p>
+<h2 id="warm-starting"><a class="header" href="#warm-starting">Warm Starting</a></h2>
+<p>The inner loop warm-starts EBE estimation from the previous outer iteration’s EBEs. This significantly reduces computation time, especially in later iterations when parameters change slowly.</p>
+<h2 id="configuration-example"><a class="header" href="#configuration-example">Configuration Example</a></h2>
+<pre><code>[fit_options]
+  method     = focei
+  maxiter    = 500
+  covariance = true
+  optimizer  = slsqp
+</code></pre>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="saem-1"><a class="header" href="#saem-1">SAEM</a></h1>
+<p>Stochastic Approximation Expectation-Maximization (SAEM) is an alternative estimation method that uses MCMC sampling for random effects instead of MAP optimization. It is more robust to local minima and can handle complex random effect structures.</p>
+<h2 id="algorithm-overview-1"><a class="header" href="#algorithm-overview-1">Algorithm Overview</a></h2>
+<p>SAEM replaces the deterministic inner loop of FOCE with stochastic sampling, following the Monolix convention with a two-phase step-size schedule.</p>
+<h3 id="references"><a class="header" href="#references">References</a></h3>
+<ul>
+<li>Delyon, Lavielle, Moulines (1999). <em>Convergence of a stochastic approximation version of the EM algorithm.</em> Annals of Statistics, 94–128.</li>
+<li>Kuhn &amp; Lavielle (2004). <em>Coupling a stochastic approximation version of EM with an MCMC procedure.</em> ESAIM: Probability and Statistics 8:115–131.</li>
+</ul>
+<h2 id="two-phase-schedule"><a class="header" href="#two-phase-schedule">Two-Phase Schedule</a></h2>
+<h3 id="phase-1-exploration-iterations-1-to-k1"><a class="header" href="#phase-1-exploration-iterations-1-to-k1">Phase 1: Exploration (iterations 1 to K1)</a></h3>
+<p>Step size \( \gamma_k = 1 \). The algorithm explores the parameter space rapidly, with the sufficient statistics being fully replaced each iteration. This allows fast movement toward the basin of the MLE.</p>
+<p>Default: 150 iterations.</p>
+<h3 id="phase-2-convergence-iterations-k11-to-k1k2"><a class="header" href="#phase-2-convergence-iterations-k11-to-k1k2">Phase 2: Convergence (iterations K1+1 to K1+K2)</a></h3>
+<p>Step size \( \gamma_k = 1/(k - K_1) \). The algorithm performs a decreasing-weight average, which guarantees almost-sure convergence to the MLE under regularity conditions.</p>
+<p>Default: 250 iterations.</p>
+<h2 id="per-iteration-steps"><a class="header" href="#per-iteration-steps">Per-Iteration Steps</a></h2>
+<p>Each SAEM iteration consists of:</p>
+<h3 id="1-e-step-metropolis-hastings-sampling"><a class="header" href="#1-e-step-metropolis-hastings-sampling">1. E-Step: Metropolis-Hastings Sampling</a></h3>
+<p>For each subject, run <code>n_mh_steps</code> Metropolis-Hastings iterations to sample from the conditional distribution of random effects:</p>
+<p>\[ p(\eta_i | y_i, \theta, \Omega, \sigma) \]</p>
+<p><strong>Proposal</strong>: \( \eta_{\text{prop}} = \eta_{\text{current}} + \delta_i \cdot L \cdot z \), where \( z \sim N(0, I) \) and \( L = \text{chol}(\Omega) \).</p>
+<p><strong>Acceptance</strong>: Accept with probability \( \min(1, \exp(\text{NLL}<em>{\text{current}} - \text{NLL}</em>{\text{prop}})) \).</p>
+<p>The MH sampling is parallelized across subjects using Rayon.</p>
+<h3 id="2-stochastic-approximation-update"><a class="header" href="#2-stochastic-approximation-update">2. Stochastic Approximation Update</a></h3>
+<p>Update the sufficient statistic for \( \Omega \):</p>
+<p>\[ S_2 \leftarrow (1 - \gamma_k) \cdot S_2 + \gamma_k \cdot \frac{1}{N} \sum_{i=1}^{N} \eta_i \eta_i^T \]</p>
+<h3 id="3-m-step-for-omega-closed-form"><a class="header" href="#3-m-step-for-omega-closed-form">3. M-Step for Omega (Closed Form)</a></h3>
+<p>\[ \Omega_k = S_2 \]</p>
+<h3 id="4-m-step-for-theta-and-sigma-optimization"><a class="header" href="#4-m-step-for-theta-and-sigma-optimization">4. M-Step for Theta and Sigma (Optimization)</a></h3>
+<p>Minimize the conditional observation negative log-likelihood with ETAs held fixed:</p>
+<p>\[ \sum_{i=1}^{N} \sum_{j=1}^{n_i} \left[ \frac{1}{2} \log V_{ij} + \frac{1}{2} \frac{(y_{ij} - f_{ij})^2}{V_{ij}} \right] \]</p>
+<p>This is optimized over \( \theta \) and \( \sigma \) in log-space using NLopt SLSQP with finite-difference gradients.</p>
+<h3 id="5-adaptive-mh-step-sizes"><a class="header" href="#5-adaptive-mh-step-sizes">5. Adaptive MH Step Sizes</a></h3>
+<p>Every <code>adapt_interval</code> iterations, the per-subject step sizes \( \delta_i \) are adjusted:</p>
+<ul>
+<li>If acceptance rate &gt; 40%: increase \( \delta_i \) by 10% (up to 5.0)</li>
+<li>If acceptance rate &lt; 40%: decrease \( \delta_i \) by 10% (down to 0.01)</li>
+</ul>
+<p>This targets an acceptance rate around 40%, balancing exploration and mixing.</p>
+<h2 id="post-saem-finalization"><a class="header" href="#post-saem-finalization">Post-SAEM Finalization</a></h2>
+<p>After the SAEM iterations complete:</p>
+<ol>
+<li><strong>EBE Refinement</strong>: Run the standard FOCE inner loop (BFGS optimization) warm-started from the SAEM ETAs to obtain final empirical Bayes estimates</li>
+<li><strong>FOCE OFV</strong>: Compute the objective function using the FOCE/Laplace approximation, so AIC and BIC are directly comparable with FOCE results</li>
+<li><strong>Covariance Step</strong>: Optionally compute standard errors via finite-difference Hessian (same method as FOCE)</li>
+<li><strong>Diagnostics</strong>: Compute PRED, IPRED, CWRES, IWRES for each subject</li>
+</ol>
+<h2 id="configuration"><a class="header" href="#configuration">Configuration</a></h2>
+<pre><code>[fit_options]
+  method        = saem
+  n_exploration = 150      # Phase 1 iterations
+  n_convergence = 250      # Phase 2 iterations
+  n_mh_steps    = 3        # MH steps per subject per iteration
+  adapt_interval = 50      # Step-size adaptation frequency
+  seed          = 12345    # RNG seed for reproducibility
+  covariance    = true     # Compute standard errors
+</code></pre>
+<h2 id="tuning-guide"><a class="header" href="#tuning-guide">Tuning Guide</a></h2>
+<h3 id="not-converging"><a class="header" href="#not-converging">Not Converging</a></h3>
+<ul>
+<li>Increase <code>n_exploration</code> (e.g., 300) to give more time for basin finding</li>
+<li>Increase <code>n_convergence</code> (e.g., 500) for a longer averaging window</li>
+<li>Increase <code>n_mh_steps</code> (e.g., 5-10) for better mixing in the E-step</li>
+</ul>
+<h3 id="slow-convergence"><a class="header" href="#slow-convergence">Slow Convergence</a></h3>
+<ul>
+<li>Decrease <code>n_exploration</code> and <code>n_convergence</code> if parameters stabilize early</li>
+<li>Use <code>adapt_interval = 25</code> for faster step-size adaptation</li>
+</ul>
+<h3 id="reproducibility"><a class="header" href="#reproducibility">Reproducibility</a></h3>
+<ul>
+<li>Always set <code>seed</code> for reproducible results</li>
+<li>Different seeds will produce slightly different estimates due to the stochastic nature of the algorithm</li>
+</ul>
+<h2 id="output"><a class="header" href="#output">Output</a></h2>
+<p>The SAEM iteration progress is printed to stderr:</p>
+<pre><code>SAEM: 10 subjects, 3 ETAs, 400 total iter (150 explore + 250 converge)
+  SAEM iter    1/400 [explore] gamma=1.000  condNLL=95.244
+  SAEM iter   50/400 [explore] gamma=1.000  condNLL=56.705
+  SAEM iter  150/400 [explore] gamma=1.000  condNLL=46.071
+  SAEM iter  200/400 [converge] gamma=0.020  condNLL=36.799
+  SAEM iter  400/400 [converge] gamma=0.004  condNLL=38.096
+SAEM iterations complete. Computing final EBEs and OFV...
+</code></pre>
+<p>The <code>condNLL</code> is the conditional observation negative log-likelihood (not the final OFV). It should generally decrease during the exploration phase and stabilize during convergence.</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="data-format"><a class="header" href="#data-format">Data Format</a></h1>
+<p>FeRx reads data in NONMEM-compatible CSV format. This is the standard format used across population PK tools.</p>
+<h2 id="required-columns"><a class="header" href="#required-columns">Required Columns</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Column</th><th>Type</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>ID</code></td><td>string/numeric</td><td>Subject identifier</td></tr>
+<tr><td><code>TIME</code></td><td>numeric</td><td>Time relative to first dose</td></tr>
+<tr><td><code>DV</code></td><td>numeric</td><td>Dependent variable (observed concentration)</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="optional-standard-columns"><a class="header" href="#optional-standard-columns">Optional Standard Columns</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Column</th><th>Type</th><th>Default</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>EVID</code></td><td>integer</td><td>0</td><td>Event ID: 0 = observation, 1 = dose, 4 = reset + dose</td></tr>
+<tr><td><code>AMT</code></td><td>numeric</td><td>0</td><td>Dose amount (only for <code>EVID=1</code> or <code>EVID=4</code>)</td></tr>
+<tr><td><code>CMT</code></td><td>integer</td><td>1</td><td>Compartment number (1-indexed)</td></tr>
+<tr><td><code>RATE</code></td><td>numeric</td><td>0</td><td>Infusion rate. 0 = bolus dose</td></tr>
+<tr><td><code>MDV</code></td><td>integer</td><td>0</td><td>Missing DV flag. 1 = DV should be ignored</td></tr>
+<tr><td><code>II</code></td><td>numeric</td><td>0</td><td>Interdose interval for repeated dosing</td></tr>
+<tr><td><code>SS</code></td><td>integer</td><td>0</td><td>Steady-state flag. 1 = assume steady state</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="covariate-columns"><a class="header" href="#covariate-columns">Covariate Columns</a></h2>
+<p>Any column not in the standard set above is automatically treated as a covariate. Covariate values are:</p>
+<ul>
+<li><strong>Time-constant</strong>: The first non-missing value for each subject is used</li>
+<li><strong>Time-varying</strong>: If values change over time for a subject, Last Observation Carried Forward (LOCF) is applied</li>
+</ul>
+<p>Covariate names in the data file are matched case-insensitively to names used in <code>[individual_parameters]</code> expressions.</p>
+<h2 id="event-types-evid"><a class="header" href="#event-types-evid">Event Types (EVID)</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>EVID</th><th>Meaning</th></tr>
+</thead>
+<tbody>
+<tr><td>0</td><td>Observation record. <code>DV</code> is used for estimation.</td></tr>
+<tr><td>1</td><td>Dosing record. <code>AMT</code> is administered to compartment <code>CMT</code>.</td></tr>
+<tr><td>4</td><td>Reset and dose. All compartment amounts are reset to zero before dosing.</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="example-dataset"><a class="header" href="#example-dataset">Example Dataset</a></h2>
+<pre><code class="language-csv">ID,TIME,DV,EVID,AMT,CMT,RATE,MDV,WT,CRCL
+1,0,.,1,100,1,0,1,70,95
+1,0.5,9.49,0,.,.,.,0,70,95
+1,1,14.42,0,.,.,.,0,70,95
+1,2,17.56,0,.,.,.,0,70,95
+1,4,15.23,0,.,.,.,0,70,95
+1,8,10.15,0,.,.,.,0,70,95
+2,0,.,1,150,1,0,1,85,110
+2,0.5,14.2,0,.,.,.,0,85,110
+2,1,21.3,0,.,.,.,0,85,110
+</code></pre>
+<p>Key points:</p>
+<ul>
+<li>Dose records (<code>EVID=1</code>) have <code>MDV=1</code> and <code>DV=.</code> (missing)</li>
+<li>Observation records (<code>EVID=0</code>) have <code>MDV=0</code> and a valid <code>DV</code></li>
+<li>Covariates (<code>WT</code>, <code>CRCL</code>) are included as extra columns</li>
+<li>Missing values can be represented as <code>.</code> or left empty</li>
+</ul>
+<h2 id="infusion-doses"><a class="header" href="#infusion-doses">Infusion Doses</a></h2>
+<p>For IV infusions, set <code>RATE</code> to the infusion rate (amount per time unit):</p>
+<pre><code class="language-csv">ID,TIME,DV,EVID,AMT,CMT,RATE,MDV
+1,0,.,1,500,1,50,1
+</code></pre>
+<p>This administers 500 units at a rate of 50 units/hour (duration = 10 hours).</p>
+<h2 id="steady-state-dosing"><a class="header" href="#steady-state-dosing">Steady-State Dosing</a></h2>
+<p>For steady-state simulations, set <code>SS=1</code> and <code>II</code> to the dosing interval:</p>
+<pre><code class="language-csv">ID,TIME,DV,EVID,AMT,CMT,SS,II,MDV
+1,0,.,1,100,1,1,12,1
+1,0.5,25.3,0,.,.,.,.,0
+</code></pre>
+<p>This assumes the subject has reached steady state with 100 units every 12 hours before the observation at TIME=0.5.</p>
+<h2 id="multiple-doses"><a class="header" href="#multiple-doses">Multiple Doses</a></h2>
+<p>Multiple doses are supported as separate rows:</p>
+<pre><code class="language-csv">ID,TIME,DV,EVID,AMT,CMT,MDV
+1,0,.,1,100,1,1
+1,0.5,9.49,0,.,.,0
+1,12,.,1,100,1,1
+1,12.5,15.2,0,.,.,0
+1,24,.,1,100,1,1
+1,24.5,18.1,0,.,.,0
+</code></pre>
+<h2 id="column-name-case"><a class="header" href="#column-name-case">Column Name Case</a></h2>
+<p>Column names are case-insensitive. <code>ID</code>, <code>Id</code>, and <code>id</code> are all recognized. Covariate columns preserve their case as declared in the CSV header.</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="cli-reference"><a class="header" href="#cli-reference">CLI Reference</a></h1>
+<p>The <code>ferx</code> command-line tool runs population PK estimation from model files and data.</p>
+<h2 id="usage-1"><a class="header" href="#usage-1">Usage</a></h2>
+<pre><code class="language-bash">ferx &lt;model.ferx&gt; --data &lt;data.csv&gt;
+ferx &lt;model.ferx&gt; --simulate
+</code></pre>
+<h2 id="commands"><a class="header" href="#commands">Commands</a></h2>
+<h3 id="fit-with-data"><a class="header" href="#fit-with-data">Fit with Data</a></h3>
+<pre><code class="language-bash">ferx model.ferx --data data.csv
+</code></pre>
+<p>Parses the model file, reads the data, and runs the estimation method specified in <code>[fit_options]</code> (defaults to FOCE).</p>
+<h3 id="simulate-and-fit"><a class="header" href="#simulate-and-fit">Simulate and Fit</a></h3>
+<pre><code class="language-bash">ferx model.ferx --simulate
+</code></pre>
+<p>Parses the model file, generates simulated data from the <code>[simulation]</code> block, and fits the model to the simulated data. Requires a <code>[simulation]</code> block in the model file.</p>
+<h2 id="output-files"><a class="header" href="#output-files">Output Files</a></h2>
+<p>Three files are generated, named after the model file:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>File</th><th>Contents</th></tr>
+</thead>
+<tbody>
+<tr><td><code>{model}-sdtab.csv</code></td><td>Per-observation diagnostics</td></tr>
+<tr><td><code>{model}-fit.yaml</code></td><td>Parameter estimates and standard errors</td></tr>
+<tr><td><code>{model}-timing.txt</code></td><td>Wall-clock estimation time</td></tr>
+</tbody>
+</table>
+</div>
+<p>See <a href="#output-files-1">Output Files</a> for detailed format descriptions.</p>
+<h2 id="console-output"><a class="header" href="#console-output">Console Output</a></h2>
+<h3 id="progress"><a class="header" href="#progress">Progress</a></h3>
+<p>The estimation progress is printed to stderr, including:</p>
+<ul>
+<li>Model and data summary (subjects, observations, parameters)</li>
+<li>Optimizer iterations with OFV values (FOCE) or condNLL values (SAEM)</li>
+<li>Covariance step status</li>
+<li>Final parameter table</li>
+</ul>
+<h3 id="result-summary"><a class="header" href="#result-summary">Result Summary</a></h3>
+<p>A brief summary is printed to stdout:</p>
+<pre><code>Fit completed!
+OFV: -280.1838
+Elapsed: 0.496s
+  TVCL = 0.132735
+  TVV = 7.694842
+  TVKA = 0.757498
+</code></pre>
+<h2 id="exit-codes"><a class="header" href="#exit-codes">Exit Codes</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Code</th><th>Meaning</th></tr>
+</thead>
+<tbody>
+<tr><td>0</td><td>Success</td></tr>
+<tr><td>1</td><td>Error (parse failure, data error, convergence failure)</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="examples-3"><a class="header" href="#examples-3">Examples</a></h2>
+<pre><code class="language-bash"># One-compartment oral warfarin model
+ferx examples/warfarin.ferx --data data/warfarin.csv
+
+# Two-compartment IV with FOCE
+ferx examples/two_cpt_iv.ferx --data data/two_cpt_iv.csv
+
+# SAEM estimation
+ferx examples/warfarin_saem.ferx --data data/warfarin.csv
+
+# Simulation-estimation study
+ferx examples/warfarin.ferx --simulate
+</code></pre>
+<h2 id="building"><a class="header" href="#building">Building</a></h2>
+<pre><code class="language-bash"># Build the ferx binary
+cargo build --release --features autodiff
+
+# Run directly via cargo
+cargo run --release --features autodiff --bin ferx -- model.ferx --data data.csv
+</code></pre>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="output-files-1"><a class="header" href="#output-files-1">Output Files</a></h1>
+<p>Each model run produces three output files.</p>
+<h2 id="sdtab-csv-model-sdtabcsv"><a class="header" href="#sdtab-csv-model-sdtabcsv">sdtab CSV (<code>{model}-sdtab.csv</code>)</a></h2>
+<p>A CSV file with per-observation diagnostics, one row per observation per subject.</p>
+<h3 id="columns"><a class="header" href="#columns">Columns</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Column</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>ID</code></td><td>Subject identifier</td></tr>
+<tr><td><code>TIME</code></td><td>Observation time</td></tr>
+<tr><td><code>DV</code></td><td>Observed value</td></tr>
+<tr><td><code>PRED</code></td><td>Population prediction (eta = 0)</td></tr>
+<tr><td><code>IPRED</code></td><td>Individual prediction (eta = EBE)</td></tr>
+<tr><td><code>CWRES</code></td><td>Conditional weighted residual</td></tr>
+<tr><td><code>IWRES</code></td><td>Individual weighted residual</td></tr>
+<tr><td><code>ETA1</code>, <code>ETA2</code>, …</td><td>Empirical Bayes estimates of random effects</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="residual-definitions"><a class="header" href="#residual-definitions">Residual Definitions</a></h3>
+<p><strong>IWRES</strong> (Individual Weighted Residual):
+\[ \text{IWRES}_j = \frac{y_j - \text{IPRED}_j}{\sqrt{V_j}} \]
+where \( V_j \) is the residual variance evaluated at the individual prediction.</p>
+<p><strong>CWRES</strong> (Conditional Weighted Residual):
+\[ \text{CWRES}<em>j = \frac{y_j - f</em>{0,j}}{\sqrt{\tilde{R}_{jj}}} \]
+where \( f_0 = f(\hat{\eta}) - H\hat{\eta} \) is the linearized population prediction and \( \tilde{R} = H\Omega H^T + R \) is the conditional variance.</p>
+<h3 id="example-2"><a class="header" href="#example-2">Example</a></h3>
+<pre><code class="language-csv">ID,TIME,DV,PRED,IPRED,CWRES,IWRES,ETA1,ETA2,ETA3
+1,0.5,9.49,10.12,9.55,-0.23,-0.06,0.15,-0.08,0.32
+1,1.0,14.42,14.87,14.35,0.18,0.05,0.15,-0.08,0.32
+</code></pre>
+<h2 id="fit-yaml-model-fityaml"><a class="header" href="#fit-yaml-model-fityaml">Fit YAML (<code>{model}-fit.yaml</code>)</a></h2>
+<p>A YAML file containing parameter estimates, standard errors, and model diagnostics.</p>
+<h3 id="structure"><a class="header" href="#structure">Structure</a></h3>
+<pre><code class="language-yaml">model:
+  converged: true
+  method: FOCE
+objective_function:
+  ofv: -280.1838
+  aic: -266.1838
+  bic: -247.2804
+data:
+  n_subjects: 10
+  n_observations: 110
+  n_parameters: 7
+theta:
+  TVCL:
+    estimate: 0.132735
+    se: 0.014549
+    rse_pct: 11.0
+  TVV:
+    estimate: 7.694842
+    se: 0.293028
+    rse_pct: 3.8
+omega:
+  omega_11:
+    variance: 0.028584
+    cv_pct: 16.9
+    se: 0.006394
+  omega_22:
+    variance: 0.009613
+    cv_pct: 9.8
+    se: 0.002165
+sigma:
+  sigma_1:
+    estimate: 0.010638
+    se: 0.000788
+</code></pre>
+<h3 id="key-fields"><a class="header" href="#key-fields">Key Fields</a></h3>
+<ul>
+<li><strong>ofv</strong>: Objective Function Value (-2 log-likelihood)</li>
+<li><strong>aic</strong>: Akaike Information Criterion (OFV + 2p)</li>
+<li><strong>bic</strong>: Bayesian Information Criterion (OFV + p * ln(n))</li>
+<li><strong>se</strong>: Standard error from the covariance step</li>
+<li><strong>rse_pct</strong>: Relative standard error as percentage (SE/estimate * 100)</li>
+<li><strong>cv_pct</strong>: Coefficient of variation for omega (sqrt(variance) * 100)</li>
+</ul>
+<h2 id="timing-file-model-timingtxt"><a class="header" href="#timing-file-model-timingtxt">Timing File (<code>{model}-timing.txt</code>)</a></h2>
+<p>A single-line text file with the wall-clock estimation time:</p>
+<pre><code>elapsed_seconds=0.496000
+</code></pre>
+<p>This measures only the estimation step (not parsing or data reading).</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="examples-4"><a class="header" href="#examples-4">Examples</a></h1>
+<p>FeRx includes several example models in the <code>examples/</code> directory with corresponding datasets in <code>data/</code>.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Example</th><th>Model</th><th>Route</th><th>Features</th></tr>
+</thead>
+<tbody>
+<tr><td><a href="#one-compartment-oral-warfarin">One-Compartment Oral</a></td><td>1-cpt</td><td>Oral</td><td>Basic PopPK, FOCE and SAEM</td></tr>
+<tr><td><a href="#two-compartment-iv-bolus">Two-Compartment IV</a></td><td>2-cpt</td><td>IV bolus</td><td>Multi-compartment dynamics</td></tr>
+<tr><td><a href="#covariate-model">Covariates</a></td><td>2-cpt</td><td>Oral</td><td>Weight and renal function effects</td></tr>
+<tr><td><a href="#ode-model-michaelis-menten">ODE Model</a></td><td>1-cpt</td><td>Oral</td><td>Michaelis-Menten elimination, ODE solver</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="running-examples"><a class="header" href="#running-examples">Running Examples</a></h2>
+<pre><code class="language-bash"># One-compartment oral (warfarin)
+ferx examples/warfarin.ferx --data data/warfarin.csv
+
+# Two-compartment IV
+ferx examples/two_cpt_iv.ferx --data data/two_cpt_iv.csv
+
+# Covariates model
+ferx examples/two_cpt_oral_cov.ferx --data data/two_cpt_oral_cov.csv
+
+# ODE model (Michaelis-Menten)
+ferx examples/mm_oral.ferx --data data/mm_oral.csv
+
+# SAEM estimation
+ferx examples/warfarin_saem.ferx --data data/warfarin.csv
+</code></pre>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="one-compartment-oral-warfarin"><a class="header" href="#one-compartment-oral-warfarin">One-Compartment Oral (Warfarin)</a></h1>
+<p>This example fits a one-compartment oral pharmacokinetic model to warfarin concentration data.</p>
+<h2 id="model-file-warfarinferx"><a class="header" href="#model-file-warfarinferx">Model File (<code>warfarin.ferx</code>)</a></h2>
+<pre><code># One-compartment oral PK model (warfarin)
+
+[parameters]
+  theta TVCL(0.134, 0.001, 10.0)
+  theta TVV(8.1, 0.1, 500.0)
+  theta TVKA(1.0, 0.01, 50.0)
+
+  omega ETA_CL ~ 0.07
+  omega ETA_V  ~ 0.02
+  omega ETA_KA ~ 0.40
+
+  sigma PROP_ERR ~ 0.01
+
+[individual_parameters]
+  CL = TVCL * exp(ETA_CL)
+  V  = TVV  * exp(ETA_V)
+  KA = TVKA * exp(ETA_KA)
+
+[structural_model]
+  pk one_cpt_oral(cl=CL, v=V, ka=KA)
+
+[error_model]
+  DV ~ proportional(PROP_ERR)
+
+[initial_values]
+  theta = [0.2, 10.0, 1.5]
+  omega = [0.09, 0.04, 0.30]
+  sigma = [0.02]
+
+[fit_options]
+  method     = foce
+  maxiter    = 300
+  covariance = true
+</code></pre>
+<h2 id="model-description"><a class="header" href="#model-description">Model Description</a></h2>
+<ul>
+<li><strong>Structure</strong>: One-compartment model with first-order absorption (KA) and first-order elimination (CL/V)</li>
+<li><strong>Random effects</strong>: Log-normal on CL, V, and KA (exponential eta model)</li>
+<li><strong>Error model</strong>: Proportional residual error</li>
+<li><strong>Parameters</strong>:
+<ul>
+<li>TVCL: Typical value of clearance (L/h)</li>
+<li>TVV: Typical value of volume of distribution (L)</li>
+<li>TVKA: Typical value of absorption rate constant (1/h)</li>
+</ul>
+</li>
+</ul>
+<h2 id="running"><a class="header" href="#running">Running</a></h2>
+<pre><code class="language-bash">ferx examples/warfarin.ferx --data data/warfarin.csv
+</code></pre>
+<h2 id="expected-results"><a class="header" href="#expected-results">Expected Results</a></h2>
+<pre><code>--- THETA Estimates ---
+TVCL                 0.132735
+TVV                  7.694842
+TVKA                 0.757498
+
+--- OMEGA Estimates (variances) ---
+OMEGA(1,1) = 0.028584  (CV% = 16.9)
+OMEGA(2,2) = 0.009613  (CV% = 9.8)
+OMEGA(3,3) = 0.340868  (CV% = 58.4)
+
+--- SIGMA Estimates ---
+SIGMA(1) = 0.010638
+</code></pre>
+<h2 id="saem-variant"><a class="header" href="#saem-variant">SAEM Variant</a></h2>
+<p>The same model can be run with SAEM by changing the <code>[fit_options]</code>:</p>
+<pre><code>[fit_options]
+  method        = saem
+  n_exploration = 150
+  n_convergence = 250
+  n_mh_steps    = 3
+  seed          = 12345
+  covariance    = true
+</code></pre>
+<pre><code class="language-bash">ferx examples/warfarin_saem.ferx --data data/warfarin.csv
+</code></pre>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="two-compartment-iv-bolus"><a class="header" href="#two-compartment-iv-bolus">Two-Compartment IV Bolus</a></h1>
+<p>This example fits a two-compartment IV bolus model with four random effects.</p>
+<h2 id="model-file-two_cpt_ivferx"><a class="header" href="#model-file-two_cpt_ivferx">Model File (<code>two_cpt_iv.ferx</code>)</a></h2>
+<pre><code># Two-compartment IV bolus PK model
+
+[parameters]
+  theta TVCL(5.0, 0.01, 100.0)
+  theta TVV1(50.0, 0.1, 1000.0)
+  theta TVQ(10.0, 0.01, 200.0)
+  theta TVV2(100.0, 0.1, 5000.0)
+
+  omega ETA_CL ~ 0.09
+  omega ETA_V1 ~ 0.04
+  omega ETA_Q  ~ 0.04
+  omega ETA_V2 ~ 0.09
+
+  sigma PROP_ERR ~ 0.04
+
+[individual_parameters]
+  CL = TVCL * exp(ETA_CL)
+  V1 = TVV1 * exp(ETA_V1)
+  Q  = TVQ  * exp(ETA_Q)
+  V2 = TVV2 * exp(ETA_V2)
+
+[structural_model]
+  pk two_cpt_iv_bolus(cl=CL, v1=V1, q=Q, v2=V2)
+
+[error_model]
+  DV ~ proportional(PROP_ERR)
+
+[fit_options]
+  method     = foce
+  maxiter    = 500
+  covariance = true
+</code></pre>
+<h2 id="model-description-1"><a class="header" href="#model-description-1">Model Description</a></h2>
+<ul>
+<li><strong>Structure</strong>: Two-compartment model with central (V1) and peripheral (V2) compartments connected by intercompartmental clearance (Q)</li>
+<li><strong>Route</strong>: Intravenous bolus (dose goes directly into central compartment)</li>
+<li><strong>Random effects</strong>: Log-normal on all four PK parameters</li>
+<li><strong>Parameters</strong>:
+<ul>
+<li>CL: Systemic clearance (L/h)</li>
+<li>V1: Central volume of distribution (L)</li>
+<li>Q: Intercompartmental clearance (L/h)</li>
+<li>V2: Peripheral volume of distribution (L)</li>
+</ul>
+</li>
+</ul>
+<p>The bi-exponential concentration profile is characterized by a rapid distribution phase (alpha) followed by a slower elimination phase (beta).</p>
+<h2 id="running-1"><a class="header" href="#running-1">Running</a></h2>
+<pre><code class="language-bash">ferx examples/two_cpt_iv.ferx --data data/two_cpt_iv.csv
+</code></pre>
+<h2 id="notes-1"><a class="header" href="#notes-1">Notes</a></h2>
+<ul>
+<li>Two-compartment models have more parameters and may need more iterations to converge</li>
+<li>The <code>global_search = true</code> option can help if convergence is difficult</li>
+<li>Consider reducing random effects (e.g., fixing Q or V2 variability) if the model is overparameterized</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="covariate-model"><a class="header" href="#covariate-model">Covariate Model</a></h1>
+<p>This example demonstrates a two-compartment oral model with body weight (WT) and creatinine clearance (CRCL) as covariates on clearance.</p>
+<h2 id="model-file-two_cpt_oral_covferx"><a class="header" href="#model-file-two_cpt_oral_covferx">Model File (<code>two_cpt_oral_cov.ferx</code>)</a></h2>
+<pre><code># Two-compartment oral PK model with covariates
+
+[parameters]
+  theta TVCL(5.0, 0.01, 100.0)
+  theta TVV1(50.0, 0.1, 1000.0)
+  theta TVQ(10.0, 0.01, 200.0)
+  theta TVV2(100.0, 0.1, 5000.0)
+  theta TVKA(1.0, 0.01, 50.0)
+  theta THETA_WT(0.75, 0.01, 2.0)
+  theta THETA_CRCL(0.5, 0.01, 2.0)
+
+  omega ETA_CL ~ 0.09
+  omega ETA_V1 ~ 0.04
+  omega ETA_Q  ~ 0.04
+  omega ETA_V2 ~ 0.09
+  omega ETA_KA ~ 0.25
+
+  sigma PROP_ERR ~ 0.04
+
+[individual_parameters]
+  CL = TVCL * (WT/70)^THETA_WT * (CRCL/100)^THETA_CRCL * exp(ETA_CL)
+  V1 = TVV1 * exp(ETA_V1)
+  Q  = TVQ  * exp(ETA_Q)
+  V2 = TVV2 * exp(ETA_V2)
+  KA = TVKA * exp(ETA_KA)
+
+[structural_model]
+  pk two_cpt_oral(cl=CL, v1=V1, q=Q, v2=V2, ka=KA)
+
+[error_model]
+  DV ~ proportional(PROP_ERR)
+
+[fit_options]
+  method     = focei
+  maxiter    = 500
+  covariance = true
+</code></pre>
+<h2 id="covariate-effects"><a class="header" href="#covariate-effects">Covariate Effects</a></h2>
+<p>The clearance equation includes two covariate effects:</p>
+<pre><code>CL = TVCL * (WT/70)^THETA_WT * (CRCL/100)^THETA_CRCL * exp(ETA_CL)
+</code></pre>
+<ul>
+<li><strong>(WT/70)^THETA_WT</strong>: Allometric scaling of clearance with body weight, centered at 70 kg. THETA_WT is estimated (expected ~0.75 for CL).</li>
+<li><strong>(CRCL/100)^THETA_CRCL</strong>: Renal function effect on clearance, centered at 100 mL/min. THETA_CRCL is estimated.</li>
+</ul>
+<h2 id="data-requirements"><a class="header" href="#data-requirements">Data Requirements</a></h2>
+<p>The dataset must include <code>WT</code> and <code>CRCL</code> columns:</p>
+<pre><code class="language-csv">ID,TIME,DV,EVID,AMT,CMT,MDV,WT,CRCL
+1,0,.,1,100,1,1,72.5,105
+1,0.5,12.3,0,.,.,0,72.5,105
+1,1.0,18.7,0,.,.,0,72.5,105
+</code></pre>
+<p>Covariate columns are automatically detected – any column not in the standard NONMEM set is treated as a covariate. The names in the data file must match those used in <code>[individual_parameters]</code> (case-insensitive).</p>
+<h2 id="running-2"><a class="header" href="#running-2">Running</a></h2>
+<pre><code class="language-bash">ferx examples/two_cpt_oral_cov.ferx --data data/two_cpt_oral_cov.csv
+</code></pre>
+<h2 id="notes-2"><a class="header" href="#notes-2">Notes</a></h2>
+<ul>
+<li>FOCEI is used here because the proportional error model creates an interaction between random effects and residual error</li>
+<li>Covariate centering (dividing by 70 for weight, 100 for CRCL) improves numerical stability and makes the typical value (TVCL) interpretable as the clearance for a 70 kg patient with CRCL of 100 mL/min</li>
+<li>The estimated covariate exponents (THETA_WT, THETA_CRCL) have standard errors that can be used to test significance</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="ode-model-michaelis-menten"><a class="header" href="#ode-model-michaelis-menten">ODE Model (Michaelis-Menten)</a></h1>
+<p>This example demonstrates a one-compartment oral model with saturable (Michaelis-Menten) elimination, solved using the ODE integrator.</p>
+<h2 id="model-file-mm_oralferx"><a class="header" href="#model-file-mm_oralferx">Model File (<code>mm_oral.ferx</code>)</a></h2>
+<pre><code># One-compartment oral model with Michaelis-Menten elimination
+
+[parameters]
+  theta TVVMAX(10.0, 0.1, 1000.0)
+  theta TVKM(2.0, 0.01, 100.0)
+  theta TVV(10.0, 0.1, 500.0)
+  theta TVKA(1.0, 0.01, 50.0)
+
+  omega ETA_VMAX ~ 0.09
+  omega ETA_V    ~ 0.04
+
+  sigma PROP_ERR ~ 0.1
+
+[individual_parameters]
+  VMAX = TVVMAX * exp(ETA_VMAX)
+  KM   = TVKM
+  V    = TVV * exp(ETA_V)
+  KA   = TVKA
+
+[structural_model]
+  ode(obs_cmt=central, states=[depot, central])
+
+[odes]
+  d/dt(depot)   = -KA * depot
+  d/dt(central) = KA * depot / V - VMAX * central / (KM + central)
+
+[error_model]
+  DV ~ proportional(PROP_ERR)
+
+[fit_options]
+  method     = focei
+  maxiter    = 500
+  covariance = true
+</code></pre>
+<h2 id="model-description-2"><a class="header" href="#model-description-2">Model Description</a></h2>
+<h3 id="why-use-odes"><a class="header" href="#why-use-odes">Why Use ODEs</a></h3>
+<p>Michaelis-Menten (saturable) elimination cannot be described by a simple exponential function. At high concentrations, elimination approaches a maximum rate (VMAX), leading to nonlinear pharmacokinetics. This requires numerical ODE integration.</p>
+<h3 id="ode-system"><a class="header" href="#ode-system">ODE System</a></h3>
+<pre><code>d/dt(depot)   = -KA * depot
+d/dt(central) = KA * depot / V - VMAX * central / (KM + central)
+</code></pre>
+<ul>
+<li><strong>depot</strong>: Absorption compartment. First-order absorption at rate KA.</li>
+<li><strong>central</strong>: Central compartment. Drug enters from depot and is eliminated by Michaelis-Menten kinetics.</li>
+</ul>
+<h3 id="parameters-1"><a class="header" href="#parameters-1">Parameters</a></h3>
+<ul>
+<li><strong>VMAX</strong>: Maximum elimination rate (amount/time)</li>
+<li><strong>KM</strong>: Michaelis-Menten constant (concentration at half-maximal rate)</li>
+<li><strong>V</strong>: Volume of distribution</li>
+<li><strong>KA</strong>: First-order absorption rate constant</li>
+</ul>
+<p>Note that only VMAX and V have random effects. KM and KA are treated as population parameters (no between-subject variability).</p>
+<h3 id="structural-model-declaration-1"><a class="header" href="#structural-model-declaration-1">Structural Model Declaration</a></h3>
+<pre><code>[structural_model]
+  ode(obs_cmt=central, states=[depot, central])
+</code></pre>
+<ul>
+<li><code>obs_cmt=central</code>: The <code>central</code> compartment is observed (matched to DV in the data)</li>
+<li><code>states=[depot, central]</code>: Two state variables (compartments)</li>
+</ul>
+<h2 id="running-3"><a class="header" href="#running-3">Running</a></h2>
+<pre><code class="language-bash">ferx examples/mm_oral.ferx --data data/mm_oral.csv
+</code></pre>
+<h2 id="notes-3"><a class="header" href="#notes-3">Notes</a></h2>
+<ul>
+<li>ODE models are slower than analytical models because each prediction requires numerical integration</li>
+<li>The ODE solver uses adaptive step-size control (Dormand-Prince RK45) for accuracy</li>
+<li>For standard first-order kinetics, use the analytical <code>one_cpt_oral</code> model instead – it is much faster</li>
+<li>The <code>central</code> compartment in this model contains the drug amount. If you want concentration as the observed variable, divide by V in the ODE equations (as done here with <code>KA * depot / V</code>)</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="rust-api"><a class="header" href="#rust-api">Rust API</a></h1>
+<p>FeRx-NLME can be used as a Rust library for embedding population PK estimation in your own applications.</p>
+<h2 id="adding-as-a-dependency"><a class="header" href="#adding-as-a-dependency">Adding as a Dependency</a></h2>
+<pre><code class="language-toml">[dependencies]
+ferx-nlme = { path = "../ferx-nlme", features = ["autodiff"] }
+</code></pre>
+<h2 id="quick-example"><a class="header" href="#quick-example">Quick Example</a></h2>
+<pre class="playground"><code class="language-rust">use ferx_nlme::*;
+use std::path::Path;
+
+fn main() -&gt; Result&lt;(), String&gt; {
+    // Parse model and data
+    let parsed = parse_full_model_file(Path::new("model.ferx"))?;
+    let population = read_nonmem_csv(Path::new("data.csv"), None)?;
+
+    // Build initial parameters and options
+    let (init_params, options) = build_fit_inputs(&amp;parsed)?;
+
+    // Run estimation
+    let result = fit(&amp;parsed.model, &amp;population, &amp;init_params, &amp;options)?;
+
+    // Access results
+    println!("OFV: {}", result.ofv);
+    for (name, val) in result.theta_names.iter().zip(result.theta.iter()) {
+        println!("  {} = {:.6}", name, val);
+    }
+
+    Ok(())
+}</code></pre>
+<h2 id="api-sections"><a class="header" href="#api-sections">API Sections</a></h2>
+<ul>
+<li><a href="#core-types">Core Types</a> – <code>CompiledModel</code>, <code>Population</code>, <code>FitResult</code>, <code>FitOptions</code>, etc.</li>
+<li><a href="#fitting-functions">Fitting Functions</a> – <code>fit()</code>, <code>fit_from_files()</code>, <code>run_model_with_data()</code></li>
+<li><a href="#simulation-1">Simulation</a> – <code>simulate()</code>, <code>simulate_with_seed()</code>, <code>predict()</code></li>
+<li><a href="#parsing">Parsing</a> – <code>parse_model_file()</code>, <code>parse_full_model_file()</code>, <code>read_nonmem_csv()</code></li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="core-types"><a class="header" href="#core-types">Core Types</a></h1>
+<p>The main types exported by <code>ferx_nlme</code>. All types are available via <code>use ferx_nlme::*</code>.</p>
+<h2 id="compiledmodel"><a class="header" href="#compiledmodel">CompiledModel</a></h2>
+<p>A parsed and compiled model ready for estimation. Created by <code>parse_model_file()</code> or <code>parse_full_model_file()</code>.</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct CompiledModel {
+    pub name: String,
+    pub pk_model: PkModel,
+    pub error_model: ErrorModel,
+    pub pk_param_fn: PkParamFn,     // (theta, eta, covariates) -&gt; PkParams
+    pub n_theta: usize,
+    pub n_eta: usize,
+    pub n_epsilon: usize,
+    pub theta_names: Vec&lt;String&gt;,
+    pub eta_names: Vec&lt;String&gt;,
+    pub default_params: ModelParameters,
+    pub tv_fn: Option&lt;...&gt;,          // Typical values function (for AD)
+    pub pk_indices: Vec&lt;usize&gt;,      // Maps eta index -&gt; PK parameter index
+    pub ode_spec: Option&lt;OdeSpec&gt;,   // ODE specification (if ODE model)
+}
+<span class="boring">}</span></code></pre>
+<p>Key fields:</p>
+<ul>
+<li><code>pk_param_fn</code>: Closure that maps (theta, eta, covariates) to PK parameters. Generated by the parser from <code>[individual_parameters]</code>.</li>
+<li><code>default_params</code>: Initial parameter values from <code>[parameters]</code> block.</li>
+<li><code>ode_spec</code>: Present only for ODE models; <code>None</code> for analytical models.</li>
+</ul>
+<h2 id="population-and-subject"><a class="header" href="#population-and-subject">Population and Subject</a></h2>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct Population {
+    pub subjects: Vec&lt;Subject&gt;,
+    pub covariate_names: Vec&lt;String&gt;,
+    pub dv_column: String,
+}
+
+pub struct Subject {
+    pub id: String,
+    pub doses: Vec&lt;DoseEvent&gt;,
+    pub obs_times: Vec&lt;f64&gt;,
+    pub observations: Vec&lt;f64&gt;,
+    pub obs_cmts: Vec&lt;usize&gt;,
+    pub covariates: HashMap&lt;String, f64&gt;,      // Time-constant
+    pub tvcov: HashMap&lt;String, Vec&lt;f64&gt;&gt;,       // Time-varying (LOCF)
+}
+<span class="boring">}</span></code></pre>
+<h2 id="modelparameters"><a class="header" href="#modelparameters">ModelParameters</a></h2>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct ModelParameters {
+    pub theta: Vec&lt;f64&gt;,
+    pub theta_names: Vec&lt;String&gt;,
+    pub theta_lower: Vec&lt;f64&gt;,
+    pub theta_upper: Vec&lt;f64&gt;,
+    pub omega: OmegaMatrix,
+    pub sigma: SigmaVector,
+}
+<span class="boring">}</span></code></pre>
+<h2 id="omegamatrix"><a class="header" href="#omegamatrix">OmegaMatrix</a></h2>
+<p>Between-subject variability matrix with pre-computed Cholesky factor.</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct OmegaMatrix {
+    pub matrix: DMatrix&lt;f64&gt;,       // Full omega matrix
+    pub chol: DMatrix&lt;f64&gt;,         // Lower Cholesky factor L (Omega = L*L')
+    pub eta_names: Vec&lt;String&gt;,
+    pub diagonal: bool,             // True if omega is diagonal
+}
+<span class="boring">}</span></code></pre>
+<p>Constructors:</p>
+<ul>
+<li><code>OmegaMatrix::from_matrix(m, names, diagonal)</code> – From a full matrix (computes Cholesky, regularizes if needed)</li>
+<li><code>OmegaMatrix::from_diagonal(variances, names)</code> – From diagonal variances</li>
+</ul>
+<h2 id="fitoptions"><a class="header" href="#fitoptions">FitOptions</a></h2>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct FitOptions {
+    pub method: EstimationMethod,      // Foce, FoceI, or Saem
+    pub outer_maxiter: usize,          // Default: 500
+    pub outer_gtol: f64,               // Default: 1e-6
+    pub inner_maxiter: usize,          // Default: 200
+    pub inner_tol: f64,                // Default: 1e-8
+    pub run_covariance_step: bool,     // Default: true
+    pub interaction: bool,             // FOCEI flag
+    pub verbose: bool,                 // Default: true
+    pub optimizer: Optimizer,          // Default: Slsqp
+    pub lbfgs_memory: usize,           // Default: 5
+    pub global_search: bool,           // Default: false
+    pub global_maxeval: usize,         // Default: 0 (auto)
+    // SAEM-specific
+    pub saem_n_exploration: usize,     // Default: 150
+    pub saem_n_convergence: usize,     // Default: 250
+    pub saem_n_mh_steps: usize,        // Default: 3
+    pub saem_adapt_interval: usize,    // Default: 50
+    pub saem_seed: Option&lt;u64&gt;,        // Default: None
+}
+<span class="boring">}</span></code></pre>
+<p>Use <code>FitOptions::default()</code> for standard FOCE settings.</p>
+<h2 id="fitresult"><a class="header" href="#fitresult">FitResult</a></h2>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct FitResult {
+    pub method: EstimationMethod,
+    pub converged: bool,
+    pub ofv: f64,
+    pub aic: f64,
+    pub bic: f64,
+    pub theta: Vec&lt;f64&gt;,
+    pub theta_names: Vec&lt;String&gt;,
+    pub omega: DMatrix&lt;f64&gt;,
+    pub sigma: Vec&lt;f64&gt;,
+    pub covariance_matrix: Option&lt;DMatrix&lt;f64&gt;&gt;,
+    pub se_theta: Option&lt;Vec&lt;f64&gt;&gt;,
+    pub se_omega: Option&lt;Vec&lt;f64&gt;&gt;,
+    pub se_sigma: Option&lt;Vec&lt;f64&gt;&gt;,
+    pub subjects: Vec&lt;SubjectResult&gt;,
+    pub n_obs: usize,
+    pub n_subjects: usize,
+    pub n_parameters: usize,
+    pub n_iterations: usize,
+    pub interaction: bool,
+    pub warnings: Vec&lt;String&gt;,
+}
+<span class="boring">}</span></code></pre>
+<h2 id="subjectresult"><a class="header" href="#subjectresult">SubjectResult</a></h2>
+<p>Per-subject diagnostics from the fit.</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct SubjectResult {
+    pub id: String,
+    pub eta: DVector&lt;f64&gt;,
+    pub ipred: Vec&lt;f64&gt;,    // Individual predictions
+    pub pred: Vec&lt;f64&gt;,     // Population predictions
+    pub iwres: Vec&lt;f64&gt;,    // Individual weighted residuals
+    pub cwres: Vec&lt;f64&gt;,    // Conditional weighted residuals
+    pub ofv_contribution: f64,
+}
+<span class="boring">}</span></code></pre>
+<h2 id="enums"><a class="header" href="#enums">Enums</a></h2>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub enum EstimationMethod { Foce, FoceI, Saem }
+pub enum PkModel { OneCptIvBolus, OneCptOral, OneCptInfusion,
+                   TwoCptIvBolus, TwoCptOral, TwoCptInfusion }
+pub enum ErrorModel { Additive, Proportional, Combined }
+pub enum Optimizer { Bfgs, Lbfgs, Slsqp, NloptLbfgs, Mma }
+<span class="boring">}</span></code></pre>
+<h2 id="doseevent"><a class="header" href="#doseevent">DoseEvent</a></h2>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct DoseEvent {
+    pub time: f64,
+    pub amt: f64,
+    pub cmt: usize,
+    pub rate: f64,
+    pub duration: f64,
+    pub ss: bool,
+    pub ii: f64,
+}
+<span class="boring">}</span></code></pre>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="fitting-functions"><a class="header" href="#fitting-functions">Fitting Functions</a></h1>
+<h2 id="fit"><a class="header" href="#fit"><code>fit()</code></a></h2>
+<p>The primary estimation entry point. Runs FOCE, FOCEI, or SAEM depending on <code>options.method</code>.</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub fn fit(
+    model: &amp;CompiledModel,
+    population: &amp;Population,
+    init_params: &amp;ModelParameters,
+    options: &amp;FitOptions,
+) -&gt; Result&lt;FitResult, String&gt;
+<span class="boring">}</span></code></pre>
+<p><strong>Parameters:</strong></p>
+<ul>
+<li><code>model</code>: Compiled model from <code>parse_model_file()</code> or <code>parse_full_model_file()</code></li>
+<li><code>population</code>: Population data from <code>read_nonmem_csv()</code></li>
+<li><code>init_params</code>: Initial parameter values</li>
+<li><code>options</code>: Estimation configuration</li>
+</ul>
+<p><strong>Returns:</strong> <code>FitResult</code> with parameter estimates, standard errors, and per-subject diagnostics.</p>
+<p><strong>Example:</strong></p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>let model = parse_model_file(Path::new("model.ferx"))?;
+let population = read_nonmem_csv(Path::new("data.csv"), None)?;
+let options = FitOptions::default();
+
+let result = fit(&amp;model, &amp;population, &amp;model.default_params, &amp;options)?;
+println!("OFV: {:.4}", result.ofv);
+<span class="boring">}</span></code></pre>
+<h2 id="fit_from_files"><a class="header" href="#fit_from_files"><code>fit_from_files()</code></a></h2>
+<p>Convenience wrapper that handles parsing and data reading.</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub fn fit_from_files(
+    model_path: &amp;str,
+    data_path: &amp;str,
+    covariate_columns: Option&lt;&amp;[&amp;str]&gt;,
+    options: Option&lt;FitOptions&gt;,
+) -&gt; Result&lt;FitResult, String&gt;
+<span class="boring">}</span></code></pre>
+<p><strong>Example:</strong></p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>let result = fit_from_files(
+    "model.ferx",
+    "data.csv",
+    None,          // Auto-detect covariates
+    None,          // Default options
+)?;
+<span class="boring">}</span></code></pre>
+<h2 id="run_model_with_data"><a class="header" href="#run_model_with_data"><code>run_model_with_data()</code></a></h2>
+<p>Full pipeline: parse model file, read data, fit. Returns both the fit result and the population.</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub fn run_model_with_data(
+    model_path: &amp;str,
+    data_path: &amp;str,
+) -&gt; Result&lt;(FitResult, Population), String&gt;
+<span class="boring">}</span></code></pre>
+<p>Uses the <code>[initial_values]</code> and <code>[fit_options]</code> from the model file.</p>
+<h2 id="run_model_simulate"><a class="header" href="#run_model_simulate"><code>run_model_simulate()</code></a></h2>
+<p>Simulation-estimation: parse model, generate data from <code>[simulation]</code> block, fit.</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub fn run_model_simulate(
+    model_path: &amp;str,
+) -&gt; Result&lt;(FitResult, Population), String&gt;
+<span class="boring">}</span></code></pre>
+<p>Requires a <code>[simulation]</code> block in the model file.</p>
+<h2 id="build_fit_inputs"><a class="header" href="#build_fit_inputs"><code>build_fit_inputs()</code></a></h2>
+<p>Extract initial parameters and fit options from a parsed model, separating parsing from estimation for timing purposes.</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub fn build_fit_inputs(
+    parsed: &amp;ParsedModel,
+) -&gt; Result&lt;(ModelParameters, FitOptions), String&gt;
+<span class="boring">}</span></code></pre>
+<p><strong>Example:</strong></p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>let parsed = parse_full_model_file(Path::new("model.ferx"))?;
+let (init_params, options) = build_fit_inputs(&amp;parsed)?;
+
+let population = read_nonmem_csv(Path::new("data.csv"), None)?;
+let result = fit(&amp;parsed.model, &amp;population, &amp;init_params, &amp;options)?;
+<span class="boring">}</span></code></pre>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="simulation-1"><a class="header" href="#simulation-1">Simulation</a></h1>
+<h2 id="simulate"><a class="header" href="#simulate"><code>simulate()</code></a></h2>
+<p>Generate simulated observations from a model with random effects and residual error.</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub fn simulate(
+    model: &amp;CompiledModel,
+    population: &amp;Population,
+    params: &amp;ModelParameters,
+    n_sim: usize,
+) -&gt; Vec&lt;SimulationResult&gt;
+<span class="boring">}</span></code></pre>
+<p><strong>Parameters:</strong></p>
+<ul>
+<li><code>model</code>: Compiled model</li>
+<li><code>population</code>: Template population (dose events and observation times are used; DV values are ignored)</li>
+<li><code>params</code>: True parameter values for simulation</li>
+<li><code>n_sim</code>: Number of simulation replicates</li>
+</ul>
+<p><strong>Returns:</strong> Vector of <code>SimulationResult</code>, one per observation per subject per replicate.</p>
+<p><strong>Example:</strong></p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>let model = parse_model_file(Path::new("model.ferx"))?;
+let population = read_nonmem_csv(Path::new("data.csv"), None)?;
+
+// Simulate 1000 replicates
+let sims = simulate(&amp;model, &amp;population, &amp;model.default_params, 1000);
+
+for sim in &amp;sims[..5] {
+    println!("Sim {}, ID {}, TIME {}, IPRED {:.3}, DV {:.3}",
+             sim.sim, sim.id, sim.time, sim.ipred, sim.dv_sim);
+}
+<span class="boring">}</span></code></pre>
+<h2 id="simulate_with_seed"><a class="header" href="#simulate_with_seed"><code>simulate_with_seed()</code></a></h2>
+<p>Same as <code>simulate()</code> but with a fixed random seed for reproducibility.</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub fn simulate_with_seed(
+    model: &amp;CompiledModel,
+    population: &amp;Population,
+    params: &amp;ModelParameters,
+    n_sim: usize,
+    seed: u64,
+) -&gt; Vec&lt;SimulationResult&gt;
+<span class="boring">}</span></code></pre>
+<h2 id="predict"><a class="header" href="#predict"><code>predict()</code></a></h2>
+<p>Population predictions without random effects (eta = 0). No simulation noise is added.</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub fn predict(
+    model: &amp;CompiledModel,
+    population: &amp;Population,
+    params: &amp;ModelParameters,
+) -&gt; Vec&lt;PredictionResult&gt;
+<span class="boring">}</span></code></pre>
+<p><strong>Returns:</strong> Vector of <code>PredictionResult</code> with population-level predictions.</p>
+<p><strong>Example:</strong></p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>let preds = predict(&amp;model, &amp;population, &amp;model.default_params);
+for p in &amp;preds {
+    println!("ID {}, TIME {}, PRED {:.3}", p.id, p.time, p.pred);
+}
+<span class="boring">}</span></code></pre>
+<h2 id="result-types"><a class="header" href="#result-types">Result Types</a></h2>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct SimulationResult {
+    pub sim: usize,     // Replicate number (1-indexed)
+    pub id: String,     // Subject ID
+    pub time: f64,      // Observation time
+    pub ipred: f64,     // Individual prediction (no residual error)
+    pub dv_sim: f64,    // Simulated observation (with residual error)
+}
+
+pub struct PredictionResult {
+    pub id: String,
+    pub time: f64,
+    pub pred: f64,      // Population prediction (eta = 0)
+}
+<span class="boring">}</span></code></pre>
+<h2 id="simulation-process-1"><a class="header" href="#simulation-process-1">Simulation Process</a></h2>
+<p>For each replicate and each subject:</p>
+<ol>
+<li>Sample random effects: \( \eta_i \sim N(0, \Omega) \) using the Cholesky factor \( L \): \( \eta = L \cdot z \), where \( z \sim N(0, I) \)</li>
+<li>Compute individual PK parameters via <code>pk_param_fn(theta, eta, covariates)</code></li>
+<li>Generate predictions using the structural model</li>
+<li>Add residual error: \( DV = IPRED + \sqrt{V} \cdot \epsilon \), where \( \epsilon \sim N(0, 1) \) and \( V \) is the residual variance from the error model</li>
+</ol>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="parsing"><a class="header" href="#parsing">Parsing</a></h1>
+<h2 id="model-parsing"><a class="header" href="#model-parsing">Model Parsing</a></h2>
+<h3 id="parse_model_file"><a class="header" href="#parse_model_file"><code>parse_model_file()</code></a></h3>
+<p>Parse a <code>.ferx</code> file into a <code>CompiledModel</code>. Only the core model blocks are processed (<code>[parameters]</code>, <code>[individual_parameters]</code>, <code>[structural_model]</code>, <code>[error_model]</code>).</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub fn parse_model_file(path: &amp;Path) -&gt; Result&lt;CompiledModel, String&gt;
+<span class="boring">}</span></code></pre>
+<h3 id="parse_model_string"><a class="header" href="#parse_model_string"><code>parse_model_string()</code></a></h3>
+<p>Parse a model from a string instead of a file.</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub fn parse_model_string(content: &amp;str) -&gt; Result&lt;CompiledModel, String&gt;
+<span class="boring">}</span></code></pre>
+<p><strong>Example:</strong></p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>let model_str = r#"
+[parameters]
+  theta TVCL(0.1, 0.001, 10.0)
+  theta TVV(10.0, 0.1, 500.0)
+  omega ETA_CL ~ 0.09
+  sigma ADD_ERR ~ 1.0
+
+[individual_parameters]
+  CL = TVCL * exp(ETA_CL)
+  V  = TVV
+
+[structural_model]
+  pk one_cpt_iv_bolus(cl=CL, v=V)
+
+[error_model]
+  DV ~ additive(ADD_ERR)
+"#;
+
+let model = parse_model_string(model_str)?;
+<span class="boring">}</span></code></pre>
+<h3 id="parse_full_model_file"><a class="header" href="#parse_full_model_file"><code>parse_full_model_file()</code></a></h3>
+<p>Parse a complete model file including <code>[initial_values]</code>, <code>[fit_options]</code>, and <code>[simulation]</code> blocks.</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub fn parse_full_model_file(path: &amp;Path) -&gt; Result&lt;ParsedModel, String&gt;
+<span class="boring">}</span></code></pre>
+<p>Returns a <code>ParsedModel</code> which contains:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct ParsedModel {
+    pub model: CompiledModel,
+    pub simulation: Option&lt;SimulationSpec&gt;,
+    pub init_theta: Option&lt;Vec&lt;f64&gt;&gt;,
+    pub init_omega: Option&lt;Vec&lt;f64&gt;&gt;,
+    pub init_sigma: Option&lt;Vec&lt;f64&gt;&gt;,
+    pub fit_options: FitOptions,
+}
+<span class="boring">}</span></code></pre>
+<h2 id="data-parsing"><a class="header" href="#data-parsing">Data Parsing</a></h2>
+<h3 id="read_nonmem_csv"><a class="header" href="#read_nonmem_csv"><code>read_nonmem_csv()</code></a></h3>
+<p>Read a NONMEM-format CSV file into a <code>Population</code>.</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub fn read_nonmem_csv(
+    path: &amp;Path,
+    covariate_columns: Option&lt;&amp;[&amp;str]&gt;,
+) -&gt; Result&lt;Population, String&gt;
+<span class="boring">}</span></code></pre>
+<p><strong>Parameters:</strong></p>
+<ul>
+<li><code>path</code>: Path to the CSV file</li>
+<li><code>covariate_columns</code>: Optional list of covariate column names. If <code>None</code>, all non-standard columns are auto-detected as covariates.</li>
+</ul>
+<p><strong>Example:</strong></p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>// Auto-detect covariates
+let pop = read_nonmem_csv(Path::new("data.csv"), None)?;
+
+// Explicit covariate list
+let pop = read_nonmem_csv(
+    Path::new("data.csv"),
+    Some(&amp;["WT", "CRCL", "AGE"]),
+)?;
+
+println!("{} subjects, {} observations",
+         pop.subjects.len(), pop.n_obs());
+<span class="boring">}</span></code></pre>
+<h3 id="data-processing-details"><a class="header" href="#data-processing-details">Data Processing Details</a></h3>
+<ul>
+<li>Column names are matched case-insensitively</li>
+<li>Standard NONMEM columns (<code>ID</code>, <code>TIME</code>, <code>DV</code>, <code>EVID</code>, <code>AMT</code>, <code>CMT</code>, <code>RATE</code>, <code>MDV</code>, <code>II</code>, <code>SS</code>) are recognized automatically</li>
+<li>Missing values (<code>.</code>, empty string) are handled appropriately</li>
+<li>Rows with <code>EVID=1</code> are treated as dose events</li>
+<li>Rows with <code>EVID=0</code> and <code>MDV=0</code> are treated as observations</li>
+<li>Time-constant covariates use the first non-missing value per subject</li>
+<li>Time-varying covariates use Last Observation Carried Forward (LOCF)</li>
+</ul>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+
+            </nav>
+
+        </div>
+
+        <template id=fa-eye><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M288 32c-80.8 0-145.5 36.8-192.6 80.6C48.6 156 17.3 208 2.5 243.7c-3.3 7.9-3.3 16.7 0 24.6C17.3 304 48.6 356 95.4 399.4C142.5 443.2 207.2 480 288 480s145.5-36.8 192.6-80.6c46.8-43.5 78.1-95.4 93-131.1c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C433.5 68.8 368.8 32 288 32zM432 256c0 79.5-64.5 144-144 144s-144-64.5-144-144s64.5-144 144-144s144 64.5 144 144zM288 192c0 35.3-28.7 64-64 64c-11.5 0-22.3-3-31.6-8.4c-.2 2.8-.4 5.5-.4 8.4c0 53 43 96 96 96s96-43 96-96s-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6z"/></svg></span></template>
+        <template id=fa-eye-slash><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M38.8 5.1C28.4-3.1 13.3-1.2 5.1 9.2S-1.2 34.7 9.2 42.9l592 464c10.4 8.2 25.5 6.3 33.7-4.1s6.3-25.5-4.1-33.7L525.6 386.7c39.6-40.6 66.4-86.1 79.9-118.4c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C465.5 68.8 400.8 32 320 32c-68.2 0-125 26.3-169.3 60.8L38.8 5.1zM223.1 149.5C248.6 126.2 282.7 112 320 112c79.5 0 144 64.5 144 144c0 24.9-6.3 48.3-17.4 68.7L408 294.5c5.2-11.8 8-24.8 8-38.5c0-53-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6c0 10.2-2.4 19.8-6.6 28.3l-90.3-70.8zm223.1 298L373 389.9c-16.4 6.5-34.3 10.1-53 10.1c-79.5 0-144-64.5-144-144c0-6.9 .5-13.6 1.4-20.2L83.1 161.5C60.3 191.2 44 220.8 34.5 243.7c-3.3 7.9-3.3 16.7 0 24.6c14.9 35.7 46.2 87.7 93 131.1C174.5 443.2 239.2 480 320 480c47.8 0 89.9-12.9 126.2-32.5z"/></svg></span></template>
+        <template id=fa-copy><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M502.6 70.63l-61.25-61.25C435.4 3.371 427.2 0 418.7 0H255.1c-35.35 0-64 28.66-64 64l.0195 256C192 355.4 220.7 384 256 384h192c35.2 0 64-28.8 64-64V93.25C512 84.77 508.6 76.63 502.6 70.63zM464 320c0 8.836-7.164 16-16 16H255.1c-8.838 0-16-7.164-16-16L239.1 64.13c0-8.836 7.164-16 16-16h128L384 96c0 17.67 14.33 32 32 32h47.1V320zM272 448c0 8.836-7.164 16-16 16H63.1c-8.838 0-16-7.164-16-16L47.98 192.1c0-8.836 7.164-16 16-16H160V128H63.99c-35.35 0-64 28.65-64 64l.0098 256C.002 483.3 28.66 512 64 512h192c35.2 0 64-28.8 64-64v-32h-47.1L272 448z"/></svg></span></template>
+        <template id=fa-play><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M73 39c-14.8-9.1-33.4-9.4-48.5-.9S0 62.6 0 80V432c0 17.4 9.4 33.4 24.5 41.9s33.7 8.1 48.5-.9L361 297c14.3-8.7 23-24.2 23-41s-8.7-32.2-23-41L73 39z"/></svg></span></template>
+        <template id=fa-clock-rotate-left><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M75 75L41 41C25.9 25.9 0 36.6 0 57.9V168c0 13.3 10.7 24 24 24H134.1c21.4 0 32.1-25.9 17-41l-30.8-30.8C155 85.5 203 64 256 64c106 0 192 86 192 192s-86 192-192 192c-40.8 0-78.6-12.7-109.7-34.4c-14.5-10.1-34.4-6.6-44.6 7.9s-6.6 34.4 7.9 44.6C151.2 495 201.7 512 256 512c141.4 0 256-114.6 256-256S397.4 0 256 0C185.3 0 121.3 28.7 75 75zm181 53c-13.3 0-24 10.7-24 24V256c0 6.4 2.5 12.5 7 17l72 72c9.4 9.4 24.6 9.4 33.9 0s9.4-24.6 0-33.9l-65-65V152c0-13.3-10.7-24-24-24z"/></svg></span></template>
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="elasticlunr-ef4e11c1.min.js"></script>
+        <script src="mark-09e88c2c.min.js"></script>
+        <script src="searcher-c2a407aa.js"></script>
+
+        <script src="clipboard-1626706a.min.js"></script>
+        <script src="highlight-abc7f01d.js"></script>
+        <script src="book-a0b12cfe.js"></script>
+
+        <!-- Custom JS scripts -->
+
+        <script>
+        window.addEventListener('load', function() {
+            window.setTimeout(window.print, 100);
+        });
+        </script>
+
+
+    </div>
+    </body>
+</html>

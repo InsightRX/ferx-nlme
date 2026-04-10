@@ -1,0 +1,118 @@
+# Quick Start
+
+This walkthrough fits a one-compartment oral PK model to warfarin data.
+
+## 1. Create a model file
+
+Save the following as `warfarin.ferx`:
+
+```
+[parameters]
+  theta TVCL(0.134, 0.001, 10.0)
+  theta TVV(8.1, 0.1, 500.0)
+  theta TVKA(1.0, 0.01, 50.0)
+
+  omega ETA_CL ~ 0.07
+  omega ETA_V  ~ 0.02
+  omega ETA_KA ~ 0.40
+
+  sigma PROP_ERR ~ 0.01
+
+[individual_parameters]
+  CL = TVCL * exp(ETA_CL)
+  V  = TVV  * exp(ETA_V)
+  KA = TVKA * exp(ETA_KA)
+
+[structural_model]
+  pk one_cpt_oral(cl=CL, v=V, ka=KA)
+
+[error_model]
+  DV ~ proportional(PROP_ERR)
+
+[initial_values]
+  theta = [0.2, 10.0, 1.5]
+  omega = [0.09, 0.04, 0.30]
+  sigma = [0.02]
+
+[fit_options]
+  method     = foce
+  maxiter    = 300
+  covariance = true
+```
+
+## 2. Prepare your data
+
+Data must be in NONMEM CSV format. The minimum required columns are `ID`, `TIME`, and `DV`. Dosing records use `EVID=1` with `AMT`:
+
+```csv
+ID,TIME,DV,EVID,AMT,CMT,MDV
+1,0,.,1,100,1,1
+1,0.5,9.49,0,.,.,0
+1,1,14.42,0,.,.,0
+1,2,17.56,0,.,.,0
+1,4,15.23,0,.,.,0
+1,8,10.15,0,.,.,0
+1,12,6.75,0,.,.,0
+1,24,2.24,0,.,.,0
+```
+
+## 3. Run the fit
+
+```bash
+ferx warfarin.ferx --data warfarin.csv
+```
+
+## 4. Interpret the output
+
+The console output shows the estimation progress and final results:
+
+```
+Starting FOCE estimation...
+  10 subjects, 110 observations
+  3 thetas, 3 etas, 1 sigmas
+...
+Final OFV = -280.1838
+
+============================================================
+NONLINEAR MIXED EFFECTS MODEL ESTIMATION
+============================================================
+
+Converged: YES
+Estimation method: FOCE
+
+--- Objective Function ---
+OFV:  -280.1838
+AIC:  -266.1838
+BIC:  -247.2804
+
+--- THETA Estimates ---
+Parameter            Estimate           SE       %RSE
+----------------------------------------------------
+TVCL                 0.132735     0.014549       11.0
+TVV                  7.694842     0.293028        3.8
+TVKA                 0.757498     0.034986        4.6
+
+--- OMEGA Estimates (variances) ---
+  OMEGA(1,1) = 0.028584  (CV% = 16.9)  SE = 0.006394
+  OMEGA(2,2) = 0.009613  (CV% = 9.8)   SE = 0.002165
+  OMEGA(3,3) = 0.340868  (CV% = 58.4)  SE = 0.076351
+
+--- SIGMA Estimates ---
+  SIGMA(1) = 0.010638  SE = 0.000788
+```
+
+## 5. Output files
+
+Three files are generated:
+
+| File | Contents |
+|------|----------|
+| `warfarin-sdtab.csv` | Per-observation diagnostics (PRED, IPRED, CWRES, IWRES, ETAs) |
+| `warfarin-fit.yaml` | Parameter estimates with standard errors in YAML format |
+| `warfarin-timing.txt` | Wall-clock estimation time |
+
+## Next Steps
+
+- Learn the full [Model File Reference](model-file/README.md)
+- Explore [Estimation Methods](estimation/README.md) (FOCE, FOCEI, SAEM)
+- See more [Examples](examples/README.md)
