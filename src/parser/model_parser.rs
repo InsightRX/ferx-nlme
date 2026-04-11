@@ -225,6 +225,8 @@ fn parse_fit_options(lines: &[String]) -> Result<FitOptions, String> {
                 let val = parts[1].to_lowercase();
                 if val.trim() == "saem" {
                     opts.method = EstimationMethod::Saem;
+                } else if val.contains("hybrid") || val.contains("gn_hybrid") || val.contains("gn-hybrid") {
+                    opts.method = EstimationMethod::FoceGnHybrid;
                 } else if val.contains("gn") || val.contains("gauss") {
                     opts.method = EstimationMethod::FoceGn;
                 } else if val.contains("focei") || val.contains("foce-i") || val.contains("interaction") {

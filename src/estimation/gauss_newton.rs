@@ -185,14 +185,35 @@ pub fn run_foce_gn(
     }
 
     let gn_ofv = ofv;
+    let do_polish = matches!(options.method, EstimationMethod::FoceGnHybrid);
 
-    // ---- Hybrid: polish with FOCEI from GN result ----
-    // The GN/BHHH step finds the basin quickly; FOCEI refines with exact gradients.
-    if verbose {
+    // ---- Optional hybrid: polish with FOCEI from GN result ----
+    if do_polish && verbose {
         eprintln!("GN phase done (OFV={:.4}). Polishing with FOCEI...", ofv);
     }
 
     let gn_params = unpack_params(&x, init_params);
+
+    if !do_polish {
+        // Pure GN — skip FOCEI polish, go directly to covariance step
+        let covariance_matrix = if options.run_covariance_step {
+            if verbose { eprintln!("Running covariance step..."); }
+            let cov = compute_covariance(
+                &x, &gn_params, model, population,
+                &eta_hats, &h_matrices, options,
+            );
+            if cov.is_none() { warnings.push("Covariance step failed".to_string()); }
+            cov
+        } else { None };
+
+        if verbose { eprintln!("FOCE-GN completed. Final OFV = {:.4}", ofv); }
+
+        return OuterResult {
+            params: gn_params, ofv, converged,
+            n_iterations: maxiter, eta_hats, h_matrices,
+            covariance_matrix, warnings,
+        };
+    }
 
     // Build FitOptions for the FOCEI polish: short maxiter, warm-started from GN
     let mut polish_options = options.clone();

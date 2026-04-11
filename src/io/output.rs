@@ -15,6 +15,7 @@ pub fn print_results(result: &FitResult) {
         EstimationMethod::FoceI => "FOCEI",
         EstimationMethod::Foce => "FOCE",
         EstimationMethod::FoceGn => "FOCE-GN",
+        EstimationMethod::FoceGnHybrid => "FOCE-GN-Hybrid",
     };
     eprintln!("Estimation method: {}", method_str);
     eprintln!("Iterations: {}", result.n_iterations);

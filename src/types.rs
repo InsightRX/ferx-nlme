@@ -303,7 +303,7 @@ pub struct FitOptions {
 impl Default for FitOptions {
     fn default() -> Self {
         Self {
-            method: EstimationMethod::FoceGn,
+            method: EstimationMethod::Foce,
             outer_maxiter: 500,
             outer_gtol: 1e-6,
             inner_maxiter: 200,
@@ -343,6 +343,7 @@ pub enum EstimationMethod {
     Foce,
     FoceI,
     FoceGn,
+    FoceGnHybrid,
     Saem,
 }
 
