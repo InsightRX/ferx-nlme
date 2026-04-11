@@ -184,17 +184,62 @@ pub fn run_foce_gn(
         warnings.push("Gauss-Newton: max iterations reached without convergence".to_string());
     }
 
-    // ---- Final parameters ----
-    let final_params = unpack_params(&x, init_params);
+    let gn_ofv = ofv;
+
+    // ---- Hybrid: polish with FOCEI from GN result ----
+    // The GN/BHHH step finds the basin quickly; FOCEI refines with exact gradients.
+    if verbose {
+        eprintln!("GN phase done (OFV={:.4}). Polishing with FOCEI...", ofv);
+    }
+
+    let gn_params = unpack_params(&x, init_params);
+
+    // Build FitOptions for the FOCEI polish: short maxiter, warm-started from GN
+    let mut polish_options = options.clone();
+    polish_options.method = EstimationMethod::Foce;
+    polish_options.outer_maxiter = 100;  // short polish
+    polish_options.global_search = false;
+    polish_options.run_covariance_step = false;  // defer to after polish
+
+    let polish_result = crate::estimation::outer_optimizer::optimize_population_warm(
+        model, population, &gn_params, &polish_options,
+        &eta_hats, &h_matrices,
+    );
+
+    let final_ofv;
+    let final_params;
+    let final_etas;
+    let final_h_mats;
+
+    if polish_result.ofv < gn_ofv {
+        if verbose {
+            eprintln!("  FOCEI polish improved OFV: {:.4} -> {:.4}",
+                       gn_ofv, polish_result.ofv);
+        }
+        final_ofv = polish_result.ofv;
+        final_params = polish_result.params;
+        final_etas = polish_result.eta_hats;
+        final_h_mats = polish_result.h_matrices;
+        converged = polish_result.converged || converged;
+    } else {
+        if verbose {
+            eprintln!("  FOCEI polish did not improve (GN result kept)");
+        }
+        final_ofv = gn_ofv;
+        final_params = gn_params;
+        final_etas = eta_hats;
+        final_h_mats = h_matrices;
+    }
 
     // ---- Covariance step ----
     let covariance_matrix = if options.run_covariance_step {
         if verbose {
             eprintln!("Running covariance step...");
         }
+        let packed = pack_params(&final_params);
         let cov = compute_covariance(
-            &x, &final_params, model, population,
-            &eta_hats, &h_matrices, options,
+            &packed, &final_params, model, population,
+            &final_etas, &final_h_mats, options,
         );
         if cov.is_none() {
             warnings.push("Covariance step failed".to_string());
@@ -205,16 +250,16 @@ pub fn run_foce_gn(
     };
 
     if verbose {
-        eprintln!("FOCE-GN completed. Final OFV = {:.4}", ofv);
+        eprintln!("FOCE-GN completed. Final OFV = {:.4}", final_ofv);
     }
 
     OuterResult {
         params: final_params,
-        ofv,
+        ofv: final_ofv,
         converged,
         n_iterations: maxiter,
-        eta_hats,
-        h_matrices,
+        eta_hats: final_etas,
+        h_matrices: final_h_mats,
         covariance_matrix,
         warnings,
     }
