@@ -296,6 +296,8 @@ pub struct FitOptions {
     pub saem_n_mh_steps: usize,
     pub saem_adapt_interval: usize,
     pub saem_seed: Option<u64>,
+    /// Levenberg-Marquardt damping factor for Gauss-Newton (0 = pure GN).
+    pub gn_lambda: f64,
 }
 
 impl Default for FitOptions {
@@ -318,6 +320,7 @@ impl Default for FitOptions {
             saem_n_mh_steps: 3,
             saem_adapt_interval: 50,
             saem_seed: None,
+            gn_lambda: 0.01,
         }
     }
 }
@@ -339,6 +342,7 @@ pub enum Optimizer {
 pub enum EstimationMethod {
     Foce,
     FoceI,
+    FoceGn,
     Saem,
 }
 

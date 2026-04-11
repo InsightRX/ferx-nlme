@@ -142,6 +142,7 @@ pub fn fit(
         EstimationMethod::Saem => "SAEM",
         EstimationMethod::FoceI => "FOCEI",
         EstimationMethod::Foce => "FOCE",
+        EstimationMethod::FoceGn => "FOCE-GN",
     };
     if options.verbose {
         eprintln!("Starting {} estimation...", method_name);
@@ -159,6 +160,9 @@ pub fn fit(
     // Run estimation
     let result = match options.method {
         EstimationMethod::Saem => saem::run_saem(model, population, init_params, options)?,
+        EstimationMethod::FoceGn => {
+            crate::estimation::gauss_newton::run_foce_gn(model, population, init_params, options)
+        }
         _ => optimize_population(model, population, init_params, options),
     };
 
