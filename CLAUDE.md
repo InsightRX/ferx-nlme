@@ -41,8 +41,17 @@ There is no test suite yet (`tests/` directory and `#[cfg(test)]` blocks are abs
 
 The estimation engine uses a nested optimization structure:
 
-- **Outer loop** (`estimation/outer_optimizer.rs`): Optimizes population parameters (theta, omega, sigma) using NLopt SLSQP/L-BFGS/MMA or built-in BFGS. Parameters are log-transformed for theta/sigma, Cholesky-factored for omega.
+- **Outer loop** (`estimation/outer_optimizer.rs`): Optimizes population parameters (theta, omega, sigma) using NLopt SLSQP (default), L-BFGS, MMA, or built-in BFGS. Parameters are log-transformed for theta/sigma, Cholesky-factored for omega.
 - **Inner loop** (`estimation/inner_optimizer.rs`): For each subject, finds empirical Bayes estimates (EBEs) of random effects (eta) by minimizing individual negative log-likelihood. Uses BFGS with warm-start from prior iteration; falls back to Nelder-Mead on failure.
+
+### Gauss-Newton (BHHH) Optimizer
+
+An alternative estimation method using the BHHH (Berndt-Hall-Hall-Hausman) approximation to the Hessian is available in `estimation/gauss_newton.rs`. It uses the outer product of per-subject gradients (`H ≈ Σ gᵢgᵢᵀ`) with Levenberg-Marquardt damping and backtracking line search. Two variants are available:
+
+- **`method = gn`** (pure Gauss-Newton): Fast convergence for well-conditioned problems.
+- **`method = gn_hybrid`**: Runs GN first, then polishes with FOCEI via `outer_optimizer.rs` for robustness.
+
+Set via `[fit_options]` in the model file or `EstimationMethod::FoceGn` / `FoceGnHybrid` in code.
 
 ### Model Pipeline
 
@@ -63,6 +72,7 @@ FitResult → io/output.rs → sdtab CSV + fit YAML
 | `pk/` | Analytical 1-cpt and 2-cpt PK solutions (IV, oral, infusion) with superposition |
 | `ode/solver.rs` | Dormand-Prince RK45 adaptive ODE solver |
 | `ode/predictions.rs` | ODE-based predictions with dose event handling |
+| `estimation/gauss_newton.rs` | Gauss-Newton (BHHH) optimizer with LM damping; pure GN and GN+FOCEI hybrid |
 | `estimation/parameterization.rs` | Pack/unpack optimizer vector (log-theta, Cholesky-omega, log-sigma) |
 | `stats/likelihood.rs` | Individual, FOCE, and FOCEI negative log-likelihood computations |
 | `stats/residual_error.rs` | Additive, proportional, combined error models; IWRES/CWRES |
