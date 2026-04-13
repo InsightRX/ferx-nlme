@@ -11,3 +11,4 @@ build-dir = "book"
 default-theme = "light"
 preferred-dark-theme = "ayu"
 git-repository-url = "https://github.com/insightrx/ferx-nlme"
+additional-js = ["mathjax-config.js"]
