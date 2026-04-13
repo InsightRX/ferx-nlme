@@ -36,10 +36,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "ayu";
-            window.path_to_searchindex_js = "searchindex-073890e9.js";
+            window.path_to_searchindex_js = "searchindex-9191bc24.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-6e3bedd3.js"></script>
+        <script src="toc-0538b220.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -982,6 +982,9 @@ sigma ADD_ERR  ~ 1.0
 <p><strong><a href="#foce--focei">FOCE / FOCEI</a></strong> – First-Order Conditional Estimation (with or without interaction). The workhorse of population PK, using nested optimization to find maximum likelihood estimates.</p>
 </li>
 <li>
+<p><strong><a href="#gauss-newton-bhhh">Gauss-Newton (BHHH)</a></strong> – A fast alternative that exploits the nonlinear-least-squares structure of the FOCE objective. Converges in 10-30 iterations using the outer product of per-subject gradients as an approximate Hessian. Available as pure GN or a GN+FOCEI hybrid.</p>
+</li>
+<li>
 <p><strong><a href="#saem-1">SAEM</a></strong> – Stochastic Approximation Expectation-Maximization. Uses MCMC sampling for random effects, providing more robust convergence on complex models.</p>
 </li>
 </ul>
@@ -989,20 +992,21 @@ sigma ADD_ERR  ~ 1.0
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Feature</th><th>FOCE/FOCEI</th><th>SAEM</th></tr>
+<tr><th>Feature</th><th>FOCE/FOCEI</th><th>Gauss-Newton</th><th>SAEM</th></tr>
 </thead>
 <tbody>
-<tr><td>Random effect estimation</td><td>MAP (optimization)</td><td>MCMC (sampling)</td></tr>
-<tr><td>Convergence speed</td><td>Fast (~50-100 iterations)</td><td>Slower (~400 iterations)</td></tr>
-<tr><td>Local minima robustness</td><td>Can get stuck</td><td>More robust</td></tr>
-<tr><td>Gradient required</td><td>Yes (AD or FD)</td><td>No (for E-step)</td></tr>
-<tr><td>Stochastic</td><td>No</td><td>Yes</td></tr>
-<tr><td>Best for</td><td>Simple models, quick iteration</td><td>Complex models, many random effects</td></tr>
+<tr><td>Random effect estimation</td><td>MAP (optimization)</td><td>MAP (optimization)</td><td>MCMC (sampling)</td></tr>
+<tr><td>Convergence speed</td><td>Medium (~50-100 evals)</td><td>Fast (~10-30 iterations)</td><td>Slower (~400 iterations)</td></tr>
+<tr><td>Local minima robustness</td><td>Can get stuck</td><td>Can get stuck</td><td>More robust</td></tr>
+<tr><td>Gradient required</td><td>Yes (AD or FD)</td><td>Yes (FD, per-subject)</td><td>No (for E-step)</td></tr>
+<tr><td>Stochastic</td><td>No</td><td>No</td><td>Yes</td></tr>
+<tr><td>Best for</td><td>General use</td><td>Fast iteration, well-conditioned models</td><td>Complex models, many random effects</td></tr>
 </tbody>
 </table>
 </div>
 <h2 id="choosing-a-method"><a class="header" href="#choosing-a-method">Choosing a Method</a></h2>
-<p><strong>Start with FOCE</strong> for standard 1- or 2-compartment models with 2-4 random effects. It is fast and deterministic.</p>
+<p><strong>Start with FOCE</strong> for standard 1- or 2-compartment models with 2-4 random effects. It is deterministic and well-understood.</p>
+<p><strong>Try Gauss-Newton (<code>gn</code> or <code>gn_hybrid</code>)</strong> when you want faster convergence during model development, or when FOCE is slow to converge.</p>
 <p><strong>Switch to SAEM</strong> when:</p>
 <ul>
 <li>FOCE fails to converge or produces implausible estimates</li>
@@ -1010,7 +1014,7 @@ sigma ADD_ERR  ~ 1.0
 <li>You suspect the FOCE solution is a local minimum</li>
 <li>The model has complex nonlinear random effect structure</li>
 </ul>
-<p>Both methods produce comparable results on well-behaved models. The final OFV from SAEM is computed using the FOCE approximation, so AIC/BIC values are directly comparable.</p>
+<p>All methods produce comparable results on well-behaved models. The final OFV from SAEM and GN is computed using the FOCE approximation, so AIC/BIC values are directly comparable.</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="foce--focei"><a class="header" href="#foce--focei">FOCE / FOCEI</a></h1>
 <p>First-Order Conditional Estimation (FOCE) and its interaction variant (FOCEI) are the primary estimation methods in FeRx. They use a two-level nested optimization to find maximum likelihood estimates of population parameters.</p>
@@ -1098,9 +1102,84 @@ sigma ADD_ERR  ~ 1.0
   optimizer  = slsqp
 </code></pre>
 <div style="break-before: page; page-break-before: always;"></div>
+<h1 id="gauss-newton-bhhh"><a class="header" href="#gauss-newton-bhhh">Gauss-Newton (BHHH)</a></h1>
+<p>The Gauss-Newton optimizer is an alternative to the standard FOCE/FOCEI approach that exploits the nonlinear-least-squares structure of the FOCE objective. It uses the BHHH (Berndt-Hall-Hall-Hausman) approximation to the Hessian and typically converges in 10-30 iterations, compared to 100+ evaluations for gradient-based methods like SLSQP.</p>
+<p>This approach mirrors NONMEM’s modified Gauss-Newton algorithm.</p>
+<h2 id="variants"><a class="header" href="#variants">Variants</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Method</th><th>Key</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td>Pure Gauss-Newton</td><td><code>gn</code></td><td>Fast convergence for well-conditioned problems</td></tr>
+<tr><td>GN + FOCEI hybrid</td><td><code>gn_hybrid</code></td><td>Runs GN first, then polishes with FOCEI for robustness</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="algorithm-overview-1"><a class="header" href="#algorithm-overview-1">Algorithm Overview</a></h2>
+<h3 id="bhhh-hessian-approximation"><a class="header" href="#bhhh-hessian-approximation">BHHH Hessian Approximation</a></h3>
+<p>The FOCE objective has the form:</p>
+<p>\[ \text{OFV} = 2 \sum_{i=1}^{N} \text{NLL}_i \]</p>
+<p>The BHHH approximation uses the outer product of per-subject gradients as an approximate Hessian:</p>
+<p>\[ H_{\text{BHHH}} = 4 \sum_{i=1}^{N} g_i , g_i^T \]</p>
+<p>where \( g_i = \nabla_x \text{NLL}_i \) is the gradient of the negative log-likelihood for subject \( i \) with respect to the packed parameter vector. Per-subject gradients are computed via central finite differences.</p>
+<p>This approximation is equivalent to the Gauss-Newton Hessian for log-likelihood objectives and is guaranteed positive semi-definite.</p>
+<h3 id="levenberg-marquardt-damping"><a class="header" href="#levenberg-marquardt-damping">Levenberg-Marquardt Damping</a></h3>
+<p>To improve stability away from the minimum, the Hessian is regularized:</p>
+<p>\[ H_{\text{LM}} = H_{\text{BHHH}} + \lambda , \text{diag}(H_{\text{BHHH}}) \]</p>
+<p>The damping factor \( \lambda \) is adapted during optimization:</p>
+<ul>
+<li><strong>On successful step</strong> (OFV decreases): \( \lambda \leftarrow 0.3 , \lambda \) (minimum \( 10^{-6} \))</li>
+<li><strong>On rejected step</strong> (OFV increases): \( \lambda \leftarrow 10 , \lambda \)</li>
+<li>If \( \lambda &gt; 10^6 \), the algorithm stops</li>
+</ul>
+<p>The Newton step is obtained by solving:</p>
+<p>\[ H_{\text{LM}} , \delta = -\nabla \text{OFV} \]</p>
+<p>via Cholesky decomposition. If the Cholesky fails (singular Hessian), \( \lambda \) is increased and the iteration is retried.</p>
+<h3 id="line-search"><a class="header" href="#line-search">Line Search</a></h3>
+<p>Each step uses backtracking line search (up to 15 halvings). At each trial point, EBEs are re-estimated via the inner loop (warm-started from the previous EBEs), ensuring the FOCE objective is evaluated consistently.</p>
+<h3 id="convergence-1"><a class="header" href="#convergence-1">Convergence</a></h3>
+<p>The algorithm converges when:</p>
+<ul>
+<li>Relative OFV change \( &lt; 10^{-6} \) for at least 3 iterations, or</li>
+<li>Maximum iterations are reached</li>
+</ul>
+<h2 id="hybrid-mode-gn--focei"><a class="header" href="#hybrid-mode-gn--focei">Hybrid Mode (GN + FOCEI)</a></h2>
+<p>When <code>method = gn_hybrid</code>, the algorithm runs in two phases:</p>
+<ol>
+<li><strong>GN phase</strong>: Run Gauss-Newton iterations to quickly find the basin of the minimum</li>
+<li><strong>FOCEI polish</strong>: Run up to 100 iterations of standard FOCEI optimization (via NLopt SLSQP) warm-started from the GN result</li>
+</ol>
+<p>The final result is whichever phase produced the lower OFV. This combines the fast convergence of Gauss-Newton with the refined accuracy of FOCEI.</p>
+<h2 id="configuration"><a class="header" href="#configuration">Configuration</a></h2>
+<pre><code>[fit_options]
+  method     = gn          # or gn_hybrid
+  maxiter    = 100         # max GN iterations
+  covariance = true
+</code></pre>
+<p>The initial Levenberg-Marquardt damping factor defaults to 0.01 and adapts automatically.</p>
+<h2 id="when-to-use-1"><a class="header" href="#when-to-use-1">When to Use</a></h2>
+<p><strong>Use <code>gn</code></strong> when:</p>
+<ul>
+<li>You want fast convergence and the model is well-conditioned</li>
+<li>You are iterating on model development and need quick feedback</li>
+</ul>
+<p><strong>Use <code>gn_hybrid</code></strong> when:</p>
+<ul>
+<li>You want robustness against local minima</li>
+<li>The model is complex (many parameters or random effects)</li>
+<li>You want the speed of GN with a safety net</li>
+</ul>
+<p><strong>Stick with <code>foce</code>/<code>focei</code></strong> when:</p>
+<ul>
+<li>The model has convergence issues with GN (rare)</li>
+<li>You need exact compatibility with standard FOCE/FOCEI results</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
 <h1 id="saem-1"><a class="header" href="#saem-1">SAEM</a></h1>
 <p>Stochastic Approximation Expectation-Maximization (SAEM) is an alternative estimation method that uses MCMC sampling for random effects instead of MAP optimization. It is more robust to local minima and can handle complex random effect structures.</p>
-<h2 id="algorithm-overview-1"><a class="header" href="#algorithm-overview-1">Algorithm Overview</a></h2>
+<h2 id="algorithm-overview-2"><a class="header" href="#algorithm-overview-2">Algorithm Overview</a></h2>
 <p>SAEM replaces the deterministic inner loop of FOCE with stochastic sampling, following the Monolix convention with a two-phase step-size schedule.</p>
 <h3 id="references"><a class="header" href="#references">References</a></h3>
 <ul>
@@ -1146,7 +1225,7 @@ sigma ADD_ERR  ~ 1.0
 <li><strong>Covariance Step</strong>: Optionally compute standard errors via finite-difference Hessian (same method as FOCE)</li>
 <li><strong>Diagnostics</strong>: Compute PRED, IPRED, CWRES, IWRES for each subject</li>
 </ol>
-<h2 id="configuration"><a class="header" href="#configuration">Configuration</a></h2>
+<h2 id="configuration-1"><a class="header" href="#configuration-1">Configuration</a></h2>
 <pre><code>[fit_options]
   method        = saem
   n_exploration = 150      # Phase 1 iterations

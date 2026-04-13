@@ -15,6 +15,7 @@
   - [Simulation](model-file/simulation.md)
 - [Estimation Methods](estimation/README.md)
   - [FOCE / FOCEI](estimation/foce.md)
+  - [Gauss-Newton (BHHH)](estimation/gauss-newton.md)
   - [SAEM](estimation/saem.md)
 - [Data Format](data-format.md)
 - [CLI Reference](cli.md)

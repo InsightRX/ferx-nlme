@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "ayu";
-            window.path_to_searchindex_js = "../searchindex-073890e9.js";
+            window.path_to_searchindex_js = "../searchindex-9191bc24.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-6e3bedd3.js"></script>
+        <script src="../toc-0538b220.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -184,6 +184,9 @@
 <p><strong><a href="foce.html">FOCE / FOCEI</a></strong> – First-Order Conditional Estimation (with or without interaction). The workhorse of population PK, using nested optimization to find maximum likelihood estimates.</p>
 </li>
 <li>
+<p><strong><a href="gauss-newton.html">Gauss-Newton (BHHH)</a></strong> – A fast alternative that exploits the nonlinear-least-squares structure of the FOCE objective. Converges in 10-30 iterations using the outer product of per-subject gradients as an approximate Hessian. Available as pure GN or a GN+FOCEI hybrid.</p>
+</li>
+<li>
 <p><strong><a href="saem.html">SAEM</a></strong> – Stochastic Approximation Expectation-Maximization. Uses MCMC sampling for random effects, providing more robust convergence on complex models.</p>
 </li>
 </ul>
@@ -191,20 +194,21 @@
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Feature</th><th>FOCE/FOCEI</th><th>SAEM</th></tr>
+<tr><th>Feature</th><th>FOCE/FOCEI</th><th>Gauss-Newton</th><th>SAEM</th></tr>
 </thead>
 <tbody>
-<tr><td>Random effect estimation</td><td>MAP (optimization)</td><td>MCMC (sampling)</td></tr>
-<tr><td>Convergence speed</td><td>Fast (~50-100 iterations)</td><td>Slower (~400 iterations)</td></tr>
-<tr><td>Local minima robustness</td><td>Can get stuck</td><td>More robust</td></tr>
-<tr><td>Gradient required</td><td>Yes (AD or FD)</td><td>No (for E-step)</td></tr>
-<tr><td>Stochastic</td><td>No</td><td>Yes</td></tr>
-<tr><td>Best for</td><td>Simple models, quick iteration</td><td>Complex models, many random effects</td></tr>
+<tr><td>Random effect estimation</td><td>MAP (optimization)</td><td>MAP (optimization)</td><td>MCMC (sampling)</td></tr>
+<tr><td>Convergence speed</td><td>Medium (~50-100 evals)</td><td>Fast (~10-30 iterations)</td><td>Slower (~400 iterations)</td></tr>
+<tr><td>Local minima robustness</td><td>Can get stuck</td><td>Can get stuck</td><td>More robust</td></tr>
+<tr><td>Gradient required</td><td>Yes (AD or FD)</td><td>Yes (FD, per-subject)</td><td>No (for E-step)</td></tr>
+<tr><td>Stochastic</td><td>No</td><td>No</td><td>Yes</td></tr>
+<tr><td>Best for</td><td>General use</td><td>Fast iteration, well-conditioned models</td><td>Complex models, many random effects</td></tr>
 </tbody>
 </table>
 </div>
 <h2 id="choosing-a-method"><a class="header" href="#choosing-a-method">Choosing a Method</a></h2>
-<p><strong>Start with FOCE</strong> for standard 1- or 2-compartment models with 2-4 random effects. It is fast and deterministic.</p>
+<p><strong>Start with FOCE</strong> for standard 1- or 2-compartment models with 2-4 random effects. It is deterministic and well-understood.</p>
+<p><strong>Try Gauss-Newton (<code>gn</code> or <code>gn_hybrid</code>)</strong> when you want faster convergence during model development, or when FOCE is slow to converge.</p>
 <p><strong>Switch to SAEM</strong> when:</p>
 <ul>
 <li>FOCE fails to converge or produces implausible estimates</li>
@@ -212,7 +216,7 @@
 <li>You suspect the FOCE solution is a local minimum</li>
 <li>The model has complex nonlinear random effect structure</li>
 </ul>
-<p>Both methods produce comparable results on well-behaved models. The final OFV from SAEM is computed using the FOCE approximation, so AIC/BIC values are directly comparable.</p>
+<p>All methods produce comparable results on well-behaved models. The final OFV from SAEM and GN is computed using the FOCE approximation, so AIC/BIC values are directly comparable.</p>
 
                     </main>
 

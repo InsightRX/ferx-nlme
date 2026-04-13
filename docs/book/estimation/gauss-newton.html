@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>ODE Models - FeRx-NLME Documentation</title>
+        <title>Gauss-Newton (BHHH) - FeRx-NLME Documentation</title>
 
 
         <!-- Custom HTML head -->
@@ -177,96 +177,90 @@
 
                 <div id="mdbook-content" class="content">
                     <main>
-                        <h1 id="ode-models"><a class="header" href="#ode-models">ODE Models</a></h1>
-<p>For pharmacokinetic models without analytical solutions (e.g., saturable elimination, target-mediated drug disposition), FeRx provides an ODE solver.</p>
-<h2 id="structural-model-declaration"><a class="header" href="#structural-model-declaration">Structural Model Declaration</a></h2>
-<pre><code>[structural_model]
-  ode(obs_cmt=OBSERVABLE_COMPARTMENT, states=[state1, state2, ...])
-</code></pre>
-<ul>
-<li><strong>obs_cmt</strong>: The compartment whose concentration is observed (matched to DV)</li>
-<li><strong>states</strong>: List of state variable names (compartments)</li>
-</ul>
-<h2 id="ode-equations"><a class="header" href="#ode-equations">ODE Equations</a></h2>
-<p>The <code>[odes]</code> block defines the right-hand side of the ODE system:</p>
-<pre><code>[odes]
-  d/dt(state_name) = expression
-</code></pre>
-<p>Expressions can reference:</p>
-<ul>
-<li>State variables by name</li>
-<li>Individual parameters defined in <code>[individual_parameters]</code></li>
-<li>Arithmetic operators and functions (<code>exp</code>, <code>log</code>, <code>sqrt</code>, etc.)</li>
-</ul>
-<h2 id="example-michaelis-menten-elimination"><a class="header" href="#example-michaelis-menten-elimination">Example: Michaelis-Menten Elimination</a></h2>
-<p>A one-compartment oral model with saturable (Michaelis-Menten) elimination:</p>
-<pre><code>[parameters]
-  theta TVVMAX(10.0, 0.1, 1000.0)
-  theta TVKM(2.0, 0.01, 100.0)
-  theta TVV(10.0, 0.1, 500.0)
-  theta TVKA(1.0, 0.01, 50.0)
-
-  omega ETA_VMAX ~ 0.09
-  omega ETA_V    ~ 0.04
-
-  sigma PROP_ERR ~ 0.1
-
-[individual_parameters]
-  VMAX = TVVMAX * exp(ETA_VMAX)
-  KM   = TVKM
-  V    = TVV * exp(ETA_V)
-  KA   = TVKA
-
-[structural_model]
-  ode(obs_cmt=central, states=[depot, central])
-
-[odes]
-  d/dt(depot)   = -KA * depot
-  d/dt(central) = KA * depot / V - VMAX * central / (KM + central)
-
-[error_model]
-  DV ~ proportional(PROP_ERR)
-</code></pre>
-<h2 id="solver-details"><a class="header" href="#solver-details">Solver Details</a></h2>
-<p>FeRx uses a Dormand-Prince RK45 adaptive solver:</p>
+                        <h1 id="gauss-newton-bhhh"><a class="header" href="#gauss-newton-bhhh">Gauss-Newton (BHHH)</a></h1>
+<p>The Gauss-Newton optimizer is an alternative to the standard FOCE/FOCEI approach that exploits the nonlinear-least-squares structure of the FOCE objective. It uses the BHHH (Berndt-Hall-Hall-Hausman) approximation to the Hessian and typically converges in 10-30 iterations, compared to 100+ evaluations for gradient-based methods like SLSQP.</p>
+<p>This approach mirrors NONMEM’s modified Gauss-Newton algorithm.</p>
+<h2 id="variants"><a class="header" href="#variants">Variants</a></h2>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Setting</th><th>Value</th></tr>
+<tr><th>Method</th><th>Key</th><th>Description</th></tr>
 </thead>
 <tbody>
-<tr><td>Method</td><td>Explicit Runge-Kutta 4(5)</td></tr>
-<tr><td>Absolute tolerance</td><td>1e-6</td></tr>
-<tr><td>Relative tolerance</td><td>1e-4</td></tr>
-<tr><td>Max steps</td><td>10,000</td></tr>
-<tr><td>Initial step size</td><td>0.1</td></tr>
-<tr><td>Minimum step size</td><td>1e-12</td></tr>
+<tr><td>Pure Gauss-Newton</td><td><code>gn</code></td><td>Fast convergence for well-conditioned problems</td></tr>
+<tr><td>GN + FOCEI hybrid</td><td><code>gn_hybrid</code></td><td>Runs GN first, then polishes with FOCEI for robustness</td></tr>
 </tbody>
 </table>
 </div>
-<p>The solver automatically adapts step sizes based on local error estimates.</p>
-<h2 id="dose-handling"><a class="header" href="#dose-handling">Dose Handling</a></h2>
+<h2 id="algorithm-overview"><a class="header" href="#algorithm-overview">Algorithm Overview</a></h2>
+<h3 id="bhhh-hessian-approximation"><a class="header" href="#bhhh-hessian-approximation">BHHH Hessian Approximation</a></h3>
+<p>The FOCE objective has the form:</p>
+<p>\[ \text{OFV} = 2 \sum_{i=1}^{N} \text{NLL}_i \]</p>
+<p>The BHHH approximation uses the outer product of per-subject gradients as an approximate Hessian:</p>
+<p>\[ H_{\text{BHHH}} = 4 \sum_{i=1}^{N} g_i , g_i^T \]</p>
+<p>where \( g_i = \nabla_x \text{NLL}_i \) is the gradient of the negative log-likelihood for subject \( i \) with respect to the packed parameter vector. Per-subject gradients are computed via central finite differences.</p>
+<p>This approximation is equivalent to the Gauss-Newton Hessian for log-likelihood objectives and is guaranteed positive semi-definite.</p>
+<h3 id="levenberg-marquardt-damping"><a class="header" href="#levenberg-marquardt-damping">Levenberg-Marquardt Damping</a></h3>
+<p>To improve stability away from the minimum, the Hessian is regularized:</p>
+<p>\[ H_{\text{LM}} = H_{\text{BHHH}} + \lambda , \text{diag}(H_{\text{BHHH}}) \]</p>
+<p>The damping factor \( \lambda \) is adapted during optimization:</p>
 <ul>
-<li><strong>Bolus doses</strong>: Applied as instantaneous state changes at dose times. The dose amount is added to the target compartment: <code>state[cmt] += amt</code></li>
-<li><strong>Compartment indexing</strong>: Compartments are 1-indexed in the data file (<code>CMT=1</code> corresponds to the first state in the <code>states</code> list)</li>
-<li><strong>Multiple doses</strong>: The ODE is integrated in segments between dose events, with state discontinuities at each dose</li>
+<li><strong>On successful step</strong> (OFV decreases): \( \lambda \leftarrow 0.3 , \lambda \) (minimum \( 10^{-6} \))</li>
+<li><strong>On rejected step</strong> (OFV increases): \( \lambda \leftarrow 10 , \lambda \)</li>
+<li>If \( \lambda &gt; 10^6 \), the algorithm stops</li>
 </ul>
-<h2 id="limitations"><a class="header" href="#limitations">Limitations</a></h2>
+<p>The Newton step is obtained by solving:</p>
+<p>\[ H_{\text{LM}} , \delta = -\nabla \text{OFV} \]</p>
+<p>via Cholesky decomposition. If the Cholesky fails (singular Hessian), \( \lambda \) is increased and the iteration is retried.</p>
+<h3 id="line-search"><a class="header" href="#line-search">Line Search</a></h3>
+<p>Each step uses backtracking line search (up to 15 halvings). At each trial point, EBEs are re-estimated via the inner loop (warm-started from the previous EBEs), ensuring the FOCE objective is evaluated consistently.</p>
+<h3 id="convergence"><a class="header" href="#convergence">Convergence</a></h3>
+<p>The algorithm converges when:</p>
 <ul>
-<li>Infusion doses (<code>RATE &gt; 0</code>) are not currently supported for ODE models. Use bolus approximations or analytical models for infusions</li>
-<li>The observable compartment contains the amount (not concentration). Divide by volume in the ODE equations if needed</li>
-<li>Steady-state (<code>SS=1</code>) is not directly supported for ODE models</li>
+<li>Relative OFV change \( &lt; 10^{-6} \) for at least 3 iterations, or</li>
+<li>Maximum iterations are reached</li>
+</ul>
+<h2 id="hybrid-mode-gn--focei"><a class="header" href="#hybrid-mode-gn--focei">Hybrid Mode (GN + FOCEI)</a></h2>
+<p>When <code>method = gn_hybrid</code>, the algorithm runs in two phases:</p>
+<ol>
+<li><strong>GN phase</strong>: Run Gauss-Newton iterations to quickly find the basin of the minimum</li>
+<li><strong>FOCEI polish</strong>: Run up to 100 iterations of standard FOCEI optimization (via NLopt SLSQP) warm-started from the GN result</li>
+</ol>
+<p>The final result is whichever phase produced the lower OFV. This combines the fast convergence of Gauss-Newton with the refined accuracy of FOCEI.</p>
+<h2 id="configuration"><a class="header" href="#configuration">Configuration</a></h2>
+<pre><code>[fit_options]
+  method     = gn          # or gn_hybrid
+  maxiter    = 100         # max GN iterations
+  covariance = true
+</code></pre>
+<p>The initial Levenberg-Marquardt damping factor defaults to 0.01 and adapts automatically.</p>
+<h2 id="when-to-use"><a class="header" href="#when-to-use">When to Use</a></h2>
+<p><strong>Use <code>gn</code></strong> when:</p>
+<ul>
+<li>You want fast convergence and the model is well-conditioned</li>
+<li>You are iterating on model development and need quick feedback</li>
+</ul>
+<p><strong>Use <code>gn_hybrid</code></strong> when:</p>
+<ul>
+<li>You want robustness against local minima</li>
+<li>The model is complex (many parameters or random effects)</li>
+<li>You want the speed of GN with a safety net</li>
+</ul>
+<p><strong>Stick with <code>foce</code>/<code>focei</code></strong> when:</p>
+<ul>
+<li>The model has convergence issues with GN (rare)</li>
+<li>You need exact compatibility with standard FOCE/FOCEI results</li>
 </ul>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../model-file/error-model.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../estimation/foce.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="../model-file/initial-values.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../estimation/saem.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -276,11 +270,11 @@
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../model-file/error-model.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../estimation/foce.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="../model-file/initial-values.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../estimation/saem.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>
