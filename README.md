@@ -112,7 +112,52 @@ The `examples/` directory contains ready-to-run models:
 
 ## R Package
 
-An R wrapper package (`ferx`) is available at `../ferx`, providing `ferx_fit()`, `ferx_simulate()`, and `ferx_predict()` functions that call into this Rust engine via extendr.
+An R wrapper package (`ferx`) provides `ferx_fit()`, `ferx_simulate()`, and `ferx_predict()` functions that call into this Rust engine via [extendr](https://extendr.github.io/). Source is at `../ferx`.
+
+### Installation
+
+```r
+# Build the Rust backend and load the package
+withr::with_dir("path/to/ferx", {
+  system("cd src/rust && cargo build --release")
+  devtools::load_all()
+})
+```
+
+### Fitting a model
+
+```r
+result <- ferx_fit(
+  model = "warfarin.ferx",
+  data  = "warfarin.csv",
+  method = "foce"        # or "focei"
+)
+
+result                   # prints summary with estimates and SEs
+result$theta             # named vector of fixed-effect estimates
+result$omega             # BSV covariance matrix
+result$sigma             # residual error estimates
+result$se_theta          # standard errors (NULL if covariance step failed)
+result$sdtab             # data.frame with ID, TIME, DV, PRED, IPRED, CWRES, IWRES, ETA1..n
+```
+
+### Simulation and VPC
+
+```r
+sim <- ferx_simulate("warfarin.ferx", "warfarin.csv", n_sim = 100, seed = 42)
+# Returns data.frame with SIM, ID, TIME, IPRED, DV_SIM
+
+library(vpc)
+obs <- read.csv("warfarin.csv")
+vpc(obs = obs, sim = sim, sim_cols = list(dv = "DV_SIM"))
+```
+
+### Population predictions
+
+```r
+preds <- ferx_predict("warfarin.ferx", "warfarin.csv")
+# Returns data.frame with ID, TIME, PRED (predictions at eta = 0)
+```
 
 ## License
 
