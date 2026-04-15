@@ -372,7 +372,7 @@ impl Default for FitOptions {
             gn_lambda: 0.01,
             sir: false,
             sir_samples: 1000,
-            sir_resamples: 500,
+            sir_resamples: 250,
             sir_seed: None,
         }
     }

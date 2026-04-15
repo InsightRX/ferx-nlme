@@ -337,7 +337,7 @@ fn parse_fit_options(lines: &[String]) -> Result<FitOptions, String> {
             "seed" => opts.saem_seed = parts[1].trim().parse().ok(),
             "sir" => opts.sir = parts[1].trim() == "true",
             "sir_samples" => opts.sir_samples = parts[1].trim().parse().unwrap_or(1000),
-            "sir_resamples" => opts.sir_resamples = parts[1].trim().parse().unwrap_or(500),
+            "sir_resamples" => opts.sir_resamples = parts[1].trim().parse().unwrap_or(250),
             "sir_seed" => opts.sir_seed = parts[1].trim().parse().ok(),
             _ => {}
         }
