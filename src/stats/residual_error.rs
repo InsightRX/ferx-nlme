@@ -55,3 +55,80 @@ pub fn compute_iwres(
         .map(|(&y, &f)| iwres(y, f, error_model, sigma_values))
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use approx::assert_relative_eq;
+
+    #[test]
+    fn test_additive_variance() {
+        let v = residual_variance(ErrorModel::Additive, 10.0, &[0.5]);
+        assert_relative_eq!(v, 0.25, epsilon = 1e-12);
+    }
+
+    #[test]
+    fn test_additive_variance_independent_of_prediction() {
+        let v1 = residual_variance(ErrorModel::Additive, 1.0, &[0.5]);
+        let v2 = residual_variance(ErrorModel::Additive, 100.0, &[0.5]);
+        assert_relative_eq!(v1, v2, epsilon = 1e-12);
+    }
+
+    #[test]
+    fn test_proportional_variance() {
+        // V = (f * sigma)^2 = (10 * 0.1)^2 = 1.0
+        let v = residual_variance(ErrorModel::Proportional, 10.0, &[0.1]);
+        assert_relative_eq!(v, 1.0, epsilon = 1e-12);
+    }
+
+    #[test]
+    fn test_proportional_variance_scales_with_prediction() {
+        let v1 = residual_variance(ErrorModel::Proportional, 10.0, &[0.1]);
+        let v2 = residual_variance(ErrorModel::Proportional, 20.0, &[0.1]);
+        assert_relative_eq!(v2 / v1, 4.0, epsilon = 1e-12);
+    }
+
+    #[test]
+    fn test_combined_variance() {
+        // V = (f * sigma1)^2 + sigma2^2 = (10 * 0.1)^2 + 0.5^2 = 1.0 + 0.25 = 1.25
+        let v = residual_variance(ErrorModel::Combined, 10.0, &[0.1, 0.5]);
+        assert_relative_eq!(v, 1.25, epsilon = 1e-12);
+    }
+
+    #[test]
+    fn test_min_variance_floor() {
+        // Proportional with f=0 gives V=0, should be floored to MIN_VARIANCE
+        let v = residual_variance(ErrorModel::Proportional, 0.0, &[0.1]);
+        assert_relative_eq!(v, MIN_VARIANCE, epsilon = 1e-20);
+    }
+
+    #[test]
+    fn test_iwres_perfect_prediction() {
+        let r = iwres(10.0, 10.0, ErrorModel::Additive, &[1.0]);
+        assert_relative_eq!(r, 0.0, epsilon = 1e-12);
+    }
+
+    #[test]
+    fn test_iwres_known_value() {
+        // IWRES = (y - f) / sqrt(V) = (12 - 10) / sqrt(1) = 2.0
+        let r = iwres(12.0, 10.0, ErrorModel::Additive, &[1.0]);
+        assert_relative_eq!(r, 2.0, epsilon = 1e-12);
+    }
+
+    #[test]
+    fn test_compute_r_diag_length() {
+        let ipreds = vec![1.0, 2.0, 3.0];
+        let r = compute_r_diag(ErrorModel::Additive, &ipreds, &[0.5]);
+        assert_eq!(r.len(), 3);
+    }
+
+    #[test]
+    fn test_compute_iwres_vectorized() {
+        let obs = vec![12.0, 22.0];
+        let ipreds = vec![10.0, 20.0];
+        let result = compute_iwres(&obs, &ipreds, ErrorModel::Additive, &[1.0]);
+        assert_eq!(result.len(), 2);
+        assert_relative_eq!(result[0], 2.0, epsilon = 1e-12);
+        assert_relative_eq!(result[1], 2.0, epsilon = 1e-12);
+    }
+}

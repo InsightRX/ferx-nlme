@@ -145,3 +145,159 @@ pub fn two_cpt_predict(
         two_cpt_iv_bolus(dose, t, cl, v1, q, v2)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use approx::assert_relative_eq;
+
+    fn bolus_dose(amt: f64) -> DoseEvent {
+        DoseEvent::new(0.0, amt, 1, 0.0, false, 0.0)
+    }
+
+    fn infusion_dose(amt: f64, rate: f64) -> DoseEvent {
+        DoseEvent::new(0.0, amt, 1, rate, false, 0.0)
+    }
+
+    // Typical 2-cpt PK parameters
+    const CL: f64 = 10.0;
+    const V1: f64 = 100.0;
+    const Q: f64 = 5.0;
+    const V2: f64 = 200.0;
+
+    // --- Macro rates ---
+
+    #[test]
+    fn test_macro_rates_positive() {
+        let (alpha, beta, k21) = macro_rates(CL, V1, Q, V2);
+        assert!(alpha > beta);
+        assert!(alpha > 0.0);
+        assert!(beta > 0.0);
+        assert!(k21 > 0.0);
+    }
+
+    #[test]
+    fn test_macro_rates_vieta() {
+        // alpha * beta = k10 * k21 (Vieta's formula)
+        let k10 = CL / V1;
+        let k21 = Q / V2;
+        let (alpha, beta, _) = macro_rates(CL, V1, Q, V2);
+        assert_relative_eq!(alpha * beta, k10 * k21, epsilon = 1e-10);
+    }
+
+    // --- IV Bolus ---
+
+    #[test]
+    fn test_iv_bolus_at_time_zero() {
+        let dose = bolus_dose(1000.0);
+        let c = two_cpt_iv_bolus(&dose, 0.0, CL, V1, Q, V2);
+        assert_relative_eq!(c, 1000.0 / V1, epsilon = 1e-10);
+    }
+
+    #[test]
+    fn test_iv_bolus_approaches_zero() {
+        let dose = bolus_dose(1000.0);
+        let c = two_cpt_iv_bolus(&dose, 10000.0, CL, V1, Q, V2);
+        assert!(c < 1e-20);
+    }
+
+    #[test]
+    fn test_iv_bolus_monotone_decrease_eventually() {
+        // After distribution phase, concentrations should decrease
+        let dose = bolus_dose(1000.0);
+        let c1 = two_cpt_iv_bolus(&dose, 50.0, CL, V1, Q, V2);
+        let c2 = two_cpt_iv_bolus(&dose, 100.0, CL, V1, Q, V2);
+        assert!(c2 < c1);
+    }
+
+    #[test]
+    fn test_iv_bolus_guard_clauses() {
+        let dose = bolus_dose(1000.0);
+        assert_eq!(two_cpt_iv_bolus(&dose, -1.0, CL, V1, Q, V2), 0.0);
+        assert_eq!(two_cpt_iv_bolus(&dose, 1.0, CL, 0.0, Q, V2), 0.0);
+        assert_eq!(two_cpt_iv_bolus(&dose, 1.0, 0.0, V1, Q, V2), 0.0);
+    }
+
+    // --- Infusion ---
+
+    #[test]
+    fn test_infusion_during() {
+        let dose = infusion_dose(1000.0, 100.0); // dur=10
+        let c = two_cpt_infusion(&dose, 5.0, CL, V1, Q, V2);
+        assert!(c > 0.0);
+    }
+
+    #[test]
+    fn test_infusion_continuity_at_end() {
+        let dose = infusion_dose(1000.0, 100.0); // dur=10
+        let dur = 10.0;
+        let c_at = two_cpt_infusion(&dose, dur, CL, V1, Q, V2);
+        let c_after = two_cpt_infusion(&dose, dur + 1e-10, CL, V1, Q, V2);
+        assert_relative_eq!(c_at, c_after, epsilon = 1e-5);
+    }
+
+    #[test]
+    fn test_infusion_after_decays() {
+        let dose = infusion_dose(1000.0, 100.0); // dur=10
+        let c1 = two_cpt_infusion(&dose, 50.0, CL, V1, Q, V2);
+        let c2 = two_cpt_infusion(&dose, 100.0, CL, V1, Q, V2);
+        assert!(c2 < c1);
+    }
+
+    // --- Oral ---
+
+    #[test]
+    fn test_oral_at_time_zero() {
+        let dose = bolus_dose(1000.0);
+        let c = two_cpt_oral(&dose, 0.0, CL, V1, Q, V2, 1.5);
+        assert_relative_eq!(c, 0.0, epsilon = 1e-10);
+    }
+
+    #[test]
+    fn test_oral_positive_at_peak() {
+        let dose = bolus_dose(1000.0);
+        let c = two_cpt_oral(&dose, 2.0, CL, V1, Q, V2, 1.5);
+        assert!(c > 0.0);
+    }
+
+    #[test]
+    fn test_oral_approaches_zero() {
+        let dose = bolus_dose(1000.0);
+        let c = two_cpt_oral(&dose, 10000.0, CL, V1, Q, V2, 1.5);
+        assert!(c < 1e-20);
+    }
+
+    #[test]
+    fn test_oral_bioavailability_scaling() {
+        let dose = bolus_dose(1000.0);
+        let c_full = two_cpt_oral_f(&dose, 2.0, CL, V1, Q, V2, 1.5, 1.0);
+        let c_half = two_cpt_oral_f(&dose, 2.0, CL, V1, Q, V2, 1.5, 0.5);
+        assert_relative_eq!(c_half / c_full, 0.5, epsilon = 1e-10);
+    }
+
+    // --- Predict dispatcher ---
+
+    #[test]
+    fn test_predict_routes_iv_bolus() {
+        let dose = bolus_dose(1000.0);
+        let direct = two_cpt_iv_bolus(&dose, 2.0, CL, V1, Q, V2);
+        let via_predict = two_cpt_predict(&dose, 2.0, CL, V1, Q, V2, None, None);
+        assert_relative_eq!(direct, via_predict, epsilon = 1e-12);
+    }
+
+    #[test]
+    fn test_predict_routes_oral() {
+        let dose = bolus_dose(1000.0);
+        let direct = two_cpt_oral(&dose, 2.0, CL, V1, Q, V2, 1.5);
+        let via_predict = two_cpt_predict(&dose, 2.0, CL, V1, Q, V2, Some(1.5), None);
+        assert_relative_eq!(direct, via_predict, epsilon = 1e-12);
+    }
+
+    #[test]
+    fn test_predict_routes_infusion() {
+        let dose = infusion_dose(1000.0, 100.0);
+        let direct = two_cpt_infusion(&dose, 2.0, CL, V1, Q, V2);
+        let via_predict = two_cpt_predict(&dose, 2.0, CL, V1, Q, V2, None, None);
+        assert_relative_eq!(direct, via_predict, epsilon = 1e-12);
+    }
+}

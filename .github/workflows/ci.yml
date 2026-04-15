@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Enzyme toolchain
+        run: rustup toolchain install enzyme --profile minimal
+      - name: Set Enzyme as default
+        run: rustup default enzyme
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo check
+        run: cargo check
+        env:
+          RUSTFLAGS: "-Z autodiff=Enable"
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Enzyme toolchain
+        run: rustup toolchain install enzyme --profile minimal
+      - name: Set Enzyme as default
+        run: rustup default enzyme
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo test
+        run: cargo test --lib
+        env:
+          RUSTFLAGS: "-Z autodiff=Enable"
+
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Enzyme toolchain
+        run: rustup toolchain install enzyme --profile minimal -c clippy
+      - name: Set Enzyme as default
+        run: rustup default enzyme
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo clippy
+        run: cargo clippy -- -D warnings
+        env:
+          RUSTFLAGS: "-Z autodiff=Enable"
+
+  fmt:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Enzyme toolchain
+        run: rustup toolchain install enzyme --profile minimal -c rustfmt
+      - name: Set Enzyme as default
+        run: rustup default enzyme
+      - name: cargo fmt
+        run: cargo fmt -- --check
