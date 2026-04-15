@@ -84,6 +84,8 @@ pub fn individual_nll_ad(
                     pk[PK_IDX_V2],
                     pk[PK_IDX_KA],
                     pk[PK_IDX_F],
+                    pk[PK_IDX_Q3],
+                    pk[PK_IDX_V3],
                 );
             }
         }
@@ -156,6 +158,8 @@ pub fn predict_all_ad(
                     pk[PK_IDX_V2],
                     pk[PK_IDX_KA],
                     pk[PK_IDX_F],
+                    pk[PK_IDX_Q3],
+                    pk[PK_IDX_V3],
                 );
             }
         }
@@ -177,6 +181,8 @@ fn single_dose_ad(
     v2: f64,
     ka: f64,
     f_bio: f64,
+    q3: f64,
+    v3: f64,
 ) -> f64 {
     if tau < 0.0 || v <= 0.0 || cl <= 0.0 {
         return 0.0;
@@ -268,8 +274,137 @@ fn single_dose_ad(
                 }
             }
         }
+        6 => {
+            // ThreeCptIvBolus
+            let (alpha, beta, gamma, k21, k31) = macro_rates_three_cpt_ad(cl, v, q, v2, q3, v3);
+            let ab = alpha - beta;
+            let ag = alpha - gamma;
+            let bg = beta - gamma;
+            if ab.abs() < 1e-12 || ag.abs() < 1e-12 || bg.abs() < 1e-12 {
+                return 0.0;
+            }
+            let d = amt / v;
+            let a = d * (alpha - k21) * (alpha - k31) / (ab * ag);
+            let b = d * (beta - k21) * (beta - k31) / (-ab * bg);
+            let g = d * (gamma - k21) * (gamma - k31) / (ag * bg);
+            a * (-alpha * tau).exp() + b * (-beta * tau).exp() + g * (-gamma * tau).exp()
+        }
+        7 => {
+            // ThreeCptOral
+            let (alpha, beta, gamma, k21, k31) = macro_rates_three_cpt_ad(cl, v, q, v2, q3, v3);
+            let ab = alpha - beta;
+            let ag = alpha - gamma;
+            let bg = beta - gamma;
+            if ab.abs() < 1e-12 || ag.abs() < 1e-12 || bg.abs() < 1e-12 {
+                return 0.0;
+            }
+            let coeff = f_bio * amt * ka / v;
+            let a_c = (alpha - k21) * (alpha - k31) / (ab * ag);
+            let b_c = (beta - k21) * (beta - k31) / (-ab * bg);
+            let g_c = (gamma - k21) * (gamma - k31) / (ag * bg);
+
+            let bateman_a = if (ka - alpha).abs() < 1e-6 {
+                tau * (-alpha * tau).exp()
+            } else {
+                ((-alpha * tau).exp() - (-ka * tau).exp()) / (ka - alpha)
+            };
+            let bateman_b = if (ka - beta).abs() < 1e-6 {
+                tau * (-beta * tau).exp()
+            } else {
+                ((-beta * tau).exp() - (-ka * tau).exp()) / (ka - beta)
+            };
+            let bateman_g = if (ka - gamma).abs() < 1e-6 {
+                tau * (-gamma * tau).exp()
+            } else {
+                ((-gamma * tau).exp() - (-ka * tau).exp()) / (ka - gamma)
+            };
+            coeff * (a_c * bateman_a + b_c * bateman_b + g_c * bateman_g)
+        }
+        8 => {
+            // ThreeCptInfusion
+            let (alpha, beta, gamma, k21, k31) = macro_rates_three_cpt_ad(cl, v, q, v2, q3, v3);
+            let ab = alpha - beta;
+            let ag = alpha - gamma;
+            let bg = beta - gamma;
+            if ab.abs() < 1e-12
+                || ag.abs() < 1e-12
+                || bg.abs() < 1e-12
+                || alpha.abs() < 1e-12
+                || beta.abs() < 1e-12
+                || gamma.abs() < 1e-12
+            {
+                return 0.0;
+            }
+            if dur <= 0.0 {
+                let d = amt / v;
+                let a = d * (alpha - k21) * (alpha - k31) / (ab * ag);
+                let b = d * (beta - k21) * (beta - k31) / (-ab * bg);
+                let g = d * (gamma - k21) * (gamma - k31) / (ag * bg);
+                a * (-alpha * tau).exp() + b * (-beta * tau).exp() + g * (-gamma * tau).exp()
+            } else {
+                let rv = rate / v;
+                let a_c = rv * (alpha - k21) * (alpha - k31) / (ab * ag * alpha);
+                let b_c = rv * (beta - k21) * (beta - k31) / (-ab * bg * beta);
+                let g_c = rv * (gamma - k21) * (gamma - k31) / (ag * bg * gamma);
+                if tau <= dur {
+                    a_c * (1.0 - (-alpha * tau).exp())
+                        + b_c * (1.0 - (-beta * tau).exp())
+                        + g_c * (1.0 - (-gamma * tau).exp())
+                } else {
+                    let dt = tau - dur;
+                    a_c * (1.0 - (-alpha * dur).exp()) * (-alpha * dt).exp()
+                        + b_c * (1.0 - (-beta * dur).exp()) * (-beta * dt).exp()
+                        + g_c * (1.0 - (-gamma * dur).exp()) * (-gamma * dt).exp()
+                }
+            }
+        }
         _ => 0.0,
     }
+}
+
+fn macro_rates_three_cpt_ad(
+    cl: f64,
+    v1: f64,
+    q2: f64,
+    v2: f64,
+    q3: f64,
+    v3: f64,
+) -> (f64, f64, f64, f64, f64) {
+    let k10 = cl / v1;
+    let k12 = q2 / v1;
+    let k21 = q2 / v2;
+    let k13 = q3 / v1;
+    let k31 = q3 / v3;
+
+    let s2 = k10 + k12 + k13 + k21 + k31;
+    let s1 = k10 * k21 + k10 * k31 + k21 * k31 + k12 * k31 + k13 * k21;
+    let s0 = k10 * k21 * k31;
+
+    let h = s2 / 3.0;
+    let p = s1 - s2 * s2 / 3.0;
+    let qq = s1 * s2 / 3.0 - 2.0 * s2 * s2 * s2 / 27.0 - s0;
+
+    let p_safe = if p < -1e-30 { p } else { -1e-30 };
+    let m = 2.0 * (-p_safe / 3.0).sqrt();
+    let mut arg = 3.0 * qq / (p_safe * m);
+    if arg < -1.0 {
+        arg = -1.0;
+    }
+    if arg > 1.0 {
+        arg = 1.0;
+    }
+    let phi = arg.acos() / 3.0;
+
+    let pi_2_3 = 2.0 * std::f64::consts::FRAC_PI_3;
+    let lambda0 = m * phi.cos() + h;
+    let lambda1 = m * (phi - pi_2_3).cos() + h;
+    let lambda2 = m * (phi - 2.0 * pi_2_3).cos() + h;
+
+    let alpha = lambda0.max(lambda1).max(lambda2);
+    let gamma = lambda0.min(lambda1).min(lambda2);
+    let beta = s2 - alpha - gamma;
+
+    (alpha, beta, gamma, k21, k31)
 }
 
 fn macro_rates(cl: f64, v1: f64, q: f64, v2: f64) -> (f64, f64, f64) {
@@ -315,6 +450,9 @@ pub fn pk_model_to_id(m: PkModel) -> i32 {
         PkModel::TwoCptIvBolus => 3,
         PkModel::TwoCptOral => 4,
         PkModel::TwoCptInfusion => 5,
+        PkModel::ThreeCptIvBolus => 6,
+        PkModel::ThreeCptOral => 7,
+        PkModel::ThreeCptInfusion => 8,
     }
 }
 
