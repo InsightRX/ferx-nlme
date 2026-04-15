@@ -13,7 +13,6 @@
 ///
 /// This approach mirrors NONMEM's modified Gauss-Newton algorithm and typically
 /// converges in 10-30 iterations vs 100+ for first-order methods.
-
 use crate::estimation::inner_optimizer::run_inner_loop_warm;
 use crate::estimation::outer_optimizer::{compute_covariance, OuterResult};
 use crate::estimation::parameterization::*;
@@ -35,7 +34,7 @@ pub fn run_foce_gn(
     let n_eta = model.n_eta;
     let verbose = options.verbose;
     let maxiter = options.outer_maxiter;
-    let mut lambda = options.gn_lambda;  // LM damping factor
+    let mut lambda = options.gn_lambda; // LM damping factor
 
     let bounds = compute_bounds(init_params);
     let mut x = pack_params(init_params);
@@ -53,14 +52,25 @@ pub fn run_foce_gn(
     // Initial inner loop
     let params = unpack_params(&x, init_params);
     let (mut eta_hats, mut h_matrices, _) = run_inner_loop_warm(
-        model, population, &params,
-        options.inner_maxiter, options.inner_tol, None,
+        model,
+        population,
+        &params,
+        options.inner_maxiter,
+        options.inner_tol,
+        None,
     );
 
-    let mut ofv = 2.0 * foce_population_nll(
-        model, population, &params.theta, &eta_hats, &h_matrices,
-        &params.omega, &params.sigma.values, options.interaction,
-    );
+    let mut ofv = 2.0
+        * foce_population_nll(
+            model,
+            population,
+            &params.theta,
+            &eta_hats,
+            &h_matrices,
+            &params.omega,
+            &params.sigma.values,
+            options.interaction,
+        );
 
     if verbose {
         eprintln!("  GN iter {:>3}: OFV = {:.6}", 0, ofv);
@@ -74,8 +84,14 @@ pub fn run_foce_gn(
         // ---- Build the BHHH system ----
         // Gradient + outer-product Hessian approximation
         let (grad, h_bhhh) = build_gn_system(
-            &x, init_params, model, population,
-            &eta_hats, &h_matrices, &bounds, options,
+            &x,
+            init_params,
+            model,
+            population,
+            &eta_hats,
+            &h_matrices,
+            &bounds,
+            options,
         );
 
         // ---- Levenberg-Marquardt damping ----
@@ -116,14 +132,23 @@ pub fn run_foce_gn(
 
             // Re-estimate EBEs at new parameters (warm-started)
             let (eh, hm, _) = run_inner_loop_warm(
-                model, population, &params_try,
-                options.inner_maxiter, options.inner_tol,
+                model,
+                population,
+                &params_try,
+                options.inner_maxiter,
+                options.inner_tol,
                 Some(&eta_new),
             );
 
             let nll = foce_population_nll(
-                model, population, &params_try.theta, &eh, &hm,
-                &params_try.omega, &params_try.sigma.values, options.interaction,
+                model,
+                population,
+                &params_try.theta,
+                &eh,
+                &hm,
+                &params_try.omega,
+                &params_try.sigma.values,
+                options.interaction,
             );
             let ofv_try = 2.0 * nll;
 
@@ -148,7 +173,10 @@ pub fn run_foce_gn(
                 break;
             }
             if verbose {
-                eprintln!("  GN iter {:>3}: step rejected, lambda -> {:.4}", iter, lambda);
+                eprintln!(
+                    "  GN iter {:>3}: step rejected, lambda -> {:.4}",
+                    iter, lambda
+                );
             }
             continue;
         }
@@ -166,8 +194,10 @@ pub fn run_foce_gn(
         lambda = (lambda * 0.3).max(1e-6);
 
         if verbose {
-            eprintln!("  GN iter {:>3}: OFV = {:.6}  (delta={:.2e}, lambda={:.4})",
-                       iter, ofv, ofv_change, lambda);
+            eprintln!(
+                "  GN iter {:>3}: OFV = {:.6}  (delta={:.2e}, lambda={:.4})",
+                iter, ofv, ofv_change, lambda
+            );
         }
 
         // Check convergence
@@ -197,34 +227,56 @@ pub fn run_foce_gn(
     if !do_polish {
         // Pure GN — skip FOCEI polish, go directly to covariance step
         let covariance_matrix = if options.run_covariance_step {
-            if verbose { eprintln!("Running covariance step..."); }
+            if verbose {
+                eprintln!("Running covariance step...");
+            }
             let cov = compute_covariance(
-                &x, &gn_params, model, population,
-                &eta_hats, &h_matrices, options,
+                &x,
+                &gn_params,
+                model,
+                population,
+                &eta_hats,
+                &h_matrices,
+                options,
             );
-            if cov.is_none() { warnings.push("Covariance step failed".to_string()); }
+            if cov.is_none() {
+                warnings.push("Covariance step failed".to_string());
+            }
             cov
-        } else { None };
+        } else {
+            None
+        };
 
-        if verbose { eprintln!("FOCE-GN completed. Final OFV = {:.4}", ofv); }
+        if verbose {
+            eprintln!("FOCE-GN completed. Final OFV = {:.4}", ofv);
+        }
 
         return OuterResult {
-            params: gn_params, ofv, converged,
-            n_iterations: maxiter, eta_hats, h_matrices,
-            covariance_matrix, warnings,
+            params: gn_params,
+            ofv,
+            converged,
+            n_iterations: maxiter,
+            eta_hats,
+            h_matrices,
+            covariance_matrix,
+            warnings,
         };
     }
 
     // Build FitOptions for the FOCEI polish: short maxiter, warm-started from GN
     let mut polish_options = options.clone();
     polish_options.method = EstimationMethod::Foce;
-    polish_options.outer_maxiter = 100;  // short polish
+    polish_options.outer_maxiter = 100; // short polish
     polish_options.global_search = false;
-    polish_options.run_covariance_step = false;  // defer to after polish
+    polish_options.run_covariance_step = false; // defer to after polish
 
     let polish_result = crate::estimation::outer_optimizer::optimize_population_warm(
-        model, population, &gn_params, &polish_options,
-        &eta_hats, &h_matrices,
+        model,
+        population,
+        &gn_params,
+        &polish_options,
+        &eta_hats,
+        &h_matrices,
     );
 
     let final_ofv;
@@ -234,8 +286,10 @@ pub fn run_foce_gn(
 
     if polish_result.ofv < gn_ofv {
         if verbose {
-            eprintln!("  FOCEI polish improved OFV: {:.4} -> {:.4}",
-                       gn_ofv, polish_result.ofv);
+            eprintln!(
+                "  FOCEI polish improved OFV: {:.4} -> {:.4}",
+                gn_ofv, polish_result.ofv
+            );
         }
         final_ofv = polish_result.ofv;
         final_params = polish_result.params;
@@ -259,8 +313,13 @@ pub fn run_foce_gn(
         }
         let packed = pack_params(&final_params);
         let cov = compute_covariance(
-            &packed, &final_params, model, population,
-            &final_etas, &final_h_mats, options,
+            &packed,
+            &final_params,
+            model,
+            population,
+            &final_etas,
+            &final_h_mats,
+            options,
         );
         if cov.is_none() {
             warnings.push("Covariance step failed".to_string());
@@ -311,9 +370,22 @@ fn build_gn_system(
 
     // Compute per-subject NLL at current point
     let params = unpack_params(x, template);
-    let nll_base: Vec<f64> = population.subjects.iter().enumerate().map(|(i, _)| {
-        subject_nll_at(model, population, i, &params, &eta_hats[i], &h_matrices[i], options)
-    }).collect();
+    let nll_base: Vec<f64> = population
+        .subjects
+        .iter()
+        .enumerate()
+        .map(|(i, _)| {
+            subject_nll_at(
+                model,
+                population,
+                i,
+                &params,
+                &eta_hats[i],
+                &h_matrices[i],
+                options,
+            )
+        })
+        .collect();
 
     // Compute per-subject gradient via central FD
     // g_i[j] = d(nll_i)/d(x_j) for each subject i, parameter j
@@ -326,19 +398,47 @@ fn build_gn_system(
         let xj_plus = (x[j] + h).min(bounds.upper[j]);
         let xj_minus = (x[j] - h).max(bounds.lower[j]);
         let actual_2h = xj_plus - xj_minus;
-        if actual_2h.abs() < 1e-16 { continue; }
+        if actual_2h.abs() < 1e-16 {
+            continue;
+        }
 
         x_work[j] = xj_plus;
         let params_plus = unpack_params(&x_work, template);
-        let nll_plus: Vec<f64> = population.subjects.iter().enumerate().map(|(i, _)| {
-            subject_nll_at(model, population, i, &params_plus, &eta_hats[i], &h_matrices[i], options)
-        }).collect();
+        let nll_plus: Vec<f64> = population
+            .subjects
+            .iter()
+            .enumerate()
+            .map(|(i, _)| {
+                subject_nll_at(
+                    model,
+                    population,
+                    i,
+                    &params_plus,
+                    &eta_hats[i],
+                    &h_matrices[i],
+                    options,
+                )
+            })
+            .collect();
 
         x_work[j] = xj_minus;
         let params_minus = unpack_params(&x_work, template);
-        let nll_minus: Vec<f64> = population.subjects.iter().enumerate().map(|(i, _)| {
-            subject_nll_at(model, population, i, &params_minus, &eta_hats[i], &h_matrices[i], options)
-        }).collect();
+        let nll_minus: Vec<f64> = population
+            .subjects
+            .iter()
+            .enumerate()
+            .map(|(i, _)| {
+                subject_nll_at(
+                    model,
+                    population,
+                    i,
+                    &params_minus,
+                    &eta_hats[i],
+                    &h_matrices[i],
+                    options,
+                )
+            })
+            .collect();
 
         x_work[j] = x[j];
 
@@ -399,9 +499,25 @@ fn subject_nll_at(
     };
 
     if options.interaction {
-        foce_subject_nll_interaction(subject, &ipreds, eta_hat, h_matrix, &params.omega, &params.sigma.values, model.error_model)
+        foce_subject_nll_interaction(
+            subject,
+            &ipreds,
+            eta_hat,
+            h_matrix,
+            &params.omega,
+            &params.sigma.values,
+            model.error_model,
+        )
     } else {
-        foce_subject_nll_standard(subject, &ipreds, eta_hat, h_matrix, &params.omega, &params.sigma.values, model.error_model)
+        foce_subject_nll_standard(
+            subject,
+            &ipreds,
+            eta_hat,
+            h_matrix,
+            &params.omega,
+            &params.sigma.values,
+            model.error_model,
+        )
     }
 }
 
@@ -417,8 +533,15 @@ fn foce_subject_nll_standard(
 ) -> f64 {
     let n_obs = subject.observations.len();
     let h_eta = h_matrix * eta_hat;
-    let f0: Vec<f64> = ipreds.iter().enumerate().map(|(j, &ip)| ip - h_eta[j]).collect();
-    let r_diag: Vec<f64> = f0.iter().map(|&f| residual_variance(error_model, f, sigma_values)).collect();
+    let f0: Vec<f64> = ipreds
+        .iter()
+        .enumerate()
+        .map(|(j, &ip)| ip - h_eta[j])
+        .collect();
+    let r_diag: Vec<f64> = f0
+        .iter()
+        .map(|&f| residual_variance(error_model, f, sigma_values))
+        .collect();
 
     let mut r_tilde = h_matrix * &omega.matrix * h_matrix.transpose();
     for j in 0..n_obs {
@@ -432,7 +555,11 @@ fn foce_subject_nll_standard(
 
     let residuals = DVector::from_iterator(
         n_obs,
-        subject.observations.iter().zip(f0.iter()).map(|(&y, &f)| y - f),
+        subject
+            .observations
+            .iter()
+            .zip(f0.iter())
+            .map(|(&y, &f)| y - f),
     );
 
     let solved = chol.solve(&residuals);
@@ -453,7 +580,10 @@ fn foce_subject_nll_interaction(
     error_model: ErrorModel,
 ) -> f64 {
     let n_obs = subject.observations.len();
-    let r_diag: Vec<f64> = ipreds.iter().map(|&f| residual_variance(error_model, f, sigma_values)).collect();
+    let r_diag: Vec<f64> = ipreds
+        .iter()
+        .map(|&f| residual_variance(error_model, f, sigma_values))
+        .collect();
 
     let mut r_tilde = h_matrix * &omega.matrix * h_matrix.transpose();
     for j in 0..n_obs {
@@ -473,7 +603,10 @@ fn foce_subject_nll_interaction(
     }
 
     // Eta prior
-    let omega_inv = omega.matrix.clone().cholesky()
+    let omega_inv = omega
+        .matrix
+        .clone()
+        .cholesky()
         .map(|c| c.inverse())
         .unwrap_or_else(|| DMatrix::identity(eta_hat.len(), eta_hat.len()));
     let omega_inv_mat = &omega_inv * omega_inv.transpose();

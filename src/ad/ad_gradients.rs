@@ -5,19 +5,32 @@
 //!   PK_param[i] = tv[i] * exp(eta[i])
 //! so only eta is differentiated.
 
-use std::autodiff::{autodiff_reverse, autodiff_forward};
 use crate::types::*;
+use std::autodiff::{autodiff_forward, autodiff_reverse};
 
 // ─── Individual NLL: reverse-mode AD for gradient w.r.t. eta ────────────────
 
 #[autodiff_reverse(
     individual_nll_ad_grad,
-    Duplicated, Const, Const, Const, Const, Const, Const, Const, Const, Const, Const, Const, Const, Active
+    Duplicated,
+    Const,
+    Const,
+    Const,
+    Const,
+    Const,
+    Const,
+    Const,
+    Const,
+    Const,
+    Const,
+    Const,
+    Const,
+    Active
 )]
 pub fn individual_nll_ad(
     eta: &[f64],
-    tv: &[f64],              // covariate-adjusted typical values, length n_eta
-    omega_inv_flat: &[f64],  // n_eta*n_eta, row-major
+    tv: &[f64],             // covariate-adjusted typical values, length n_eta
+    omega_inv_flat: &[f64], // n_eta*n_eta, row-major
     log_det_omega: f64,
     sigma_values: &[f64],
     dose_times: &[f64],
@@ -26,8 +39,8 @@ pub fn individual_nll_ad(
     dose_durations: &[f64],
     obs_times: &[f64],
     observations: &[f64],
-    pk_idx_f64: &[f64],      // PK parameter indices as f64 (cast to usize inside)
-    pk_and_err_model: f64,   // pk_model_id * 10 + error_model_id
+    pk_idx_f64: &[f64],    // PK parameter indices as f64 (cast to usize inside)
+    pk_and_err_model: f64, // pk_model_id * 10 + error_model_id
 ) -> f64 {
     let n_eta = eta.len();
     let n_doses = dose_times.len();
@@ -60,13 +73,23 @@ pub fn individual_nll_ad(
             if dose_times[d] <= t {
                 let tau = t - dose_times[d];
                 conc += single_dose_ad(
-                    pk_model_id, tau, dose_amts[d], dose_rates[d], dose_durations[d],
-                    pk[PK_IDX_CL], pk[PK_IDX_V], pk[PK_IDX_Q], pk[PK_IDX_V2],
-                    pk[PK_IDX_KA], pk[PK_IDX_F],
+                    pk_model_id,
+                    tau,
+                    dose_amts[d],
+                    dose_rates[d],
+                    dose_durations[d],
+                    pk[PK_IDX_CL],
+                    pk[PK_IDX_V],
+                    pk[PK_IDX_Q],
+                    pk[PK_IDX_V2],
+                    pk[PK_IDX_KA],
+                    pk[PK_IDX_F],
                 );
             }
         }
-        if conc < 0.0 { conc = 0.0; }
+        if conc < 0.0 {
+            conc = 0.0;
+        }
 
         let v = residual_variance_ad(error_model_id, conc, sigma_values);
         let resid = observations[obs_idx] - conc;
@@ -80,7 +103,16 @@ pub fn individual_nll_ad(
 
 #[autodiff_forward(
     predict_all_ad_tangent,
-    Dual, Const, Const, Const, Const, Const, Const, Const, Const, Dual
+    Dual,
+    Const,
+    Const,
+    Const,
+    Const,
+    Const,
+    Const,
+    Const,
+    Const,
+    Dual
 )]
 pub fn predict_all_ad(
     eta: &[f64],
@@ -90,7 +122,7 @@ pub fn predict_all_ad(
     dose_rates: &[f64],
     dose_durations: &[f64],
     obs_times: &[f64],
-    pk_idx_f64: &[f64],      // PK parameter indices as f64 (cast to usize inside)
+    pk_idx_f64: &[f64], // PK parameter indices as f64 (cast to usize inside)
     pk_model_id: f64,
     out: &mut [f64],
 ) {
@@ -113,9 +145,17 @@ pub fn predict_all_ad(
             if dose_times[d] <= t {
                 let tau = t - dose_times[d];
                 conc += single_dose_ad(
-                    pk_id, tau, dose_amts[d], dose_rates[d], dose_durations[d],
-                    pk[PK_IDX_CL], pk[PK_IDX_V], pk[PK_IDX_Q], pk[PK_IDX_V2],
-                    pk[PK_IDX_KA], pk[PK_IDX_F],
+                    pk_id,
+                    tau,
+                    dose_amts[d],
+                    dose_rates[d],
+                    dose_durations[d],
+                    pk[PK_IDX_CL],
+                    pk[PK_IDX_V],
+                    pk[PK_IDX_Q],
+                    pk[PK_IDX_V2],
+                    pk[PK_IDX_KA],
+                    pk[PK_IDX_F],
                 );
             }
         }
@@ -126,17 +166,30 @@ pub fn predict_all_ad(
 // ─── Inlined PK equations ───────────────────────────────────────────────────
 
 fn single_dose_ad(
-    pk_model_id: i32, tau: f64, amt: f64, rate: f64, dur: f64,
-    cl: f64, v: f64, q: f64, v2: f64, ka: f64, f_bio: f64,
+    pk_model_id: i32,
+    tau: f64,
+    amt: f64,
+    rate: f64,
+    dur: f64,
+    cl: f64,
+    v: f64,
+    q: f64,
+    v2: f64,
+    ka: f64,
+    f_bio: f64,
 ) -> f64 {
-    if tau < 0.0 || v <= 0.0 || cl <= 0.0 { return 0.0; }
+    if tau < 0.0 || v <= 0.0 || cl <= 0.0 {
+        return 0.0;
+    }
 
     match pk_model_id {
-        0 => { // OneCptIvBolus
+        0 => {
+            // OneCptIvBolus
             let k = cl / v;
             (amt / v) * (-k * tau).exp()
         }
-        1 => { // OneCptOral
+        1 => {
+            // OneCptOral
             let k = cl / v;
             let d = f_bio * amt;
             if (ka - k).abs() < 1e-6 {
@@ -145,7 +198,8 @@ fn single_dose_ad(
                 (d * ka / (v * (ka - k))) * ((-k * tau).exp() - (-ka * tau).exp())
             }
         }
-        2 => { // OneCptInfusion
+        2 => {
+            // OneCptInfusion
             let k = cl / v;
             if dur <= 0.0 {
                 (amt / v) * (-k * tau).exp()
@@ -155,18 +209,24 @@ fn single_dose_ad(
                 (rate / cl) * (1.0 - (-k * dur).exp()) * (-k * (tau - dur)).exp()
             }
         }
-        3 => { // TwoCptIvBolus
+        3 => {
+            // TwoCptIvBolus
             let (alpha, beta, k21) = macro_rates(cl, v, q, v2);
             let diff = alpha - beta;
-            if diff.abs() < 1e-12 { return 0.0; }
+            if diff.abs() < 1e-12 {
+                return 0.0;
+            }
             let a = (amt / v) * (alpha - k21) / diff;
             let b = (amt / v) * (k21 - beta) / diff;
             a * (-alpha * tau).exp() + b * (-beta * tau).exp()
         }
-        4 => { // TwoCptOral
+        4 => {
+            // TwoCptOral
             let (alpha, beta, k21) = macro_rates(cl, v, q, v2);
             let diff = alpha - beta;
-            if diff.abs() < 1e-12 { return 0.0; }
+            if diff.abs() < 1e-12 {
+                return 0.0;
+            }
             let coeff = f_bio * amt * ka / v;
             let p = if (ka - alpha).abs() < 1e-6 {
                 coeff * (alpha - k21) / diff * tau * (-alpha * tau).exp()
@@ -185,10 +245,13 @@ fn single_dose_ad(
             };
             p + q_val + r
         }
-        5 => { // TwoCptInfusion
+        5 => {
+            // TwoCptInfusion
             let (alpha, beta, k21) = macro_rates(cl, v, q, v2);
             let diff = alpha - beta;
-            if diff.abs() < 1e-12 || alpha.abs() < 1e-12 || beta.abs() < 1e-12 { return 0.0; }
+            if diff.abs() < 1e-12 || alpha.abs() < 1e-12 || beta.abs() < 1e-12 {
+                return 0.0;
+            }
             if dur <= 0.0 {
                 let a = (amt / v) * (alpha - k21) / diff;
                 let b = (amt / v) * (k21 - beta) / diff;
@@ -225,11 +288,21 @@ fn macro_rates(cl: f64, v1: f64, q: f64, v2: f64) -> (f64, f64, f64) {
 fn residual_variance_ad(error_model_id: i32, f_pred: f64, sigma: &[f64]) -> f64 {
     let v = match error_model_id {
         0 => sigma[0] * sigma[0],
-        1 => { let fs = f_pred * sigma[0]; fs * fs }
-        2 => { let p = f_pred * sigma[0]; p * p + sigma[1] * sigma[1] }
+        1 => {
+            let fs = f_pred * sigma[0];
+            fs * fs
+        }
+        2 => {
+            let p = f_pred * sigma[0];
+            p * p + sigma[1] * sigma[1]
+        }
         _ => sigma[0] * sigma[0],
     };
-    if v < 1e-12 { 1e-12 } else { v }
+    if v < 1e-12 {
+        1e-12
+    } else {
+        v
+    }
 }
 
 // ─── Enum → ID converters ───────────────────────────────────────────────────
@@ -340,14 +413,18 @@ pub fn compute_jacobian_ad(
         let mut d_out = vec![0.0f64; n_obs];
 
         predict_all_ad_tangent(
-            eta, &d_eta,
+            eta,
+            &d_eta,
             tv_adjusted,
-            &dose_data.times, &dose_data.amts,
-            &dose_data.rates, &dose_data.durations,
+            &dose_data.times,
+            &dose_data.amts,
+            &dose_data.rates,
+            &dose_data.durations,
             obs_times,
             &pk_idx_f64,
             pk_id,
-            &mut out, &mut d_out,
+            &mut out,
+            &mut d_out,
         );
 
         for i in 0..n_obs {

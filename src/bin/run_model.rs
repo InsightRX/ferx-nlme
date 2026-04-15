@@ -14,7 +14,10 @@ fn main() {
     }
 
     let model_path = &args[1];
-    let data_path = args.iter().position(|a| a == "--data").and_then(|i| args.get(i + 1));
+    let data_path = args
+        .iter()
+        .position(|a| a == "--data")
+        .and_then(|i| args.get(i + 1));
     let simulate = args.iter().any(|a| a == "--simulate");
 
     let t_start = Instant::now();
@@ -53,8 +56,10 @@ fn main() {
 
             // Write timing file alongside outputs
             let timing_path = format!("{}-timing.txt", model_name);
-            if let Ok(()) = std::fs::write(&timing_path,
-                format!("elapsed_seconds={:.6}\n", elapsed_secs)) {
+            if let Ok(()) = std::fs::write(
+                &timing_path,
+                format!("elapsed_seconds={:.6}\n", elapsed_secs),
+            ) {
                 eprintln!("Timing written to {}", timing_path);
             }
 

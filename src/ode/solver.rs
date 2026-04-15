@@ -125,24 +125,36 @@ pub fn solve_ode(
         // RK45 stages
         rhs(&u, params, t, &mut k1);
 
-        for i in 0..n { u_tmp[i] = u[i] + dt_eff * B21 * k1[i]; }
+        for i in 0..n {
+            u_tmp[i] = u[i] + dt_eff * B21 * k1[i];
+        }
         rhs(&u_tmp, params, t + A2 * dt_eff, &mut k2);
 
-        for i in 0..n { u_tmp[i] = u[i] + dt_eff * (B31 * k1[i] + B32 * k2[i]); }
+        for i in 0..n {
+            u_tmp[i] = u[i] + dt_eff * (B31 * k1[i] + B32 * k2[i]);
+        }
         rhs(&u_tmp, params, t + A3 * dt_eff, &mut k3);
 
-        for i in 0..n { u_tmp[i] = u[i] + dt_eff * (B41 * k1[i] + B42 * k2[i] + B43 * k3[i]); }
+        for i in 0..n {
+            u_tmp[i] = u[i] + dt_eff * (B41 * k1[i] + B42 * k2[i] + B43 * k3[i]);
+        }
         rhs(&u_tmp, params, t + A4 * dt_eff, &mut k4);
 
-        for i in 0..n { u_tmp[i] = u[i] + dt_eff * (B51 * k1[i] + B52 * k2[i] + B53 * k3[i] + B54 * k4[i]); }
+        for i in 0..n {
+            u_tmp[i] = u[i] + dt_eff * (B51 * k1[i] + B52 * k2[i] + B53 * k3[i] + B54 * k4[i]);
+        }
         rhs(&u_tmp, params, t + A5 * dt_eff, &mut k5);
 
-        for i in 0..n { u_tmp[i] = u[i] + dt_eff * (B61 * k1[i] + B62 * k2[i] + B63 * k3[i] + B64 * k4[i] + B65 * k5[i]); }
+        for i in 0..n {
+            u_tmp[i] = u[i]
+                + dt_eff * (B61 * k1[i] + B62 * k2[i] + B63 * k3[i] + B64 * k4[i] + B65 * k5[i]);
+        }
         rhs(&u_tmp, params, t + dt_eff, &mut k6);
 
         // 5th-order solution
         for i in 0..n {
-            u5[i] = u[i] + dt_eff * (B71 * k1[i] + B73 * k3[i] + B74 * k4[i] + B75 * k5[i] + B76 * k6[i]);
+            u5[i] = u[i]
+                + dt_eff * (B71 * k1[i] + B73 * k3[i] + B74 * k4[i] + B75 * k5[i] + B76 * k6[i]);
         }
 
         // Error estimate
@@ -150,7 +162,8 @@ pub fn solve_ode(
 
         let mut err_norm = 0.0;
         for i in 0..n {
-            let err_i = dt_eff * (E1 * k1[i] + E3 * k3[i] + E4 * k4[i] + E5 * k5[i] + E6 * k6[i] + E7 * k7[i]);
+            let err_i = dt_eff
+                * (E1 * k1[i] + E3 * k3[i] + E4 * k4[i] + E5 * k5[i] + E6 * k6[i] + E7 * k7[i]);
             let scale = opts.abstol + opts.reltol * u5[i].abs().max(u[i].abs());
             err_norm += (err_i / scale) * (err_i / scale);
         }
@@ -163,7 +176,10 @@ pub fn solve_ode(
 
             // Save at requested times
             while save_idx < saveat.len() && (t - saveat[save_idx]).abs() < 1e-12 {
-                results.push(SolPoint { t: saveat[save_idx], u: u.clone() });
+                results.push(SolPoint {
+                    t: saveat[save_idx],
+                    u: u.clone(),
+                });
                 save_idx += 1;
             }
         }
@@ -181,9 +197,97 @@ pub fn solve_ode(
 
     // Fill any remaining saveat points with last state
     while save_idx < saveat.len() {
-        results.push(SolPoint { t: saveat[save_idx], u: u.clone() });
+        results.push(SolPoint {
+            t: saveat[save_idx],
+            u: u.clone(),
+        });
         save_idx += 1;
     }
 
     results
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use approx::assert_relative_eq;
+
+    #[test]
+    fn test_exponential_decay() {
+        // du/dt = -k*u, u(0) = 1.0, k = 0.1
+        // Exact: u(t) = exp(-0.1*t)
+        let k = 0.1;
+        let rhs = |u: &[f64], _p: &[f64], _t: f64, du: &mut [f64]| {
+            du[0] = -k * u[0];
+        };
+        let saveat = vec![1.0, 5.0, 10.0, 20.0];
+        let opts = OdeSolverOptions::default();
+        let result = solve_ode(&rhs, &[1.0], (0.0, 20.0), &[], &saveat, &opts);
+
+        assert_eq!(result.len(), saveat.len());
+        for (sol, &t) in result.iter().zip(saveat.iter()) {
+            let exact = (-k * t).exp();
+            assert_relative_eq!(sol.u[0], exact, epsilon = 1e-4);
+            assert_relative_eq!(sol.t, t, epsilon = 1e-10);
+        }
+    }
+
+    #[test]
+    fn test_linear_growth() {
+        // du/dt = 1.0, u(0) = 0.0
+        // Exact: u(t) = t
+        let rhs = |_u: &[f64], _p: &[f64], _t: f64, du: &mut [f64]| {
+            du[0] = 1.0;
+        };
+        let saveat = vec![1.0, 5.0, 10.0];
+        let opts = OdeSolverOptions::default();
+        let result = solve_ode(&rhs, &[0.0], (0.0, 10.0), &[], &saveat, &opts);
+
+        for (sol, &t) in result.iter().zip(saveat.iter()) {
+            assert_relative_eq!(sol.u[0], t, epsilon = 1e-6);
+        }
+    }
+
+    #[test]
+    fn test_two_state_system() {
+        // du1/dt = -u1, du2/dt = u1 (transfer from cpt 1 to cpt 2)
+        // u1(t) = exp(-t), u2(t) = 1 - exp(-t)
+        let rhs = |u: &[f64], _p: &[f64], _t: f64, du: &mut [f64]| {
+            du[0] = -u[0];
+            du[1] = u[0];
+        };
+        let saveat = vec![1.0, 5.0, 10.0];
+        let opts = OdeSolverOptions::default();
+        let result = solve_ode(&rhs, &[1.0, 0.0], (0.0, 10.0), &[], &saveat, &opts);
+
+        for (sol, &t) in result.iter().zip(saveat.iter()) {
+            assert_relative_eq!(sol.u[0], (-t).exp(), epsilon = 1e-4);
+            assert_relative_eq!(sol.u[1], 1.0 - (-t).exp(), epsilon = 1e-4);
+        }
+    }
+
+    #[test]
+    fn test_zero_span_returns_initial() {
+        let rhs = |_u: &[f64], _p: &[f64], _t: f64, du: &mut [f64]| {
+            du[0] = 1.0;
+        };
+        let saveat = vec![5.0];
+        let opts = OdeSolverOptions::default();
+        let result = solve_ode(&rhs, &[42.0], (5.0, 5.0), &[], &saveat, &opts);
+        assert_eq!(result.len(), 1);
+        assert_relative_eq!(result[0].u[0], 42.0, epsilon = 1e-12);
+    }
+
+    #[test]
+    fn test_params_passed_to_rhs() {
+        // du/dt = p[0] * u, u(0) = 1
+        // with p[0] = -0.5: u(t) = exp(-0.5*t)
+        let rhs = |u: &[f64], p: &[f64], _t: f64, du: &mut [f64]| {
+            du[0] = p[0] * u[0];
+        };
+        let saveat = vec![2.0];
+        let opts = OdeSolverOptions::default();
+        let result = solve_ode(&rhs, &[1.0], (0.0, 2.0), &[-0.5], &saveat, &opts);
+        assert_relative_eq!(result[0].u[0], (-1.0_f64).exp(), epsilon = 1e-4);
+    }
 }

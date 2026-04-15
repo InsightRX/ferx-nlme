@@ -100,15 +100,24 @@ fn optimize_nlopt(
 
         // Run inner loop (warm-started)
         let (ehs, hms, _) = run_inner_loop_warm(
-            model, population, &params,
-            options.inner_maxiter, options.inner_tol,
+            model,
+            population,
+            &params,
+            options.inner_maxiter,
+            options.inner_tol,
             Some(&state.cached_etas),
         );
 
         // Compute OFV with fixed EBEs
         let nll = foce_population_nll(
-            model, population, &params.theta, &ehs, &hms,
-            &params.omega, &params.sigma.values, options.interaction,
+            model,
+            population,
+            &params.theta,
+            &ehs,
+            &hms,
+            &params.omega,
+            &params.sigma.values,
+            options.interaction,
         );
         let raw_ofv = 2.0 * nll;
         let ofv = if raw_ofv.is_finite() { raw_ofv } else { 1e20 };
@@ -128,13 +137,23 @@ fn optimize_nlopt(
             let ofv_fn = |xp: &[f64], eh: &[DVector<f64>], hm: &[DMatrix<f64>]| -> f64 {
                 let p = unpack_params(xp, init_params);
                 2.0 * foce_population_nll(
-                    model, population, &p.theta, eh, hm,
-                    &p.omega, &p.sigma.values, options.interaction,
+                    model,
+                    population,
+                    &p.theta,
+                    eh,
+                    hm,
+                    &p.omega,
+                    &p.sigma.values,
+                    options.interaction,
                 )
             };
             let grad_vec = gradient_cd(x, &bounds, &ehs, &hms, &ofv_fn);
             for i in 0..g.len() {
-                g[i] = if grad_vec[i].is_finite() { grad_vec[i] } else { 0.0 };
+                g[i] = if grad_vec[i].is_finite() {
+                    grad_vec[i]
+                } else {
+                    0.0
+                };
             }
         }
 
@@ -156,14 +175,18 @@ fn optimize_nlopt(
     let mut opt = nlopt::Nlopt::new(algo, n, objective, nlopt::Target::Minimize, state);
     opt.set_lower_bounds(&bounds.lower).unwrap();
     opt.set_upper_bounds(&bounds.upper).unwrap();
-    opt.set_maxeval(options.outer_maxiter as u32 * (n as u32 + 1)).unwrap();
+    opt.set_maxeval(options.outer_maxiter as u32 * (n as u32 + 1))
+        .unwrap();
     // Use very loose tolerances — FOCE objective is noisy from EBE re-estimation.
     // Let maxeval be the primary stopping criterion.
     opt.set_xtol_rel(1e-12).unwrap();
     opt.set_ftol_rel(1e-12).unwrap();
 
     if options.verbose {
-        eprintln!("Starting NLopt {:?} optimization ({} parameters)...", algo, n);
+        eprintln!(
+            "Starting NLopt {:?} optimization ({} parameters)...",
+            algo, n
+        );
     }
 
     // Run optimization
@@ -174,13 +197,16 @@ fn optimize_nlopt(
             if options.verbose {
                 eprintln!("NLopt finished: {:?}", status);
             }
-            (matches!(
-                status,
-                nlopt::SuccessState::Success
-                    | nlopt::SuccessState::FtolReached
-                    | nlopt::SuccessState::XtolReached
-                    | nlopt::SuccessState::StopValReached
-            ), algo)
+            (
+                matches!(
+                    status,
+                    nlopt::SuccessState::Success
+                        | nlopt::SuccessState::FtolReached
+                        | nlopt::SuccessState::XtolReached
+                        | nlopt::SuccessState::StopValReached
+                ),
+                algo,
+            )
         }
         Err((fail, _)) => {
             if options.verbose {
@@ -209,13 +235,22 @@ fn optimize_nlopt(
         let objective2 = |x: &[f64], grad: Option<&mut [f64]>, state: &mut NloptState| -> f64 {
             let params = unpack_params(x, init_params);
             let (ehs, hms, _) = run_inner_loop_warm(
-                model, population, &params,
-                options.inner_maxiter, options.inner_tol,
+                model,
+                population,
+                &params,
+                options.inner_maxiter,
+                options.inner_tol,
                 Some(&state.cached_etas),
             );
             let nll = foce_population_nll(
-                model, population, &params.theta, &ehs, &hms,
-                &params.omega, &params.sigma.values, options.interaction,
+                model,
+                population,
+                &params.theta,
+                &ehs,
+                &hms,
+                &params.omega,
+                &params.sigma.values,
+                options.interaction,
             );
             let raw_ofv = 2.0 * nll;
             let ofv = if raw_ofv.is_finite() { raw_ofv } else { 1e20 };
@@ -232,13 +267,23 @@ fn optimize_nlopt(
                 let ofv_fn = |xp: &[f64], eh: &[DVector<f64>], hm: &[DMatrix<f64>]| -> f64 {
                     let p = unpack_params(xp, init_params);
                     2.0 * foce_population_nll(
-                        model, population, &p.theta, eh, hm,
-                        &p.omega, &p.sigma.values, options.interaction,
+                        model,
+                        population,
+                        &p.theta,
+                        eh,
+                        hm,
+                        &p.omega,
+                        &p.sigma.values,
+                        options.interaction,
                     )
                 };
                 let grad_vec = gradient_cd(x, &bounds, &ehs, &hms, &ofv_fn);
                 for i in 0..g.len() {
-                    g[i] = if grad_vec[i].is_finite() { grad_vec[i] } else { 0.0 };
+                    g[i] = if grad_vec[i].is_finite() {
+                        grad_vec[i]
+                    } else {
+                        0.0
+                    };
                 }
             }
 
@@ -255,27 +300,37 @@ fn optimize_nlopt(
         };
 
         let mut opt2 = nlopt::Nlopt::new(
-            nlopt::Algorithm::Slsqp, n, objective2, nlopt::Target::Minimize, state2,
+            nlopt::Algorithm::Slsqp,
+            n,
+            objective2,
+            nlopt::Target::Minimize,
+            state2,
         );
         opt2.set_lower_bounds(&bounds.lower).unwrap();
         opt2.set_upper_bounds(&bounds.upper).unwrap();
-        opt2.set_maxeval(options.outer_maxiter as u32 * (n as u32 + 1)).unwrap();
+        opt2.set_maxeval(options.outer_maxiter as u32 * (n as u32 + 1))
+            .unwrap();
         opt2.set_xtol_rel(1e-12).unwrap();
         opt2.set_ftol_rel(1e-12).unwrap();
 
         let result2 = opt2.optimize(&mut x0);
         converged = match &result2 {
             Ok((status, _)) => {
-                if options.verbose { eprintln!("NLopt SLSQP finished: {:?}", status); }
-                matches!(status,
+                if options.verbose {
+                    eprintln!("NLopt SLSQP finished: {:?}", status);
+                }
+                matches!(
+                    status,
                     nlopt::SuccessState::Success
-                    | nlopt::SuccessState::FtolReached
-                    | nlopt::SuccessState::XtolReached
-                    | nlopt::SuccessState::StopValReached
+                        | nlopt::SuccessState::FtolReached
+                        | nlopt::SuccessState::XtolReached
+                        | nlopt::SuccessState::StopValReached
                 )
             }
             Err((fail, _)) => {
-                if options.verbose { eprintln!("NLopt SLSQP stopped: {:?}", fail); }
+                if options.verbose {
+                    eprintln!("NLopt SLSQP stopped: {:?}", fail);
+                }
                 matches!(fail, nlopt::FailState::RoundoffLimited)
             }
         };
@@ -286,14 +341,23 @@ fn optimize_nlopt(
 
     // Final inner loop at converged parameters (cold start is fine here)
     let (final_ehs, final_hms, _) = run_inner_loop_warm(
-        model, population, &final_params,
-        options.inner_maxiter, options.inner_tol,
+        model,
+        population,
+        &final_params,
+        options.inner_maxiter,
+        options.inner_tol,
         None,
     );
 
     let final_nll = foce_population_nll(
-        model, population, &final_params.theta, &final_ehs, &final_hms,
-        &final_params.omega, &final_params.sigma.values, options.interaction,
+        model,
+        population,
+        &final_params.theta,
+        &final_ehs,
+        &final_hms,
+        &final_params.omega,
+        &final_params.sigma.values,
+        options.interaction,
     );
     let final_ofv = 2.0 * final_nll;
 
@@ -306,7 +370,15 @@ fn optimize_nlopt(
         if options.verbose {
             eprintln!("Computing covariance matrix...");
         }
-        compute_covariance(&x0, init_params, model, population, &final_ehs, &final_hms, options)
+        compute_covariance(
+            &x0,
+            init_params,
+            model,
+            population,
+            &final_ehs,
+            &final_hms,
+            options,
+        )
     } else {
         None
     };
@@ -350,38 +422,58 @@ fn optimize_bfgs(
     let mut warnings = Vec::new();
     let mut cached_etas: Vec<DVector<f64>> = vec![DVector::zeros(n_eta); n_subj];
 
-    let ofv_at_fixed = |x: &[f64],
-                        eta_hats: &[DVector<f64>],
-                        h_matrices: &[DMatrix<f64>]|
-     -> f64 {
+    let ofv_at_fixed = |x: &[f64], eta_hats: &[DVector<f64>], h_matrices: &[DMatrix<f64>]| -> f64 {
         let params = unpack_params(x, init_params);
         2.0 * foce_population_nll(
-            model, population, &params.theta, eta_hats, h_matrices,
-            &params.omega, &params.sigma.values, options.interaction,
+            model,
+            population,
+            &params.theta,
+            eta_hats,
+            h_matrices,
+            &params.omega,
+            &params.sigma.values,
+            options.interaction,
         )
     };
 
     let f_only = |x: &[f64], prev_etas: &[DVector<f64>]| -> f64 {
         let params = unpack_params(x, init_params);
         let (ehs, hms, _) = run_inner_loop_warm(
-            model, population, &params,
-            options.inner_maxiter, options.inner_tol,
+            model,
+            population,
+            &params,
+            options.inner_maxiter,
+            options.inner_tol,
             Some(prev_etas),
         );
-        let ofv = 2.0 * foce_population_nll(
-            model, population, &params.theta, &ehs, &hms,
-            &params.omega, &params.sigma.values, options.interaction,
-        );
-        if ofv.is_finite() { ofv } else { 1e20 }
+        let ofv = 2.0
+            * foce_population_nll(
+                model,
+                population,
+                &params.theta,
+                &ehs,
+                &hms,
+                &params.omega,
+                &params.sigma.values,
+                options.interaction,
+            );
+        if ofv.is_finite() {
+            ofv
+        } else {
+            1e20
+        }
     };
 
-    let fdfg = |x: &[f64], prev_etas: &[DVector<f64>]|
-        -> (f64, Vec<f64>, Vec<DVector<f64>>, Vec<DMatrix<f64>>)
-    {
+    let fdfg = |x: &[f64],
+                prev_etas: &[DVector<f64>]|
+     -> (f64, Vec<f64>, Vec<DVector<f64>>, Vec<DMatrix<f64>>) {
         let params = unpack_params(x, init_params);
         let (ehs, hms, _) = run_inner_loop_warm(
-            model, population, &params,
-            options.inner_maxiter, options.inner_tol,
+            model,
+            population,
+            &params,
+            options.inner_maxiter,
+            options.inner_tol,
             Some(prev_etas),
         );
         let ofv = ofv_at_fixed(x, &ehs, &hms);
@@ -424,9 +516,8 @@ fn optimize_bfgs(
             h_inv = DMatrix::identity(n, n);
         }
 
-        let alpha = backtracking_line_search_warm(
-            &x, &d, &g, f_val, &bounds, &cached_etas, &f_only,
-        );
+        let alpha =
+            backtracking_line_search_warm(&x, &d, &g, f_val, &bounds, &cached_etas, &f_only);
 
         if alpha < 1e-18 {
             stall_count += 1;
@@ -477,8 +568,11 @@ fn optimize_bfgs(
 
     let final_params = unpack_params(&x, init_params);
     let (final_ehs, final_hms, _) = run_inner_loop_warm(
-        model, population, &final_params,
-        options.inner_maxiter, options.inner_tol,
+        model,
+        population,
+        &final_params,
+        options.inner_maxiter,
+        options.inner_tol,
         Some(&cached_etas),
     );
     let final_ofv = ofv_at_fixed(&x, &final_ehs, &final_hms);
@@ -487,7 +581,15 @@ fn optimize_bfgs(
         if options.verbose {
             eprintln!("Computing covariance matrix...");
         }
-        compute_covariance(&x, init_params, model, population, &final_ehs, &final_hms, options)
+        compute_covariance(
+            &x,
+            init_params,
+            model,
+            population,
+            &final_ehs,
+            &final_hms,
+            options,
+        )
     } else {
         None
     };
@@ -517,8 +619,10 @@ fn optimize_bfgs(
 
 fn bfgs_update(
     h_inv: &mut DMatrix<f64>,
-    x_new: &[f64], x_old: &[f64],
-    g_new: &[f64], g_old: &[f64],
+    x_new: &[f64],
+    x_old: &[f64],
+    g_new: &[f64],
+    g_old: &[f64],
     n: usize,
 ) {
     let s: Vec<f64> = (0..n).map(|i| x_new[i] - x_old[i]).collect();
@@ -556,7 +660,9 @@ fn gradient_cd(
         let xi_plus = (x[i] + h).min(bounds.upper[i]);
         let xi_minus = (x[i] - h).max(bounds.lower[i]);
         let actual_2h = xi_plus - xi_minus;
-        if actual_2h.abs() < 1e-16 { continue; }
+        if actual_2h.abs() < 1e-16 {
+            continue;
+        }
 
         x_work[i] = xi_plus;
         let f_plus = ofv(&x_work, eta_hats, h_matrices);
@@ -567,16 +673,22 @@ fn gradient_cd(
         // If either evaluation is non-finite, use one-sided FD from the base point
         if f_plus.is_finite() && f_minus.is_finite() {
             let gi = (f_plus - f_minus) / actual_2h;
-            if gi.is_finite() { g[i] = gi; }
+            if gi.is_finite() {
+                g[i] = gi;
+            }
         } else {
             // Fallback: one-sided from base
             let f0 = ofv(&x, eta_hats, h_matrices);
             if f_plus.is_finite() && f0.is_finite() {
                 let gi = (f_plus - f0) / (xi_plus - x[i]);
-                if gi.is_finite() { g[i] = gi; }
+                if gi.is_finite() {
+                    g[i] = gi;
+                }
             } else if f_minus.is_finite() && f0.is_finite() {
                 let gi = (f0 - f_minus) / (x[i] - xi_minus);
-                if gi.is_finite() { g[i] = gi; }
+                if gi.is_finite() {
+                    g[i] = gi;
+                }
             }
         }
     }
@@ -584,14 +696,20 @@ fn gradient_cd(
 }
 
 fn backtracking_line_search_warm(
-    x: &[f64], d: &[f64], g: &[f64], f0: f64,
-    bounds: &PackedBounds, prev_etas: &[DVector<f64>],
+    x: &[f64],
+    d: &[f64],
+    g: &[f64],
+    f0: f64,
+    bounds: &PackedBounds,
+    prev_etas: &[DVector<f64>],
     f_only: &dyn Fn(&[f64], &[DVector<f64>]) -> f64,
 ) -> f64 {
     let c1 = 1e-4;
     let n = x.len();
     let dg: f64 = d.iter().zip(g.iter()).map(|(di, gi)| di * gi).sum();
-    if dg >= 0.0 { return 0.0; }
+    if dg >= 0.0 {
+        return 0.0;
+    }
 
     let mut alpha = 1.0;
     let mut x_new = vec![0.0; n];
@@ -600,9 +718,13 @@ fn backtracking_line_search_warm(
             x_new[i] = (x[i] + alpha * d[i]).clamp(bounds.lower[i], bounds.upper[i]);
         }
         let f_new = f_only(&x_new, prev_etas);
-        if f_new <= f0 + c1 * alpha * dg { return alpha; }
+        if f_new <= f0 + c1 * alpha * dg {
+            return alpha;
+        }
         alpha *= 0.5;
-        if alpha < 1e-18 { return 0.0; }
+        if alpha < 1e-18 {
+            return 0.0;
+        }
     }
     0.0
 }
@@ -626,8 +748,14 @@ pub(crate) fn compute_covariance(
     let ofv_fixed = |x: &[f64]| -> f64 {
         let params = unpack_params(x, template);
         let foce_nll = foce_population_nll(
-            model, population, &params.theta, eta_hats, h_matrices,
-            &params.omega, &params.sigma.values, options.interaction,
+            model,
+            population,
+            &params.theta,
+            eta_hats,
+            h_matrices,
+            &params.omega,
+            &params.sigma.values,
+            options.interaction,
         );
 
         // Add explicit Omega prior terms for each subject
@@ -642,7 +770,11 @@ pub(crate) fn compute_covariance(
             let mut ld = 0.0;
             for i in 0..n_eta {
                 let lii = params.omega.chol[(i, i)];
-                if lii > 0.0 { ld += lii.ln(); } else { return 1e20; }
+                if lii > 0.0 {
+                    ld += lii.ln();
+                } else {
+                    return 1e20;
+                }
             }
             2.0 * ld
         };
@@ -715,15 +847,22 @@ pub(crate) fn compute_covariance(
     let mut n_nonfinite = 0;
     let mut n_zero = 0;
     for i in 0..n {
-        if hess[(i, i)].abs() < 1e-30 { n_zero += 1; }
+        if hess[(i, i)].abs() < 1e-30 {
+            n_zero += 1;
+        }
         for j in 0..n {
-            if !hess[(i, j)].is_finite() { n_nonfinite += 1; }
+            if !hess[(i, j)].is_finite() {
+                n_nonfinite += 1;
+            }
         }
     }
 
     if n_nonfinite > 0 || n_zero > 0 {
         if options.verbose {
-            eprintln!("  Covariance failed: Hessian has {} non-finite, {} zero-diagonal entries", n_nonfinite, n_zero);
+            eprintln!(
+                "  Covariance failed: Hessian has {} non-finite, {} zero-diagonal entries",
+                n_nonfinite, n_zero
+            );
         }
         return None;
     }
@@ -739,7 +878,10 @@ pub(crate) fn compute_covariance(
                 Some(cov)
             } else {
                 if options.verbose {
-                    eprintln!("  Covariance failed: negative diagonal at indices {:?}", neg_diag);
+                    eprintln!(
+                        "  Covariance failed: negative diagonal at indices {:?}",
+                        neg_diag
+                    );
                 }
                 None
             }

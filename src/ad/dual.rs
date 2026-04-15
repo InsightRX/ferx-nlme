@@ -24,7 +24,10 @@ impl Dual {
 
     pub fn exp(self) -> Self {
         let e = self.val.exp();
-        Self { val: e, deriv: self.deriv * e }
+        Self {
+            val: e,
+            deriv: self.deriv * e,
+        }
     }
 
     pub fn ln(self) -> Self {
@@ -38,7 +41,11 @@ impl Dual {
         let s = self.val.max(0.0).sqrt();
         Self {
             val: s,
-            deriv: if s > 1e-30 { self.deriv / (2.0 * s) } else { 0.0 },
+            deriv: if s > 1e-30 {
+                self.deriv / (2.0 * s)
+            } else {
+                0.0
+            },
         }
     }
 
@@ -46,7 +53,10 @@ impl Dual {
         if self.val >= 0.0 {
             self
         } else {
-            Self { val: -self.val, deriv: -self.deriv }
+            Self {
+                val: -self.val,
+                deriv: -self.deriv,
+            }
         }
     }
 
@@ -78,14 +88,20 @@ impl Dual {
 impl std::ops::Add for Dual {
     type Output = Dual;
     fn add(self, rhs: Dual) -> Dual {
-        Dual { val: self.val + rhs.val, deriv: self.deriv + rhs.deriv }
+        Dual {
+            val: self.val + rhs.val,
+            deriv: self.deriv + rhs.deriv,
+        }
     }
 }
 
 impl std::ops::Sub for Dual {
     type Output = Dual;
     fn sub(self, rhs: Dual) -> Dual {
-        Dual { val: self.val - rhs.val, deriv: self.deriv - rhs.deriv }
+        Dual {
+            val: self.val - rhs.val,
+            deriv: self.deriv - rhs.deriv,
+        }
     }
 }
 
@@ -115,7 +131,10 @@ impl std::ops::Div for Dual {
 impl std::ops::Neg for Dual {
     type Output = Dual;
     fn neg(self) -> Dual {
-        Dual { val: -self.val, deriv: -self.deriv }
+        Dual {
+            val: -self.val,
+            deriv: -self.deriv,
+        }
     }
 }
 

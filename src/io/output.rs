@@ -32,7 +32,10 @@ pub fn print_results(result: &FitResult) {
 
     // Theta estimates
     eprintln!("\n--- THETA Estimates ---");
-    eprintln!("{:<16} {:>12} {:>12} {:>10}", "Parameter", "Estimate", "SE", "%RSE");
+    eprintln!(
+        "{:<16} {:>12} {:>12} {:>10}",
+        "Parameter", "Estimate", "SE", "%RSE"
+    );
     eprintln!("{}", "-".repeat(52));
     for (i, name) in result.theta_names.iter().enumerate() {
         let est = result.theta[i];
@@ -56,17 +59,19 @@ pub fn print_results(result: &FitResult) {
     let n_eta = result.omega.nrows();
     for i in 0..n_eta {
         let var = result.omega[(i, i)];
-        let cv = if var > 0.0 {
-            var.sqrt() * 100.0
-        } else {
-            0.0
-        };
+        let cv = if var > 0.0 { var.sqrt() * 100.0 } else { 0.0 };
         let se_str = match &result.se_omega {
             Some(se) if i < se.len() => format!("{:.6}", se[i]),
             _ => "N/A".to_string(),
         };
-        eprintln!("  OMEGA({},{}) = {:.6}  (CV% = {:.1})  SE = {}",
-            i + 1, i + 1, var, cv, se_str);
+        eprintln!(
+            "  OMEGA({},{}) = {:.6}  (CV% = {:.1})  SE = {}",
+            i + 1,
+            i + 1,
+            var,
+            cv,
+            se_str
+        );
     }
 
     // Sigma estimates
@@ -152,8 +157,8 @@ pub fn write_sdtab_csv(
     }
 
     let n_rows = cols[0].1.len();
-    let mut f = std::fs::File::create(path)
-        .map_err(|e| format!("Failed to create {}: {}", path, e))?;
+    let mut f =
+        std::fs::File::create(path).map_err(|e| format!("Failed to create {}: {}", path, e))?;
 
     use std::io::Write;
 
@@ -174,18 +179,20 @@ pub fn write_sdtab_csv(
 }
 
 /// Write parameter estimates and uncertainty as YAML
-pub fn write_estimates_yaml(
-    result: &FitResult,
-    path: &str,
-) -> Result<(), String> {
+pub fn write_estimates_yaml(result: &FitResult, path: &str) -> Result<(), String> {
     use std::io::Write;
 
-    let mut f = std::fs::File::create(path)
-        .map_err(|e| format!("Failed to create {}: {}", path, e))?;
+    let mut f =
+        std::fs::File::create(path).map_err(|e| format!("Failed to create {}: {}", path, e))?;
 
     writeln!(f, "model:").map_err(|e| e.to_string())?;
     writeln!(f, "  converged: {}", result.converged).map_err(|e| e.to_string())?;
-    writeln!(f, "  method: FOCE{}", if result.interaction { "I" } else { "" }).map_err(|e| e.to_string())?;
+    writeln!(
+        f,
+        "  method: FOCE{}",
+        if result.interaction { "I" } else { "" }
+    )
+    .map_err(|e| e.to_string())?;
 
     writeln!(f, "\nobjective_function:").map_err(|e| e.to_string())?;
     writeln!(f, "  ofv: {:.6}", result.ofv).map_err(|e| e.to_string())?;
@@ -201,7 +208,13 @@ pub fn write_estimates_yaml(
     for (i, name) in result.theta_names.iter().enumerate() {
         let est = result.theta[i];
         let se = result.se_theta.as_ref().map(|v| v[i]);
-        let rse = se.map(|s| if est.abs() > 1e-12 { (s / est.abs()) * 100.0 } else { f64::NAN });
+        let rse = se.map(|s| {
+            if est.abs() > 1e-12 {
+                (s / est.abs()) * 100.0
+            } else {
+                f64::NAN
+            }
+        });
         writeln!(f, "  {}:", name).map_err(|e| e.to_string())?;
         writeln!(f, "    estimate: {:.6}", est).map_err(|e| e.to_string())?;
         match se {
@@ -266,12 +279,19 @@ pub fn parameter_table(result: &FitResult) -> String {
         let (se_str, rse_str) = match &result.se_theta {
             Some(se) => {
                 let se_val = se[i];
-                let rse = if est.abs() > 1e-12 { (se_val / est.abs()) * 100.0 } else { f64::NAN };
+                let rse = if est.abs() > 1e-12 {
+                    (se_val / est.abs()) * 100.0
+                } else {
+                    f64::NAN
+                };
                 (format!("{:.6}", se_val), format!("{:.1}", rse))
             }
             None => ("---".to_string(), "---".to_string()),
         };
-        lines.push(format!("{:<20} {:>12.6} {:>12} {:>10} {:>8}", name, est, se_str, rse_str, "THETA"));
+        lines.push(format!(
+            "{:<20} {:>12.6} {:>12} {:>10} {:>8}",
+            name, est, se_str, rse_str, "THETA"
+        ));
     }
 
     let n_eta = result.omega.nrows();
@@ -279,13 +299,19 @@ pub fn parameter_table(result: &FitResult) -> String {
         for j in 0..=i {
             let val = result.omega[(i, j)];
             let name = format!("OMEGA({},{})", i + 1, j + 1);
-            lines.push(format!("{:<20} {:>12.6} {:>12} {:>10} {:>8}", name, val, "---", "---", "OMEGA"));
+            lines.push(format!(
+                "{:<20} {:>12.6} {:>12} {:>10} {:>8}",
+                name, val, "---", "---", "OMEGA"
+            ));
         }
     }
 
     for (i, &s) in result.sigma.iter().enumerate() {
         let name = format!("SIGMA({})", i + 1);
-        lines.push(format!("{:<20} {:>12.6} {:>12} {:>10} {:>8}", name, s, "---", "---", "SIGMA"));
+        lines.push(format!(
+            "{:<20} {:>12.6} {:>12} {:>10} {:>8}",
+            name, s, "---", "---", "SIGMA"
+        ));
     }
 
     lines.join("\n")

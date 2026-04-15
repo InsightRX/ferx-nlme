@@ -5,15 +5,15 @@ use std::path::Path;
 
 /// Parse a model file (.ferx) and return a CompiledModel.
 pub fn parse_model_file(path: &Path) -> Result<CompiledModel, String> {
-    let content = std::fs::read_to_string(path)
-        .map_err(|e| format!("Failed to read model file: {}", e))?;
+    let content =
+        std::fs::read_to_string(path).map_err(|e| format!("Failed to read model file: {}", e))?;
     parse_model_string(&content)
 }
 
 /// Parse a full model file including simulation spec, initial values, and fit options.
 pub fn parse_full_model_file(path: &Path) -> Result<ParsedModel, String> {
-    let content = std::fs::read_to_string(path)
-        .map_err(|e| format!("Failed to read model file: {}", e))?;
+    let content =
+        std::fs::read_to_string(path).map_err(|e| format!("Failed to read model file: {}", e))?;
     parse_full_model(&content)
 }
 
@@ -29,15 +29,23 @@ pub fn parse_full_model(content: &str) -> Result<ParsedModel, String> {
     let name = extract_model_name(content);
 
     // ── Required blocks ──
-    let param_lines = blocks.get("parameters").ok_or("Missing [parameters] block")?;
+    let param_lines = blocks
+        .get("parameters")
+        .ok_or("Missing [parameters] block")?;
     let (thetas, omegas, sigmas) = parse_parameters(param_lines)?;
 
-    let struct_lines = blocks.get("structural_model").ok_or("Missing [structural_model] block")?;
+    let struct_lines = blocks
+        .get("structural_model")
+        .ok_or("Missing [structural_model] block")?;
 
-    let error_lines = blocks.get("error_model").ok_or("Missing [error_model] block")?;
+    let error_lines = blocks
+        .get("error_model")
+        .ok_or("Missing [error_model] block")?;
     let (error_model, _) = parse_error_model(error_lines)?;
 
-    let indiv_lines = blocks.get("individual_parameters").ok_or("Missing [individual_parameters] block")?;
+    let indiv_lines = blocks
+        .get("individual_parameters")
+        .ok_or("Missing [individual_parameters] block")?;
 
     let theta_names: Vec<String> = thetas.iter().map(|t| t.name.clone()).collect();
     let eta_names: Vec<String> = omegas.iter().map(|o| o.name.clone()).collect();
@@ -47,16 +55,28 @@ pub fn parse_full_model(content: &str) -> Result<ParsedModel, String> {
     let n_epsilon = sigma_names.len();
 
     // Detect ODE vs analytical model
-    let is_ode = struct_lines.iter().any(|l| l.starts_with("ode(") || l.starts_with("ode "));
+    let is_ode = struct_lines
+        .iter()
+        .any(|l| l.starts_with("ode(") || l.starts_with("ode "));
 
     let (pk_model, pk_param_map, ode_spec) = if is_ode {
         let (state_names, obs_cmt_name) = parse_ode_structural(struct_lines)?;
-        let ode_lines = blocks.get("odes").ok_or("ODE model requires [odes] block")?;
+        let ode_lines = blocks
+            .get("odes")
+            .ok_or("ODE model requires [odes] block")?;
         // Extract individual parameter names (LHS of assignments)
-        let indiv_param_names: Vec<String> = indiv_lines.iter()
+        let indiv_param_names: Vec<String> = indiv_lines
+            .iter()
             .filter_map(|l| l.splitn(2, '=').next().map(|s| s.trim().to_string()))
             .collect();
-        let ode_spec = build_ode_spec(ode_lines, &state_names, &obs_cmt_name, &theta_names, &eta_names, &indiv_param_names)?;
+        let ode_spec = build_ode_spec(
+            ode_lines,
+            &state_names,
+            &obs_cmt_name,
+            &theta_names,
+            &eta_names,
+            &indiv_param_names,
+        )?;
         // PK model not used for ODE, but we need a placeholder + empty param map
         (PkModel::OneCptOral, HashMap::new(), Some(ode_spec))
     } else {
@@ -72,13 +92,18 @@ pub fn parse_full_model(content: &str) -> Result<ParsedModel, String> {
     let omega_variances: Vec<f64> = omegas.iter().map(|o| o.variance).collect();
     let omega = OmegaMatrix::from_diagonal(&omega_variances, eta_names.clone());
     let sigma_values: Vec<f64> = sigmas.iter().map(|s| s.value).collect();
-    let sigma = SigmaVector { values: sigma_values, names: sigma_names };
+    let sigma = SigmaVector {
+        values: sigma_values,
+        names: sigma_names,
+    };
 
     let default_params = ModelParameters {
         theta: theta_values,
         theta_names: theta_names.clone(),
-        theta_lower, theta_upper,
-        omega, sigma,
+        theta_lower,
+        theta_upper,
+        omega,
+        sigma,
     };
 
     // Auto-generate tv_fn: evaluate individual parameters with eta=0
@@ -88,13 +113,15 @@ pub fn parse_full_model(content: &str) -> Result<ParsedModel, String> {
     let tv_eta_names = eta_names.clone();
     let tv_fn: Option<Box<dyn Fn(&[f64], &HashMap<String, f64>) -> Vec<f64> + Send + Sync>> =
         if !is_ode {
-            let assignments: Vec<(String, Expression)> = tv_assignments.iter()
+            let assignments: Vec<(String, Expression)> = tv_assignments
+                .iter()
                 .filter_map(|line| {
                     let parts: Vec<&str> = line.splitn(2, '=').collect();
                     if parts.len() == 2 {
                         let var_name = parts[0].trim().to_string();
                         let expr_str = parts[1].trim();
-                        parse_expression(expr_str, &tv_theta_names, &tv_eta_names).ok()
+                        parse_expression(expr_str, &tv_theta_names, &tv_eta_names)
+                            .ok()
                             .map(|expr| (var_name, expr))
                     } else {
                         None
@@ -102,19 +129,21 @@ pub fn parse_full_model(content: &str) -> Result<ParsedModel, String> {
                 })
                 .collect();
 
-            Some(Box::new(move |theta: &[f64], covariates: &HashMap<String, f64>| {
-                let zero_eta = vec![0.0; tv_eta_names.len()];
-                let mut vars: HashMap<String, f64> = HashMap::new();
-                let mut tv_values = Vec::new();
+            Some(Box::new(
+                move |theta: &[f64], covariates: &HashMap<String, f64>| {
+                    let zero_eta = vec![0.0; tv_eta_names.len()];
+                    let mut vars: HashMap<String, f64> = HashMap::new();
+                    let mut tv_values = Vec::new();
 
-                for (var_name, expr) in &assignments {
-                    let val = eval_expression(expr, theta, &zero_eta, covariates, &vars);
-                    vars.insert(var_name.clone(), val);
-                    tv_values.push(val);
-                }
+                    for (var_name, expr) in &assignments {
+                        let val = eval_expression(expr, theta, &zero_eta, covariates, &vars);
+                        vars.insert(var_name.clone(), val);
+                        tv_values.push(val);
+                    }
 
-                tv_values
-            }))
+                    tv_values
+                },
+            ))
         } else {
             None
         };
@@ -123,13 +152,16 @@ pub fn parse_full_model(content: &str) -> Result<ParsedModel, String> {
     // to its PK parameter index. Needed for AD to place values in correct slots.
     let pk_indices: Vec<usize> = if !pk_param_map.is_empty() {
         // Reverse the pk_param_map: variable_name → pk_param_name
-        let var_to_pk: HashMap<String, String> = pk_param_map.iter()
+        let var_to_pk: HashMap<String, String> = pk_param_map
+            .iter()
             .map(|(pk_name, var_name)| (var_name.to_uppercase(), pk_name.clone()))
             .collect();
-        indiv_lines.iter()
+        indiv_lines
+            .iter()
             .filter_map(|line| line.splitn(2, '=').next().map(|s| s.trim().to_uppercase()))
             .map(|var_name| {
-                var_to_pk.get(&var_name)
+                var_to_pk
+                    .get(&var_name)
                     .and_then(|pk_name| PkParams::name_to_index(pk_name))
                     .unwrap_or(0)
             })
@@ -140,9 +172,15 @@ pub fn parse_full_model(content: &str) -> Result<ParsedModel, String> {
     };
 
     let model = CompiledModel {
-        name, pk_model, error_model, pk_param_fn,
-        n_theta, n_eta, n_epsilon,
-        theta_names, eta_names,
+        name,
+        pk_model,
+        error_model,
+        pk_param_fn,
+        n_theta,
+        n_eta,
+        n_epsilon,
+        theta_names,
+        eta_names,
         default_params,
         tv_fn,
         pk_indices,
@@ -150,7 +188,10 @@ pub fn parse_full_model(content: &str) -> Result<ParsedModel, String> {
     };
 
     // ── Optional blocks ──
-    let simulation = blocks.get("simulation").map(|lines| parse_simulation_block(lines)).transpose()?;
+    let simulation = blocks
+        .get("simulation")
+        .map(|lines| parse_simulation_block(lines))
+        .transpose()?;
     let (init_theta, init_omega, init_sigma) = if let Some(lines) = blocks.get("initial_values") {
         parse_initial_values(lines)?
     } else {
@@ -162,7 +203,14 @@ pub fn parse_full_model(content: &str) -> Result<ParsedModel, String> {
         FitOptions::default()
     };
 
-    Ok(ParsedModel { model, simulation, init_theta, init_omega, init_sigma, fit_options })
+    Ok(ParsedModel {
+        model,
+        simulation,
+        init_theta,
+        init_omega,
+        init_sigma,
+        fit_options,
+    })
 }
 
 // ── [simulation] block parser ───────────────────────────────────────────────
@@ -176,12 +224,26 @@ fn parse_simulation_block(lines: &[String]) -> Result<SimulationSpec, String> {
 
     for line in lines {
         let parts: Vec<&str> = line.splitn(2, '=').map(|s| s.trim()).collect();
-        if parts.len() != 2 { continue; }
+        if parts.len() != 2 {
+            continue;
+        }
         match parts[0] {
-            "subjects" => n_subjects = parts[1].parse().map_err(|_| format!("Bad subjects: {}", line))?,
-            "dose" => dose_amt = parts[1].parse().map_err(|_| format!("Bad dose: {}", line))?,
+            "subjects" => {
+                n_subjects = parts[1]
+                    .parse()
+                    .map_err(|_| format!("Bad subjects: {}", line))?
+            }
+            "dose" => {
+                dose_amt = parts[1]
+                    .parse()
+                    .map_err(|_| format!("Bad dose: {}", line))?
+            }
             "cmt" => dose_cmt = parts[1].parse().map_err(|_| format!("Bad cmt: {}", line))?,
-            "seed" => seed = parts[1].parse().map_err(|_| format!("Bad seed: {}", line))?,
+            "seed" => {
+                seed = parts[1]
+                    .parse()
+                    .map_err(|_| format!("Bad seed: {}", line))?
+            }
             "times" => obs_times = parse_float_array(parts[1])?,
             _ => {}
         }
@@ -190,19 +252,30 @@ fn parse_simulation_block(lines: &[String]) -> Result<SimulationSpec, String> {
         return Err("[simulation] block requires 'times = [...]'".to_string());
     }
 
-    Ok(SimulationSpec { n_subjects, dose_amt, dose_cmt, obs_times, seed, covariates: vec![] })
+    Ok(SimulationSpec {
+        n_subjects,
+        dose_amt,
+        dose_cmt,
+        obs_times,
+        seed,
+        covariates: vec![],
+    })
 }
 
 // ── [initial_values] block parser ───────────────────────────────────────────
 
-fn parse_initial_values(lines: &[String]) -> Result<(Option<Vec<f64>>, Option<Vec<f64>>, Option<Vec<f64>>), String> {
+fn parse_initial_values(
+    lines: &[String],
+) -> Result<(Option<Vec<f64>>, Option<Vec<f64>>, Option<Vec<f64>>), String> {
     let mut theta = None;
     let mut omega = None;
     let mut sigma = None;
 
     for line in lines {
         let parts: Vec<&str> = line.splitn(2, '=').map(|s| s.trim()).collect();
-        if parts.len() != 2 { continue; }
+        if parts.len() != 2 {
+            continue;
+        }
         match parts[0] {
             "theta" => theta = Some(parse_float_array(parts[1])?),
             "omega" => omega = Some(parse_float_array(parts[1])?),
@@ -219,17 +292,25 @@ fn parse_fit_options(lines: &[String]) -> Result<FitOptions, String> {
     let mut opts = FitOptions::default();
     for line in lines {
         let parts: Vec<&str> = line.splitn(2, '=').map(|s| s.trim()).collect();
-        if parts.len() != 2 { continue; }
+        if parts.len() != 2 {
+            continue;
+        }
         match parts[0] {
             "method" => {
                 let val = parts[1].to_lowercase();
                 if val.trim() == "saem" {
                     opts.method = EstimationMethod::Saem;
-                } else if val.contains("hybrid") || val.contains("gn_hybrid") || val.contains("gn-hybrid") {
+                } else if val.contains("hybrid")
+                    || val.contains("gn_hybrid")
+                    || val.contains("gn-hybrid")
+                {
                     opts.method = EstimationMethod::FoceGnHybrid;
                 } else if val.contains("gn") || val.contains("gauss") {
                     opts.method = EstimationMethod::FoceGn;
-                } else if val.contains("focei") || val.contains("foce-i") || val.contains("interaction") {
+                } else if val.contains("focei")
+                    || val.contains("foce-i")
+                    || val.contains("interaction")
+                {
                     opts.method = EstimationMethod::FoceI;
                     opts.interaction = true;
                 } else {
@@ -264,7 +345,8 @@ fn parse_fit_options(lines: &[String]) -> Result<FitOptions, String> {
 
 fn parse_ode_structural(lines: &[String]) -> Result<(Vec<String>, String), String> {
     // ode(obs_cmt=central, states=[depot, central])
-    let re = Regex::new(r"ode\(\s*obs_cmt\s*=\s*(\w+)\s*,\s*states\s*=\s*\[([^\]]+)\]\s*\)").unwrap();
+    let re =
+        Regex::new(r"ode\(\s*obs_cmt\s*=\s*(\w+)\s*,\s*states\s*=\s*\[([^\]]+)\]\s*\)").unwrap();
     for line in lines {
         if let Some(caps) = re.captures(line) {
             let obs_cmt = caps[1].to_string();
@@ -272,7 +354,10 @@ fn parse_ode_structural(lines: &[String]) -> Result<(Vec<String>, String), Strin
             return Ok((states, obs_cmt));
         }
     }
-    Err("Could not parse ODE structural model. Expected: ode(obs_cmt=NAME, states=[...])".to_string())
+    Err(
+        "Could not parse ODE structural model. Expected: ode(obs_cmt=NAME, states=[...])"
+            .to_string(),
+    )
 }
 
 // ── [odes] block → OdeSpec ──────────────────────────────────────────────────
@@ -286,8 +371,15 @@ fn build_ode_spec(
     indiv_param_names: &[String],
 ) -> Result<crate::ode::OdeSpec, String> {
     let n_states = state_names.len();
-    let obs_cmt_idx = state_names.iter().position(|s| s == obs_cmt_name)
-        .ok_or_else(|| format!("Observable compartment '{}' not in states {:?}", obs_cmt_name, state_names))?;
+    let obs_cmt_idx = state_names
+        .iter()
+        .position(|s| s == obs_cmt_name)
+        .ok_or_else(|| {
+            format!(
+                "Observable compartment '{}' not in states {:?}",
+                obs_cmt_name, state_names
+            )
+        })?;
 
     // Parse each d/dt(state) = expression
     let ddt_re = Regex::new(r"d/dt\((\w+)\)\s*=\s*(.+)").unwrap();
@@ -309,7 +401,8 @@ fn build_ode_spec(
     if ode_exprs.len() != n_states {
         return Err(format!(
             "Expected {} ODE equations (one per state), found {}",
-            n_states, ode_exprs.len()
+            n_states,
+            ode_exprs.len()
         ));
     }
 
@@ -364,7 +457,11 @@ fn build_ode_spec(
 fn parse_float_array(s: &str) -> Result<Vec<f64>, String> {
     let s = s.trim().trim_start_matches('[').trim_end_matches(']');
     s.split(',')
-        .map(|v| v.trim().parse::<f64>().map_err(|_| format!("Bad float in array: '{}'", v.trim())))
+        .map(|v| {
+            v.trim()
+                .parse::<f64>()
+                .map_err(|_| format!("Bad float in array: '{}'", v.trim()))
+        })
         .collect()
 }
 
@@ -453,7 +550,9 @@ fn parse_parameters(
     for line in lines {
         if let Some(caps) = theta_re.captures(line) {
             let name = caps[1].to_string();
-            let init: f64 = caps[2].parse().map_err(|_| format!("Bad theta init: {}", line))?;
+            let init: f64 = caps[2]
+                .parse()
+                .map_err(|_| format!("Bad theta init: {}", line))?;
             let lower: f64 = caps
                 .get(3)
                 .map(|m| m.as_str().parse().unwrap_or(1e-9))
@@ -462,14 +561,23 @@ fn parse_parameters(
                 .get(4)
                 .map(|m| m.as_str().parse().unwrap_or(1e9))
                 .unwrap_or(1e9);
-            thetas.push(ThetaSpec { name, init, lower, upper });
+            thetas.push(ThetaSpec {
+                name,
+                init,
+                lower,
+                upper,
+            });
         } else if let Some(caps) = omega_re.captures(line) {
             let name = caps[1].to_string();
-            let variance: f64 = caps[2].parse().map_err(|_| format!("Bad omega: {}", line))?;
+            let variance: f64 = caps[2]
+                .parse()
+                .map_err(|_| format!("Bad omega: {}", line))?;
             omegas.push(OmegaSpec { name, variance });
         } else if let Some(caps) = sigma_re.captures(line) {
             let name = caps[1].to_string();
-            let value: f64 = caps[2].parse().map_err(|_| format!("Bad sigma: {}", line))?;
+            let value: f64 = caps[2]
+                .parse()
+                .map_err(|_| format!("Bad sigma: {}", line))?;
             sigmas.push(SigmaSpec { name, value });
         }
     }
@@ -523,10 +631,8 @@ fn parse_error_model(lines: &[String]) -> Result<(ErrorModel, Vec<String>), Stri
     for line in lines {
         if let Some(caps) = re.captures(line) {
             let error_type = &caps[2];
-            let sigma_names: Vec<String> = caps[3]
-                .split(',')
-                .map(|s| s.trim().to_string())
-                .collect();
+            let sigma_names: Vec<String> =
+                caps[3].split(',').map(|s| s.trim().to_string()).collect();
 
             let error_model = match error_type.to_lowercase().as_str() {
                 "additive" => ErrorModel::Additive,
@@ -574,40 +680,42 @@ fn build_pk_param_fn(
     let pk_map: HashMap<String, String> = pk_param_map.clone();
     let assignments_owned = assignments;
 
-    Ok(Box::new(move |theta: &[f64], eta: &[f64], covariates: &HashMap<String, f64>| {
-        let mut vars: HashMap<String, f64> = HashMap::new();
+    Ok(Box::new(
+        move |theta: &[f64], eta: &[f64], covariates: &HashMap<String, f64>| {
+            let mut vars: HashMap<String, f64> = HashMap::new();
 
-        for (var_name, expr) in &assignments_owned {
-            let val = eval_expression(expr, theta, eta, covariates, &vars);
-            vars.insert(var_name.clone(), val);
-        }
+            for (var_name, expr) in &assignments_owned {
+                let val = eval_expression(expr, theta, eta, covariates, &vars);
+                vars.insert(var_name.clone(), val);
+            }
 
-        let mut p = PkParams::default();
+            let mut p = PkParams::default();
 
-        if pk_map.is_empty() {
-            // ODE model or no pk_param_map: store individual params by declaration order
-            for (i, (var_name, _)) in assignments_owned.iter().enumerate() {
-                if i < MAX_PK_PARAMS {
-                    if let Some(&val) = vars.get(var_name) {
-                        p.values[i] = val;
+            if pk_map.is_empty() {
+                // ODE model or no pk_param_map: store individual params by declaration order
+                for (i, (var_name, _)) in assignments_owned.iter().enumerate() {
+                    if i < MAX_PK_PARAMS {
+                        if let Some(&val) = vars.get(var_name) {
+                            p.values[i] = val;
+                        }
                     }
                 }
-            }
-        } else {
-            // Analytical model: map pk_param_name → value via pk_param_map
-            let mut named = HashMap::new();
-            for (pk_name, var_name) in &pk_map {
-                if let Some(&val) = vars.get(var_name) {
-                    named.insert(pk_name.clone(), val);
-                } else if let Some(&val) = vars.get(&var_name.to_lowercase()) {
-                    named.insert(pk_name.clone(), val);
+            } else {
+                // Analytical model: map pk_param_name → value via pk_param_map
+                let mut named = HashMap::new();
+                for (pk_name, var_name) in &pk_map {
+                    if let Some(&val) = vars.get(var_name) {
+                        named.insert(pk_name.clone(), val);
+                    } else if let Some(&val) = vars.get(&var_name.to_lowercase()) {
+                        named.insert(pk_name.clone(), val);
+                    }
                 }
+                p = PkParams::from_hashmap(&named);
             }
-            p = PkParams::from_hashmap(&named);
-        }
 
-        p
-    }))
+            p
+        },
+    ))
 }
 
 // --- Simple expression AST and evaluator ---
@@ -653,12 +761,7 @@ fn eval_expression(
         Expression::Literal(v) => *v,
         Expression::Theta(i) => theta[*i],
         Expression::Eta(i) => eta[*i],
-        Expression::Covariate(name) => {
-            covariates
-                .get(&name.to_lowercase())
-                .copied()
-                .unwrap_or(0.0)
-        }
+        Expression::Covariate(name) => covariates.get(&name.to_lowercase()).copied().unwrap_or(0.0),
         Expression::Variable(name) => vars.get(name).copied().unwrap_or(0.0),
         Expression::BinOp(lhs, op, rhs) => {
             let l = eval_expression(lhs, theta, eta, covariates, vars);
@@ -717,40 +820,82 @@ fn tokenize(s: &str) -> Result<Vec<Token>, String> {
     while i < chars.len() {
         match chars[i] {
             ' ' | '\t' => i += 1,
-            '(' => { tokens.push(Token::LParen); i += 1; }
-            ')' => { tokens.push(Token::RParen); i += 1; }
-            '+' => { tokens.push(Token::Plus); i += 1; }
+            '(' => {
+                tokens.push(Token::LParen);
+                i += 1;
+            }
+            ')' => {
+                tokens.push(Token::RParen);
+                i += 1;
+            }
+            '+' => {
+                tokens.push(Token::Plus);
+                i += 1;
+            }
             '-' => {
                 // Check if this is a negative number (after operator or at start)
                 let is_unary = tokens.is_empty()
                     || matches!(
                         tokens.last(),
-                        Some(Token::LParen | Token::Plus | Token::Minus | Token::Star | Token::Slash | Token::Caret)
+                        Some(
+                            Token::LParen
+                                | Token::Plus
+                                | Token::Minus
+                                | Token::Star
+                                | Token::Slash
+                                | Token::Caret
+                        )
                     );
-                if is_unary && i + 1 < chars.len() && (chars[i + 1].is_ascii_digit() || chars[i + 1] == '.') {
+                if is_unary
+                    && i + 1 < chars.len()
+                    && (chars[i + 1].is_ascii_digit() || chars[i + 1] == '.')
+                {
                     let start = i;
                     i += 1;
-                    while i < chars.len() && (chars[i].is_ascii_digit() || chars[i] == '.' || chars[i] == 'e' || chars[i] == 'E') {
+                    while i < chars.len()
+                        && (chars[i].is_ascii_digit()
+                            || chars[i] == '.'
+                            || chars[i] == 'e'
+                            || chars[i] == 'E')
+                    {
                         i += 1;
                     }
                     let num_str: String = chars[start..i].iter().collect();
-                    let num: f64 = num_str.parse().map_err(|_| format!("Bad number: {}", num_str))?;
+                    let num: f64 = num_str
+                        .parse()
+                        .map_err(|_| format!("Bad number: {}", num_str))?;
                     tokens.push(Token::Number(num));
                 } else {
                     tokens.push(Token::Minus);
                     i += 1;
                 }
             }
-            '*' => { tokens.push(Token::Star); i += 1; }
-            '/' => { tokens.push(Token::Slash); i += 1; }
-            '^' => { tokens.push(Token::Caret); i += 1; }
+            '*' => {
+                tokens.push(Token::Star);
+                i += 1;
+            }
+            '/' => {
+                tokens.push(Token::Slash);
+                i += 1;
+            }
+            '^' => {
+                tokens.push(Token::Caret);
+                i += 1;
+            }
             c if c.is_ascii_digit() || c == '.' => {
                 let start = i;
-                while i < chars.len() && (chars[i].is_ascii_digit() || chars[i] == '.' || chars[i] == 'e' || chars[i] == 'E') {
+                while i < chars.len()
+                    && (chars[i].is_ascii_digit()
+                        || chars[i] == '.'
+                        || chars[i] == 'e'
+                        || chars[i] == 'E')
+                {
                     i += 1;
                 }
                 let num_str: String = chars[start..i].iter().collect();
-                let num: f64 = num_str.parse().map_err(|_| format!("Bad number: {}", num_str))?;
+                let num: f64 = num_str
+                    .parse()
+                    .map_err(|_| format!("Bad number: {}", num_str))?;
                 tokens.push(Token::Number(num));
             }
             c if c.is_ascii_alphabetic() || c == '_' => {
@@ -855,11 +1000,14 @@ fn parse_atom(
         Token::Minus => {
             // Unary minus: -expr → 0 - expr
             let (expr, p) = parse_atom(tokens, pos + 1, theta_names, eta_names)?;
-            Ok((Expression::BinOp(
-                Box::new(Expression::Literal(0.0)),
-                BinOp::Sub,
-                Box::new(expr),
-            ), p))
+            Ok((
+                Expression::BinOp(
+                    Box::new(Expression::Literal(0.0)),
+                    BinOp::Sub,
+                    Box::new(expr),
+                ),
+                p,
+            ))
         }
         Token::Number(n) => Ok((Expression::Literal(*n), pos + 1)),
         Token::LParen => {
@@ -894,7 +1042,9 @@ fn parse_atom(
             // Heuristic: UPPERCASE names with no matching theta/eta are covariates
             // (when theta_names is empty, e.g. ODE context, treat all as Variable)
             if !theta_names.is_empty()
-                && name.chars().all(|c| c.is_uppercase() || c.is_ascii_digit() || c == '_')
+                && name
+                    .chars()
+                    .all(|c| c.is_uppercase() || c.is_ascii_digit() || c == '_')
             {
                 Ok((Expression::Covariate(name.clone()), pos + 1))
             } else {

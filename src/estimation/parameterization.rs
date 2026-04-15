@@ -145,7 +145,7 @@ pub fn compute_bounds(template: &ModelParameters) -> PackedBounds {
     if template.omega.diagonal {
         for _ in 0..n_eta {
             lower.push(-6.0); // exp(-6) ≈ 0.0025
-            upper.push(4.0);  // exp(4) ≈ 55
+            upper.push(4.0); // exp(4) ≈ 55
         }
     } else {
         for j in 0..n_eta {
@@ -164,7 +164,7 @@ pub fn compute_bounds(template: &ModelParameters) -> PackedBounds {
     // Sigma bounds (log-transformed)
     for _ in 0..n_sigma {
         lower.push(-8.0); // exp(-8) ≈ 3e-4
-        upper.push(5.0);  // exp(5) ≈ 148
+        upper.push(5.0); // exp(5) ≈ 148
     }
 
     PackedBounds { lower, upper }
@@ -174,5 +174,118 @@ pub fn compute_bounds(template: &ModelParameters) -> PackedBounds {
 pub fn clamp_to_bounds(x: &mut [f64], bounds: &PackedBounds) {
     for i in 0..x.len() {
         x[i] = x[i].clamp(bounds.lower[i], bounds.upper[i]);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use approx::assert_relative_eq;
+
+    fn make_template() -> ModelParameters {
+        let omega =
+            OmegaMatrix::from_diagonal(&[0.09, 0.04], vec!["eta_cl".into(), "eta_v".into()]);
+        let sigma = SigmaVector {
+            values: vec![0.3],
+            names: vec!["sigma_prop".into()],
+        };
+        ModelParameters {
+            theta: vec![10.0, 100.0],
+            theta_names: vec!["cl".into(), "v".into()],
+            theta_lower: vec![0.01, 0.01],
+            theta_upper: vec![1000.0, 10000.0],
+            omega,
+            sigma,
+        }
+    }
+
+    #[test]
+    fn test_packed_len_diagonal() {
+        let template = make_template();
+        // 2 theta + 2 diagonal omega + 1 sigma = 5
+        assert_eq!(packed_len(&template), 5);
+    }
+
+    #[test]
+    fn test_pack_unpack_round_trip() {
+        let template = make_template();
+        let packed = pack_params(&template);
+        assert_eq!(packed.len(), packed_len(&template));
+
+        let recovered = unpack_params(&packed, &template);
+
+        // Theta values should round-trip
+        for (orig, rec) in template.theta.iter().zip(recovered.theta.iter()) {
+            assert_relative_eq!(orig, rec, epsilon = 1e-8);
+        }
+
+        // Omega diagonal should round-trip
+        let n = template.omega.dim();
+        for i in 0..n {
+            assert_relative_eq!(
+                template.omega.matrix[(i, i)],
+                recovered.omega.matrix[(i, i)],
+                epsilon = 1e-8
+            );
+        }
+
+        // Sigma should round-trip
+        for (orig, rec) in template
+            .sigma
+            .values
+            .iter()
+            .zip(recovered.sigma.values.iter())
+        {
+            assert_relative_eq!(orig, rec, epsilon = 1e-8);
+        }
+    }
+
+    #[test]
+    fn test_pack_values_are_log_transformed() {
+        let template = make_template();
+        let packed = pack_params(&template);
+        // First packed value should be log(theta[0]) = log(10)
+        assert_relative_eq!(packed[0], 10.0_f64.ln(), epsilon = 1e-10);
+        assert_relative_eq!(packed[1], 100.0_f64.ln(), epsilon = 1e-10);
+    }
+
+    #[test]
+    fn test_compute_bounds_dimensions() {
+        let template = make_template();
+        let bounds = compute_bounds(&template);
+        let expected_len = packed_len(&template);
+        assert_eq!(bounds.lower.len(), expected_len);
+        assert_eq!(bounds.upper.len(), expected_len);
+    }
+
+    #[test]
+    fn test_bounds_lower_less_than_upper() {
+        let template = make_template();
+        let bounds = compute_bounds(&template);
+        for (lo, hi) in bounds.lower.iter().zip(bounds.upper.iter()) {
+            assert!(lo < hi, "lower {} should be < upper {}", lo, hi);
+        }
+    }
+
+    #[test]
+    fn test_clamp_to_bounds() {
+        let template = make_template();
+        let bounds = compute_bounds(&template);
+        let mut x = vec![100.0; packed_len(&template)]; // way above upper bounds
+        clamp_to_bounds(&mut x, &bounds);
+        for (val, hi) in x.iter().zip(bounds.upper.iter()) {
+            assert!(*val <= *hi + 1e-12);
+        }
+    }
+
+    #[test]
+    fn test_clamp_to_bounds_below() {
+        let template = make_template();
+        let bounds = compute_bounds(&template);
+        let mut x = vec![-100.0; packed_len(&template)]; // way below lower bounds
+        clamp_to_bounds(&mut x, &bounds);
+        for (val, lo) in x.iter().zip(bounds.lower.iter()) {
+            assert!(*val >= *lo - 1e-12);
+        }
     }
 }
