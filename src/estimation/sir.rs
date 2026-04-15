@@ -7,7 +7,7 @@
 //! SIR provides a non-parametric estimate of parameter uncertainty that is
 //! more robust than the asymptotic covariance matrix.
 
-use crate::estimation::inner_optimizer::run_inner_loop;
+use crate::estimation::inner_optimizer::run_inner_loop_warm;
 use crate::estimation::parameterization::{pack_params, unpack_params};
 use crate::stats::likelihood::foce_population_nll;
 use crate::types::*;
@@ -16,6 +16,7 @@ use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
 use rand_distr::StandardNormal;
+use rayon::prelude::*;
 
 /// Results from the SIR procedure.
 #[derive(Debug, Clone)]
@@ -94,87 +95,81 @@ pub fn run_sir(
         );
     }
 
-    // Step 1: Sample from proposal MVN and compute importance weights
-    let mut log_weights = Vec::with_capacity(n_samples);
-    let mut samples = Vec::with_capacity(n_samples);
-
-    // Log-proposal density at the ML estimate (it's the center, so quadratic form = 0)
+    // Step 1: Pre-generate all samples (RNG is sequential)
     let log_q_hat = -0.5 * (n_packed as f64 * (2.0 * std::f64::consts::PI).ln() + log_det_proposal);
 
-    for k in 0..n_samples {
-        // Sample z ~ N(0, I), then x_k = x_hat + L * z
+    let mut z_vectors: Vec<Vec<f64>> = Vec::with_capacity(n_samples);
+    let mut samples: Vec<Vec<f64>> = Vec::with_capacity(n_samples);
+    for _ in 0..n_samples {
         let z: Vec<f64> = (0..n_packed).map(|_| rng.sample(StandardNormal)).collect();
         let z_vec = DVector::from_column_slice(&z);
         let delta = &proposal_chol * &z_vec;
         let x_k: Vec<f64> = x_hat.iter().zip(delta.iter()).map(|(a, b)| a + b).collect();
-
-        // Unpack to model parameters
-        let params_k = unpack_params(&x_k, params);
-
-        // Check for invalid parameters (negative volumes, etc.)
-        let any_invalid = params_k.theta.iter().any(|&t| !t.is_finite() || t <= 0.0)
-            || params_k
-                .sigma
-                .values
-                .iter()
-                .any(|&s| !s.is_finite() || s <= 0.0);
-
-        if any_invalid {
-            log_weights.push(f64::NEG_INFINITY);
-            samples.push(x_k);
-            continue;
-        }
-
-        // Run inner loop to find EBEs for this parameter vector
-        let (ehs, hms, _) = run_inner_loop(
-            model,
-            population,
-            &params_k,
-            options.inner_maxiter,
-            options.inner_tol,
-        );
-
-        // Compute OFV at sampled parameters
-        let nll_k = foce_population_nll(
-            model,
-            population,
-            &params_k.theta,
-            &ehs,
-            &hms,
-            &params_k.omega,
-            &params_k.sigma.values,
-            options.interaction,
-        );
-        let ofv_k = 2.0 * nll_k;
-
-        if !ofv_k.is_finite() {
-            log_weights.push(f64::NEG_INFINITY);
-            samples.push(x_k);
-            continue;
-        }
-
-        let dofv = ofv_k - ofv_hat;
-
-        // Log-proposal density at x_k: log q(x_k) = -0.5 * (n*log(2pi) + log|Σ| + (x_k - x_hat)' Σ^-1 (x_k - x_hat))
-        // The quadratic form is ||z||^2 since x_k = x_hat + L*z
-        let quad_form: f64 = z.iter().map(|zi| zi * zi).sum();
-        let log_q_k = -0.5
-            * (n_packed as f64 * (2.0 * std::f64::consts::PI).ln() + log_det_proposal + quad_form);
-
-        // Importance weight: log w_k = log target - log proposal
-        //   log target ∝ -0.5 * OFV_k
-        //   log w_k = -0.5 * OFV_k - log_q_k
-        // We use dOFV relative to OFV_hat for numerical stability:
-        //   log w_k = -0.5 * dOFV_k - log_q_k + log_q_hat
-        let log_w = -0.5 * dofv - log_q_k + log_q_hat;
-
-        log_weights.push(log_w);
         samples.push(x_k);
-
-        if options.verbose && (k + 1) % 100 == 0 {
-            eprintln!("  SIR: {}/{} samples evaluated", k + 1, n_samples);
-        }
+        z_vectors.push(z);
     }
+
+    // Step 2: Evaluate importance weights in parallel (warm-started inner loop)
+    let inner_maxiter = options.inner_maxiter;
+    let inner_tol = options.inner_tol;
+    let interaction = options.interaction;
+
+    let log_weights: Vec<f64> = samples
+        .par_iter()
+        .zip(z_vectors.par_iter())
+        .map(|(x_k, z)| {
+            let params_k = unpack_params(x_k, params);
+
+            // Check for invalid parameters
+            let any_invalid = params_k.theta.iter().any(|&t| !t.is_finite() || t <= 0.0)
+                || params_k
+                    .sigma
+                    .values
+                    .iter()
+                    .any(|&s| !s.is_finite() || s <= 0.0);
+            if any_invalid {
+                return f64::NEG_INFINITY;
+            }
+
+            // Run inner loop warm-started from ML EBEs
+            let (ehs, hms, _) = run_inner_loop_warm(
+                model,
+                population,
+                &params_k,
+                inner_maxiter,
+                inner_tol,
+                Some(eta_hats),
+            );
+
+            // Compute OFV
+            let nll_k = foce_population_nll(
+                model,
+                population,
+                &params_k.theta,
+                &ehs,
+                &hms,
+                &params_k.omega,
+                &params_k.sigma.values,
+                interaction,
+            );
+            let ofv_k = 2.0 * nll_k;
+            if !ofv_k.is_finite() {
+                return f64::NEG_INFINITY;
+            }
+
+            let dofv = ofv_k - ofv_hat;
+
+            // Log-proposal density: ||z||^2 is the quadratic form since x_k = x_hat + L*z
+            let quad_form: f64 = z.iter().map(|zi| zi * zi).sum();
+            let log_q_k = -0.5
+                * (n_packed as f64 * (2.0 * std::f64::consts::PI).ln()
+                    + log_det_proposal
+                    + quad_form);
+
+            // Importance weight: log w_k = -0.5 * dOFV_k - log_q_k + log_q_hat
+            -0.5 * dofv - log_q_k + log_q_hat
+        })
+        .collect();
 
     // Step 2: Normalize weights using log-sum-exp trick
     let max_log_w = log_weights
