@@ -50,6 +50,19 @@ Stochastic Approximation EM. Uses Metropolis-Hastings sampling instead of MAP op
 | `adapt_interval` | `50` | Iterations between MH step-size adaptation |
 | `seed` | `12345` | RNG seed for reproducibility |
 
+## SIR (Sampling Importance Resampling)
+
+SIR provides non-parametric parameter uncertainty estimates as an optional post-estimation step. Requires `covariance = true`.
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `sir` | `false` | Enable SIR uncertainty estimation |
+| `sir_samples` | `1000` | Number of proposal samples (M) |
+| `sir_resamples` | `250` | Number of resampled vectors (m) |
+| `sir_seed` | `12345` | RNG seed for reproducibility |
+
+See [SIR documentation](../estimation/sir.md) for details.
+
 ## Optimizer Choices
 
 | Optimizer | Description | Recommended For |
@@ -94,4 +107,15 @@ SAEM with custom settings:
   n_mh_steps    = 5
   seed          = 42
   covariance    = true
+```
+
+FOCEI with SIR uncertainty:
+```
+[fit_options]
+  method        = focei
+  covariance    = true
+  sir           = true
+  sir_samples   = 1000
+  sir_resamples = 250
+  sir_seed      = 42
 ```

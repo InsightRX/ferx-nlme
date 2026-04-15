@@ -8,6 +8,8 @@ FeRx implements two families of estimation methods for nonlinear mixed effects m
 
 - **[SAEM](saem.md)** -- Stochastic Approximation Expectation-Maximization. Uses MCMC sampling for random effects, providing more robust convergence on complex models.
 
+- **[SIR](sir.md)** -- Sampling Importance Resampling. An optional post-estimation step that provides non-parametric parameter uncertainty estimates (95% CIs), more robust than the asymptotic covariance matrix.
+
 ## Quick Comparison
 
 | Feature | FOCE/FOCEI | Gauss-Newton | SAEM |

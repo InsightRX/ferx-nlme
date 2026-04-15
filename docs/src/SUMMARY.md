@@ -17,6 +17,7 @@
   - [FOCE / FOCEI](estimation/foce.md)
   - [Gauss-Newton (BHHH)](estimation/gauss-newton.md)
   - [SAEM](estimation/saem.md)
+  - [SIR](estimation/sir.md)
 - [Data Format](data-format.md)
 - [CLI Reference](cli.md)
 - [Output Files](output.md)
