@@ -55,8 +55,10 @@ pub fn print_results(result: &FitResult) {
     }
 
     // Omega estimates
-    eprintln!("\n--- OMEGA Estimates (variances) ---");
+    eprintln!("\n--- OMEGA Estimates ---");
     let n_eta = result.omega.nrows();
+    // Check if omega has off-diagonal elements
+    let has_offdiag = (0..n_eta).any(|i| (0..i).any(|j| result.omega[(i, j)].abs() > 1e-15));
     for i in 0..n_eta {
         let var = result.omega[(i, i)];
         let cv = if var > 0.0 { var.sqrt() * 100.0 } else { 0.0 };
@@ -72,6 +74,28 @@ pub fn print_results(result: &FitResult) {
             cv,
             se_str
         );
+    }
+    if has_offdiag {
+        eprintln!("  --- Correlations ---");
+        for i in 0..n_eta {
+            for j in 0..i {
+                let cov = result.omega[(i, j)];
+                let var_i = result.omega[(i, i)];
+                let var_j = result.omega[(j, j)];
+                let corr = if var_i > 0.0 && var_j > 0.0 {
+                    cov / (var_i.sqrt() * var_j.sqrt())
+                } else {
+                    0.0
+                };
+                eprintln!(
+                    "  OMEGA({},{}) = {:.6}  (corr = {:.4})",
+                    i + 1,
+                    j + 1,
+                    cov,
+                    corr,
+                );
+            }
+        }
     }
 
     // Sigma estimates
@@ -241,6 +265,24 @@ pub fn write_estimates_yaml(result: &FitResult, path: &str) -> Result<(), String
         match se {
             Some(s) => writeln!(f, "    se: {:.6}", s).map_err(|e| e.to_string())?,
             None => writeln!(f, "    se: ~").map_err(|e| e.to_string())?,
+        }
+    }
+    // Off-diagonal covariances
+    for i in 0..n_eta {
+        for j in 0..i {
+            let cov = result.omega[(i, j)];
+            if cov.abs() > 1e-15 {
+                let var_i = result.omega[(i, i)];
+                let var_j = result.omega[(j, j)];
+                let corr = if var_i > 0.0 && var_j > 0.0 {
+                    cov / (var_i.sqrt() * var_j.sqrt())
+                } else {
+                    0.0
+                };
+                writeln!(f, "  omega_{}{}:", i + 1, j + 1).map_err(|e| e.to_string())?;
+                writeln!(f, "    covariance: {:.6}", cov).map_err(|e| e.to_string())?;
+                writeln!(f, "    correlation: {:.6}", corr).map_err(|e| e.to_string())?;
+            }
         }
     }
 

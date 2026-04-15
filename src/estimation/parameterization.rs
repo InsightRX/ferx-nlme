@@ -288,4 +288,84 @@ mod tests {
             assert!(*val >= *lo - 1e-12);
         }
     }
+
+    fn make_block_template() -> ModelParameters {
+        // Build a 2x2 block omega with covariance
+        let mut m = DMatrix::zeros(2, 2);
+        m[(0, 0)] = 0.09; // var(eta_cl)
+        m[(1, 1)] = 0.04; // var(eta_v)
+        m[(0, 1)] = 0.02; // cov(eta_cl, eta_v)
+        m[(1, 0)] = 0.02;
+        let omega = OmegaMatrix::from_matrix(m, vec!["eta_cl".into(), "eta_v".into()], false);
+        let sigma = SigmaVector {
+            values: vec![0.3],
+            names: vec!["sigma_prop".into()],
+        };
+        ModelParameters {
+            theta: vec![10.0, 100.0],
+            theta_names: vec!["cl".into(), "v".into()],
+            theta_lower: vec![0.01, 0.01],
+            theta_upper: vec![1000.0, 10000.0],
+            omega,
+            sigma,
+        }
+    }
+
+    #[test]
+    fn test_packed_len_block() {
+        let template = make_block_template();
+        // 2 theta + 3 omega (lower triangle of 2x2) + 1 sigma = 6
+        assert_eq!(packed_len(&template), 6);
+    }
+
+    #[test]
+    fn test_pack_unpack_block_round_trip() {
+        let template = make_block_template();
+        let packed = pack_params(&template);
+        assert_eq!(packed.len(), packed_len(&template));
+
+        let recovered = unpack_params(&packed, &template);
+
+        // Theta round-trip
+        for (orig, rec) in template.theta.iter().zip(recovered.theta.iter()) {
+            assert_relative_eq!(orig, rec, epsilon = 1e-8);
+        }
+
+        // Full omega matrix round-trip (including off-diagonals)
+        let n = template.omega.dim();
+        for i in 0..n {
+            for j in 0..n {
+                assert_relative_eq!(
+                    template.omega.matrix[(i, j)],
+                    recovered.omega.matrix[(i, j)],
+                    epsilon = 1e-6
+                );
+            }
+        }
+
+        // Sigma round-trip
+        for (orig, rec) in template
+            .sigma
+            .values
+            .iter()
+            .zip(recovered.sigma.values.iter())
+        {
+            assert_relative_eq!(orig, rec, epsilon = 1e-8);
+        }
+    }
+
+    #[test]
+    fn test_block_omega_not_diagonal() {
+        let template = make_block_template();
+        assert!(!template.omega.diagonal);
+    }
+
+    #[test]
+    fn test_compute_bounds_block_dimensions() {
+        let template = make_block_template();
+        let bounds = compute_bounds(&template);
+        let expected_len = packed_len(&template);
+        assert_eq!(bounds.lower.len(), expected_len);
+        assert_eq!(bounds.upper.len(), expected_len);
+    }
 }
