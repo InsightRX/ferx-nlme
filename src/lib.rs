@@ -1,6 +1,7 @@
 #![cfg_attr(feature = "autodiff", feature(autodiff))]
 
-#[cfg(not(feature = "autodiff"))]
+// Require autodiff unless the `ci` feature is set (for CI without Enzyme toolchain).
+#[cfg(all(not(feature = "autodiff"), not(feature = "ci")))]
 compile_error!(
     "The `autodiff` feature is required. Finite-difference gradients are not supported. \
      Build with: cargo build --release (autodiff is now the default feature), \

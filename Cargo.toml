@@ -11,6 +11,7 @@ path = "src/bin/run_model.rs"
 [features]
 default = ["autodiff"]
 autodiff = []
+ci = []  # Allows building without autodiff for CI (nightly, no Enzyme)
 
 [dependencies]
 nalgebra = "0.33"
