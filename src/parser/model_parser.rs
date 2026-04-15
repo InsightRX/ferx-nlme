@@ -601,6 +601,9 @@ fn parse_structural_model(lines: &[String]) -> Result<(PkModel, HashMap<String, 
                 "two_cpt_iv_bolus" | "two_compartment_iv_bolus" => PkModel::TwoCptIvBolus,
                 "two_cpt_oral" | "two_compartment_oral" => PkModel::TwoCptOral,
                 "two_cpt_infusion" | "two_compartment_infusion" => PkModel::TwoCptInfusion,
+                "three_cpt_iv_bolus" | "three_compartment_iv_bolus" => PkModel::ThreeCptIvBolus,
+                "three_cpt_oral" | "three_compartment_oral" => PkModel::ThreeCptOral,
+                "three_cpt_infusion" | "three_compartment_infusion" => PkModel::ThreeCptInfusion,
                 other => return Err(format!("Unknown PK model: {}", other)),
             };
 

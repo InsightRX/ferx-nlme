@@ -1,9 +1,11 @@
 pub mod one_compartment;
+pub mod three_compartment;
 pub mod two_compartment;
 
 use crate::types::{DoseEvent, PkModel, PkParams, Subject};
 
 pub use one_compartment::*;
+pub use three_compartment::*;
 pub use two_compartment::*;
 
 /// Predict concentration at a given time for a subject, summing contributions
@@ -36,6 +38,24 @@ fn single_dose_concentration(pk_model: PkModel, dose: &DoseEvent, tau: f64, p: &
         PkModel::TwoCptIvBolus => two_cpt_iv_bolus(dose, tau, cl, v, p.q(), p.v2()),
         PkModel::TwoCptInfusion => two_cpt_infusion(dose, tau, cl, v, p.q(), p.v2()),
         PkModel::TwoCptOral => two_cpt_oral_f(dose, tau, cl, v, p.q(), p.v2(), p.ka(), p.f_bio()),
+        PkModel::ThreeCptIvBolus => {
+            three_cpt_iv_bolus(dose, tau, cl, v, p.q(), p.v2(), p.q3(), p.v3())
+        }
+        PkModel::ThreeCptInfusion => {
+            three_cpt_infusion(dose, tau, cl, v, p.q(), p.v2(), p.q3(), p.v3())
+        }
+        PkModel::ThreeCptOral => three_cpt_oral_f(
+            dose,
+            tau,
+            cl,
+            v,
+            p.q(),
+            p.v2(),
+            p.q3(),
+            p.v3(),
+            p.ka(),
+            p.f_bio(),
+        ),
     }
 }
 
