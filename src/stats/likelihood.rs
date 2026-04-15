@@ -86,10 +86,26 @@ pub fn foce_subject_nll(
 
     if interaction {
         // FOCEI: use individual predictions directly
-        foce_subject_nll_interaction(subject, &ipreds, eta_hat, h_matrix, omega, sigma_values, model.error_model)
+        foce_subject_nll_interaction(
+            subject,
+            &ipreds,
+            eta_hat,
+            h_matrix,
+            omega,
+            sigma_values,
+            model.error_model,
+        )
     } else {
         // Standard FOCE: linearized predictions
-        foce_subject_nll_standard(subject, &ipreds, eta_hat, h_matrix, omega, sigma_values, model.error_model)
+        foce_subject_nll_standard(
+            subject,
+            &ipreds,
+            eta_hat,
+            h_matrix,
+            omega,
+            sigma_values,
+            model.error_model,
+        )
     }
 }
 
@@ -106,7 +122,11 @@ fn foce_subject_nll_standard(
 
     // f0 = ipred - H * eta_hat (linearized population prediction)
     let h_eta = h_matrix * eta_hat;
-    let f0: Vec<f64> = ipreds.iter().enumerate().map(|(j, &ip)| ip - h_eta[j]).collect();
+    let f0: Vec<f64> = ipreds
+        .iter()
+        .enumerate()
+        .map(|(j, &ip)| ip - h_eta[j])
+        .collect();
 
     // R diagonal at f0
     let r_diag = compute_r_diag(error_model, &f0, sigma_values);
@@ -123,7 +143,11 @@ fn foce_subject_nll_standard(
     // Residuals: y - f0
     let residuals: DVector<f64> = DVector::from_iterator(
         n_obs,
-        subject.observations.iter().zip(f0.iter()).map(|(&y, &f)| y - f),
+        subject
+            .observations
+            .iter()
+            .zip(f0.iter())
+            .map(|(&y, &f)| y - f),
     );
 
     // (y - f0)' * R_tilde_inv * (y - f0)
@@ -161,7 +185,11 @@ fn foce_subject_nll_interaction(
     // Residuals: y - ipred
     let residuals: DVector<f64> = DVector::from_iterator(
         n_obs,
-        subject.observations.iter().zip(ipreds.iter()).map(|(&y, &f)| y - f),
+        subject
+            .observations
+            .iter()
+            .zip(ipreds.iter())
+            .map(|(&y, &f)| y - f),
     );
 
     // Data term: (y - ipred)' * V_inv * (y - ipred) using diagonal V
@@ -185,11 +213,7 @@ fn foce_subject_nll_interaction(
 }
 
 /// R_tilde = H * Omega * H' + diag(r_diag)
-fn compute_r_tilde(
-    h: &DMatrix<f64>,
-    omega: &DMatrix<f64>,
-    r_diag: &[f64],
-) -> DMatrix<f64> {
+fn compute_r_tilde(h: &DMatrix<f64>, omega: &DMatrix<f64>, r_diag: &[f64]) -> DMatrix<f64> {
     let n_obs = h.nrows();
     let h_omega = h * omega;
     let mut r_tilde = &h_omega * h.transpose();
@@ -258,7 +282,11 @@ pub fn compute_cwres(
 
     // f0 = ipred - H * eta_hat
     let h_eta = h_matrix * eta_hat;
-    let f0: Vec<f64> = ipreds.iter().enumerate().map(|(j, &ip)| ip - h_eta[j]).collect();
+    let f0: Vec<f64> = ipreds
+        .iter()
+        .enumerate()
+        .map(|(j, &ip)| ip - h_eta[j])
+        .collect();
 
     // R_tilde
     let r_diag = compute_r_diag(error_model, &f0, sigma_values);

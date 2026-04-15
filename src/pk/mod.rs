@@ -25,41 +25,24 @@ pub fn predict_concentration(
 }
 
 /// Concentration contribution from a single dose at elapsed time tau
-fn single_dose_concentration(
-    pk_model: PkModel,
-    dose: &DoseEvent,
-    tau: f64,
-    p: &PkParams,
-) -> f64 {
+fn single_dose_concentration(pk_model: PkModel, dose: &DoseEvent, tau: f64, p: &PkParams) -> f64 {
     let cl = p.cl();
     let v = p.v();
 
     match pk_model {
         PkModel::OneCptIvBolus => one_cpt_iv_bolus(dose, tau, cl, v),
         PkModel::OneCptInfusion => one_cpt_infusion(dose, tau, cl, v),
-        PkModel::OneCptOral => {
-            one_cpt_oral_f(dose, tau, cl, v, p.ka(), p.f_bio())
-        }
-        PkModel::TwoCptIvBolus => {
-            two_cpt_iv_bolus(dose, tau, cl, v, p.q(), p.v2())
-        }
-        PkModel::TwoCptInfusion => {
-            two_cpt_infusion(dose, tau, cl, v, p.q(), p.v2())
-        }
-        PkModel::TwoCptOral => {
-            two_cpt_oral_f(dose, tau, cl, v, p.q(), p.v2(), p.ka(), p.f_bio())
-        }
+        PkModel::OneCptOral => one_cpt_oral_f(dose, tau, cl, v, p.ka(), p.f_bio()),
+        PkModel::TwoCptIvBolus => two_cpt_iv_bolus(dose, tau, cl, v, p.q(), p.v2()),
+        PkModel::TwoCptInfusion => two_cpt_infusion(dose, tau, cl, v, p.q(), p.v2()),
+        PkModel::TwoCptOral => two_cpt_oral_f(dose, tau, cl, v, p.q(), p.v2(), p.ka(), p.f_bio()),
     }
 }
 
 /// Compute predictions for all observation times of a subject.
 /// Uses analytical equations for standard PK models, or delegates to ODE solver
 /// when an OdeSpec is provided.
-pub fn compute_predictions(
-    pk_model: PkModel,
-    subject: &Subject,
-    pk_params: &PkParams,
-) -> Vec<f64> {
+pub fn compute_predictions(pk_model: PkModel, subject: &Subject, pk_params: &PkParams) -> Vec<f64> {
     subject
         .obs_times
         .iter()
@@ -120,7 +103,8 @@ mod tests {
         let pk = make_pk_params(10.0, 100.0);
 
         // At t=5, second dose hasn't happened yet
-        let c_single = predict_concentration(PkModel::OneCptIvBolus, &[bolus_dose(0.0, 1000.0)], 5.0, &pk);
+        let c_single =
+            predict_concentration(PkModel::OneCptIvBolus, &[bolus_dose(0.0, 1000.0)], 5.0, &pk);
         let c_two = predict_concentration(PkModel::OneCptIvBolus, &doses, 5.0, &pk);
         assert_relative_eq!(c_single, c_two, epsilon = 1e-12);
     }

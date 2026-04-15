@@ -33,16 +33,26 @@ pub fn find_ebe(
     };
 
     let obj = |e: &[f64]| -> f64 {
-        individual_nll(model, subject, &params.theta, e, &params.omega, &params.sigma.values)
+        individual_nll(
+            model,
+            subject,
+            &params.theta,
+            e,
+            &params.omega,
+            &params.sigma.values,
+        )
     };
-
 
     // Try BFGS — use AD gradient when available, FD otherwise
     #[cfg(feature = "autodiff")]
     let result = if let Some(ref tv_fn) = model.tv_fn {
         let tv_adjusted = tv_fn(&params.theta, &subject.covariates);
         let dose_data = FlatDoseData::from_subject(subject);
-        let omega_inv = params.omega.matrix.clone().cholesky()
+        let omega_inv = params
+            .omega
+            .matrix
+            .clone()
+            .cholesky()
             .map(|c| c.inverse())
             .unwrap_or_else(|| nalgebra::DMatrix::identity(n_eta, n_eta));
         let mut omega_inv_flat = Vec::with_capacity(n_eta * n_eta);
@@ -55,7 +65,16 @@ pub fn find_ebe(
             let mut ld = 0.0;
             for i in 0..n_eta {
                 let lii = params.omega.chol[(i, i)];
-                ld += if lii > 0.0 { lii.ln() } else { return EbeResult { eta: DVector::zeros(n_eta), h_matrix: DMatrix::zeros(0,0), converged: false, nll: 1e20 }; };
+                ld += if lii > 0.0 {
+                    lii.ln()
+                } else {
+                    return EbeResult {
+                        eta: DVector::zeros(n_eta),
+                        h_matrix: DMatrix::zeros(0, 0),
+                        converged: false,
+                        nll: 1e20,
+                    };
+                };
             }
             2.0 * ld
         };
@@ -63,10 +82,16 @@ pub fn find_ebe(
         let pk_indices = &model.pk_indices;
         let grad_fn = |e: &[f64]| -> Vec<f64> {
             let (_, g) = ad_gradients::compute_nll_gradient_ad(
-                e, &tv_adjusted,
-                &omega_inv_flat, log_det_omega, &params.sigma.values,
-                &dose_data, &subject.obs_times, &subject.observations,
-                model.pk_model, model.error_model,
+                e,
+                &tv_adjusted,
+                &omega_inv_flat,
+                log_det_omega,
+                &params.sigma.values,
+                &dose_data,
+                &subject.obs_times,
+                &subject.observations,
+                model.pk_model,
+                model.error_model,
                 pk_indices,
             );
             g
@@ -93,9 +118,12 @@ pub fn find_ebe(
         let tv_adjusted = tv_fn(&params.theta, &subject.covariates);
         let dose_data = FlatDoseData::from_subject(subject);
         ad_gradients::compute_jacobian_ad(
-            &eta, &tv_adjusted,
-            &dose_data, &subject.obs_times,
-            subject.obs_times.len(), model.pk_model,
+            &eta,
+            &tv_adjusted,
+            &dose_data,
+            &subject.obs_times,
+            subject.obs_times.len(),
+            model.pk_model,
             &model.pk_indices,
         )
     } else {
@@ -228,16 +256,22 @@ fn bfgs_minimize_with_grad(
             h_inv = DMatrix::identity(n, n);
             let d: Vec<f64> = g.iter().map(|gi| -gi).collect();
             let alpha = backtracking_line_search(obj, x, &d, &g, n);
-            for i in 0..n { x[i] += alpha * d[i]; }
+            for i in 0..n {
+                x[i] += alpha * d[i];
+            }
             g = grad(x);
             continue;
         }
 
         let alpha = backtracking_line_search(obj, x, &d, &g, n);
-        if alpha < 1e-16 { return false; }
+        if alpha < 1e-16 {
+            return false;
+        }
 
         let s: Vec<f64> = (0..n).map(|i| alpha * d[i]).collect();
-        for i in 0..n { x[i] += s[i]; }
+        for i in 0..n {
+            x[i] += s[i];
+        }
 
         let g_new = grad(x);
         let y: Vec<f64> = (0..n).map(|i| g_new[i] - g[i]).collect();
@@ -277,7 +311,11 @@ fn nelder_mead_minimize(
     simplex.push(x.to_vec());
     for i in 0..n {
         let mut point = x.to_vec();
-        let delta = if point[i].abs() > 1e-8 { 0.05 * point[i].abs() } else { 0.00025 };
+        let delta = if point[i].abs() > 1e-8 {
+            0.05 * point[i].abs()
+        } else {
+            0.00025
+        };
         point[i] += delta;
         simplex.push(point);
     }

@@ -16,7 +16,15 @@ pub struct DoseEvent {
 impl DoseEvent {
     pub fn new(time: f64, amt: f64, cmt: usize, rate: f64, ss: bool, ii: f64) -> Self {
         let duration = if rate > 0.0 { amt / rate } else { 0.0 };
-        Self { time, amt, cmt, rate, duration, ss, ii }
+        Self {
+            time,
+            amt,
+            cmt,
+            rate,
+            duration,
+            ss,
+            ii,
+        }
     }
 
     pub fn is_infusion(&self) -> bool {
@@ -57,12 +65,24 @@ impl Default for PkParams {
 }
 
 impl PkParams {
-    pub fn cl(&self) -> f64 { self.values[PK_IDX_CL] }
-    pub fn v(&self) -> f64 { self.values[PK_IDX_V] }
-    pub fn q(&self) -> f64 { self.values[PK_IDX_Q] }
-    pub fn v2(&self) -> f64 { self.values[PK_IDX_V2] }
-    pub fn ka(&self) -> f64 { self.values[PK_IDX_KA] }
-    pub fn f_bio(&self) -> f64 { self.values[PK_IDX_F] }
+    pub fn cl(&self) -> f64 {
+        self.values[PK_IDX_CL]
+    }
+    pub fn v(&self) -> f64 {
+        self.values[PK_IDX_V]
+    }
+    pub fn q(&self) -> f64 {
+        self.values[PK_IDX_Q]
+    }
+    pub fn v2(&self) -> f64 {
+        self.values[PK_IDX_V2]
+    }
+    pub fn ka(&self) -> f64 {
+        self.values[PK_IDX_KA]
+    }
+    pub fn f_bio(&self) -> f64 {
+        self.values[PK_IDX_F]
+    }
 
     /// Map a PK parameter name to its index in the fixed-size array.
     pub fn name_to_index(name: &str) -> Option<usize> {
@@ -80,13 +100,27 @@ impl PkParams {
     /// Build from named HashMap (bridge for parser compatibility)
     pub fn from_hashmap(map: &HashMap<String, f64>) -> Self {
         let mut p = Self::default();
-        if let Some(&v) = map.get("cl") { p.values[PK_IDX_CL] = v; }
-        if let Some(&v) = map.get("v") { p.values[PK_IDX_V] = v; }
-        if let Some(&v) = map.get("v1") { p.values[PK_IDX_V] = v; }
-        if let Some(&v) = map.get("q") { p.values[PK_IDX_Q] = v; }
-        if let Some(&v) = map.get("v2") { p.values[PK_IDX_V2] = v; }
-        if let Some(&v) = map.get("ka") { p.values[PK_IDX_KA] = v; }
-        if let Some(&v) = map.get("f") { p.values[PK_IDX_F] = v; }
+        if let Some(&v) = map.get("cl") {
+            p.values[PK_IDX_CL] = v;
+        }
+        if let Some(&v) = map.get("v") {
+            p.values[PK_IDX_V] = v;
+        }
+        if let Some(&v) = map.get("v1") {
+            p.values[PK_IDX_V] = v;
+        }
+        if let Some(&v) = map.get("q") {
+            p.values[PK_IDX_Q] = v;
+        }
+        if let Some(&v) = map.get("v2") {
+            p.values[PK_IDX_V2] = v;
+        }
+        if let Some(&v) = map.get("ka") {
+            p.values[PK_IDX_KA] = v;
+        }
+        if let Some(&v) = map.get("f") {
+            p.values[PK_IDX_F] = v;
+        }
         p
     }
 }
@@ -139,7 +173,12 @@ impl OmegaMatrix {
                 m_reg.cholesky().expect("Regularized matrix must be PD").l()
             }
         };
-        Self { matrix: m, chol, eta_names: names, diagonal }
+        Self {
+            matrix: m,
+            chol,
+            eta_names: names,
+            diagonal,
+        }
     }
 
     pub fn from_diagonal(variances: &[f64], names: Vec<String>) -> Self {

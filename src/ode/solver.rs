@@ -125,24 +125,36 @@ pub fn solve_ode(
         // RK45 stages
         rhs(&u, params, t, &mut k1);
 
-        for i in 0..n { u_tmp[i] = u[i] + dt_eff * B21 * k1[i]; }
+        for i in 0..n {
+            u_tmp[i] = u[i] + dt_eff * B21 * k1[i];
+        }
         rhs(&u_tmp, params, t + A2 * dt_eff, &mut k2);
 
-        for i in 0..n { u_tmp[i] = u[i] + dt_eff * (B31 * k1[i] + B32 * k2[i]); }
+        for i in 0..n {
+            u_tmp[i] = u[i] + dt_eff * (B31 * k1[i] + B32 * k2[i]);
+        }
         rhs(&u_tmp, params, t + A3 * dt_eff, &mut k3);
 
-        for i in 0..n { u_tmp[i] = u[i] + dt_eff * (B41 * k1[i] + B42 * k2[i] + B43 * k3[i]); }
+        for i in 0..n {
+            u_tmp[i] = u[i] + dt_eff * (B41 * k1[i] + B42 * k2[i] + B43 * k3[i]);
+        }
         rhs(&u_tmp, params, t + A4 * dt_eff, &mut k4);
 
-        for i in 0..n { u_tmp[i] = u[i] + dt_eff * (B51 * k1[i] + B52 * k2[i] + B53 * k3[i] + B54 * k4[i]); }
+        for i in 0..n {
+            u_tmp[i] = u[i] + dt_eff * (B51 * k1[i] + B52 * k2[i] + B53 * k3[i] + B54 * k4[i]);
+        }
         rhs(&u_tmp, params, t + A5 * dt_eff, &mut k5);
 
-        for i in 0..n { u_tmp[i] = u[i] + dt_eff * (B61 * k1[i] + B62 * k2[i] + B63 * k3[i] + B64 * k4[i] + B65 * k5[i]); }
+        for i in 0..n {
+            u_tmp[i] = u[i]
+                + dt_eff * (B61 * k1[i] + B62 * k2[i] + B63 * k3[i] + B64 * k4[i] + B65 * k5[i]);
+        }
         rhs(&u_tmp, params, t + dt_eff, &mut k6);
 
         // 5th-order solution
         for i in 0..n {
-            u5[i] = u[i] + dt_eff * (B71 * k1[i] + B73 * k3[i] + B74 * k4[i] + B75 * k5[i] + B76 * k6[i]);
+            u5[i] = u[i]
+                + dt_eff * (B71 * k1[i] + B73 * k3[i] + B74 * k4[i] + B75 * k5[i] + B76 * k6[i]);
         }
 
         // Error estimate
@@ -150,7 +162,8 @@ pub fn solve_ode(
 
         let mut err_norm = 0.0;
         for i in 0..n {
-            let err_i = dt_eff * (E1 * k1[i] + E3 * k3[i] + E4 * k4[i] + E5 * k5[i] + E6 * k6[i] + E7 * k7[i]);
+            let err_i = dt_eff
+                * (E1 * k1[i] + E3 * k3[i] + E4 * k4[i] + E5 * k5[i] + E6 * k6[i] + E7 * k7[i]);
             let scale = opts.abstol + opts.reltol * u5[i].abs().max(u[i].abs());
             err_norm += (err_i / scale) * (err_i / scale);
         }
@@ -163,7 +176,10 @@ pub fn solve_ode(
 
             // Save at requested times
             while save_idx < saveat.len() && (t - saveat[save_idx]).abs() < 1e-12 {
-                results.push(SolPoint { t: saveat[save_idx], u: u.clone() });
+                results.push(SolPoint {
+                    t: saveat[save_idx],
+                    u: u.clone(),
+                });
                 save_idx += 1;
             }
         }
@@ -181,7 +197,10 @@ pub fn solve_ode(
 
     // Fill any remaining saveat points with last state
     while save_idx < saveat.len() {
-        results.push(SolPoint { t: saveat[save_idx], u: u.clone() });
+        results.push(SolPoint {
+            t: saveat[save_idx],
+            u: u.clone(),
+        });
         save_idx += 1;
     }
 

@@ -23,11 +23,7 @@ pub struct OdeSpec {
 ///
 /// `pk_params_flat` is a flat array of PK parameters passed to the RHS function.
 /// Dose events are handled as state discontinuities between integration segments.
-pub fn ode_predictions(
-    ode: &OdeSpec,
-    pk_params_flat: &[f64],
-    subject: &Subject,
-) -> Vec<f64> {
+pub fn ode_predictions(ode: &OdeSpec, pk_params_flat: &[f64], subject: &Subject) -> Vec<f64> {
     let n = ode.n_states;
     let n_obs = subject.obs_times.len();
     let opts = OdeSolverOptions::default();

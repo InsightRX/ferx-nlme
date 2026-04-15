@@ -145,7 +145,7 @@ pub fn compute_bounds(template: &ModelParameters) -> PackedBounds {
     if template.omega.diagonal {
         for _ in 0..n_eta {
             lower.push(-6.0); // exp(-6) ≈ 0.0025
-            upper.push(4.0);  // exp(4) ≈ 55
+            upper.push(4.0); // exp(4) ≈ 55
         }
     } else {
         for j in 0..n_eta {
@@ -164,7 +164,7 @@ pub fn compute_bounds(template: &ModelParameters) -> PackedBounds {
     // Sigma bounds (log-transformed)
     for _ in 0..n_sigma {
         lower.push(-8.0); // exp(-8) ≈ 3e-4
-        upper.push(5.0);  // exp(5) ≈ 148
+        upper.push(5.0); // exp(5) ≈ 148
     }
 
     PackedBounds { lower, upper }
@@ -183,7 +183,8 @@ mod tests {
     use approx::assert_relative_eq;
 
     fn make_template() -> ModelParameters {
-        let omega = OmegaMatrix::from_diagonal(&[0.09, 0.04], vec!["eta_cl".into(), "eta_v".into()]);
+        let omega =
+            OmegaMatrix::from_diagonal(&[0.09, 0.04], vec!["eta_cl".into(), "eta_v".into()]);
         let sigma = SigmaVector {
             values: vec![0.3],
             names: vec!["sigma_prop".into()],
@@ -229,7 +230,12 @@ mod tests {
         }
 
         // Sigma should round-trip
-        for (orig, rec) in template.sigma.values.iter().zip(recovered.sigma.values.iter()) {
+        for (orig, rec) in template
+            .sigma
+            .values
+            .iter()
+            .zip(recovered.sigma.values.iter())
+        {
             assert_relative_eq!(orig, rec, epsilon = 1e-8);
         }
     }

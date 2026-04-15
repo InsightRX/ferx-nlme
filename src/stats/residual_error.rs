@@ -25,11 +25,7 @@ pub fn residual_variance(error_model: ErrorModel, f_pred: f64, sigma_values: &[f
 }
 
 /// Compute the R diagonal (vector of residual variances for all observations)
-pub fn compute_r_diag(
-    error_model: ErrorModel,
-    ipreds: &[f64],
-    sigma_values: &[f64],
-) -> Vec<f64> {
+pub fn compute_r_diag(error_model: ErrorModel, ipreds: &[f64], sigma_values: &[f64]) -> Vec<f64> {
     ipreds
         .iter()
         .map(|&f| residual_variance(error_model, f, sigma_values))

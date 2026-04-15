@@ -66,15 +66,7 @@ pub fn two_cpt_infusion(dose: &DoseEvent, t: f64, cl: f64, v1: f64, q: f64, v2: 
 
 /// Two-compartment oral absorption
 /// C(t) = P*exp(-alpha*t) + Q*exp(-beta*t) + R*exp(-ka*t)
-pub fn two_cpt_oral(
-    dose: &DoseEvent,
-    t: f64,
-    cl: f64,
-    v1: f64,
-    q: f64,
-    v2: f64,
-    ka: f64,
-) -> f64 {
+pub fn two_cpt_oral(dose: &DoseEvent, t: f64, cl: f64, v1: f64, q: f64, v2: f64, ka: f64) -> f64 {
     two_cpt_oral_f(dose, t, cl, v1, q, v2, ka, 1.0)
 }
 

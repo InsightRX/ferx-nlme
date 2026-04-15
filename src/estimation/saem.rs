@@ -6,7 +6,6 @@
 /// Two-phase step-size schedule (Monolix convention):
 ///   Phase 1 (exploration, k ≤ K1):  γₖ = 1          — rapid basin convergence
 ///   Phase 2 (convergence, k > K1):  γₖ = 1/(k−K1)   — almost-sure convergence to MLE
-
 use crate::estimation::inner_optimizer::run_inner_loop_warm;
 use crate::estimation::outer_optimizer::{compute_covariance, OuterResult};
 use crate::estimation::parameterization::*;
@@ -146,17 +145,21 @@ fn theta_sigma_mstep_light(
                 let sg_m: Vec<f64> = xp[n_theta..].iter().map(|&v| v.exp()).collect();
                 let fm = obs_nll_sum(model, population, &th_m, &sg_m, etas);
                 g[i] = (fp - fm) / (2.0 * h);
-                if !g[i].is_finite() { g[i] = 0.0; }
+                if !g[i].is_finite() {
+                    g[i] = 0.0;
+                }
                 xp[i] = xv[i];
             }
         }
 
-        if val.is_finite() { val } else { 1e20 }
+        if val.is_finite() {
+            val
+        } else {
+            1e20
+        }
     };
 
-    let mut opt = nlopt::Nlopt::new(
-        nlopt::Algorithm::Slsqp, n, obj, nlopt::Target::Minimize, (),
-    );
+    let mut opt = nlopt::Nlopt::new(nlopt::Algorithm::Slsqp, n, obj, nlopt::Target::Minimize, ());
     opt.set_lower_bounds(&lower).unwrap();
     opt.set_upper_bounds(&upper).unwrap();
     opt.set_maxeval(maxiter * (n as u32 + 1)).unwrap();
@@ -264,8 +267,16 @@ pub fn run_saem(
     let mut log_sigma: Vec<f64> = sigma_cur.iter().map(|&s| s.max(1e-10).ln()).collect();
 
     // Bounds in log-space
-    let log_theta_lower: Vec<f64> = init_params.theta_lower.iter().map(|&b| b.max(1e-10).ln()).collect();
-    let log_theta_upper: Vec<f64> = init_params.theta_upper.iter().map(|&b| b.min(1e9).ln()).collect();
+    let log_theta_lower: Vec<f64> = init_params
+        .theta_lower
+        .iter()
+        .map(|&b| b.max(1e-10).ln())
+        .collect();
+    let log_theta_upper: Vec<f64> = init_params
+        .theta_upper
+        .iter()
+        .map(|&b| b.min(1e9).ln())
+        .collect();
     let log_sigma_lower = vec![-8.0f64; n_sigma];
     let log_sigma_upper = vec![5.0f64; n_sigma];
 
@@ -354,13 +365,19 @@ pub fn run_saem(
         // Only run every few iterations during exploration to save time
         let run_mstep = k <= 5 || k % 3 == 0 || k > k1;
         if run_mstep {
-            let mstep_maxiter = if k <= k1 { 3 } else { 5 };  // more precise in convergence phase
+            let mstep_maxiter = if k <= k1 { 3 } else { 5 }; // more precise in convergence phase
             let (theta_new, sigma_new) = theta_sigma_mstep_light(
-                model, population, &state.etas,
-                &log_theta, &log_sigma,
-                &log_theta_lower, &log_theta_upper,
-                &log_sigma_lower, &log_sigma_upper,
-                n_theta, n_sigma,
+                model,
+                population,
+                &state.etas,
+                &log_theta,
+                &log_sigma,
+                &log_theta_lower,
+                &log_theta_upper,
+                &log_sigma_lower,
+                &log_sigma_upper,
+                n_theta,
+                n_sigma,
                 mstep_maxiter,
             );
             log_theta = theta_new;
@@ -398,8 +415,7 @@ pub fn run_saem(
         // ---- Adapt MH step sizes ----
         if state.steps_since_adapt >= adapt_interval {
             for i in 0..n_subjects {
-                let rate =
-                    state.accept_counts[i] as f64 / (n_mh_steps * adapt_interval) as f64;
+                let rate = state.accept_counts[i] as f64 / (n_mh_steps * adapt_interval) as f64;
                 if rate > 0.4 {
                     state.step_scales[i] = (state.step_scales[i] * 1.1).min(5.0);
                 } else {

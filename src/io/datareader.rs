@@ -27,9 +27,7 @@ pub fn read_nonmem_csv(
         .map(|h| h.trim().to_lowercase())
         .collect();
 
-    let col_idx = |name: &str| -> Option<usize> {
-        headers.iter().position(|h| h == name)
-    };
+    let col_idx = |name: &str| -> Option<usize> { headers.iter().position(|h| h == name) };
 
     let id_col = col_idx("id").ok_or("Missing ID column")?;
     let time_col = col_idx("time").ok_or("Missing TIME column")?;
@@ -161,7 +159,10 @@ fn parse_subject(
 
         // Check if values change
         let first_val = vals.iter().find(|v| v.is_finite()).copied();
-        let is_tv = first_val.map_or(false, |fv| vals.iter().any(|v| v.is_finite() && (*v - fv).abs() > 1e-12));
+        let is_tv = first_val.map_or(false, |fv| {
+            vals.iter()
+                .any(|v| v.is_finite() && (*v - fv).abs() > 1e-12)
+        });
         if is_tv {
             // LOCF fill
             let mut filled = Vec::with_capacity(vals.len());

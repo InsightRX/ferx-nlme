@@ -50,7 +50,6 @@ jobs:
   fmt:
     name: Format
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - name: Install nightly toolchain

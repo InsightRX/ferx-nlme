@@ -21,7 +21,10 @@ fn model_preds(model: &CompiledModel, subject: &Subject, pk_params: &PkParams) -
 
 /// Run a model file with a NONMEM-format CSV dataset.
 /// Returns (FitResult, Population) so caller can write sdtab.
-pub fn run_model_with_data(model_path: &str, data_path: &str) -> Result<(FitResult, Population), String> {
+pub fn run_model_with_data(
+    model_path: &str,
+    data_path: &str,
+) -> Result<(FitResult, Population), String> {
     use crate::parser::model_parser::parse_full_model_file;
 
     let mut parsed = parse_full_model_file(Path::new(model_path))?;
@@ -30,10 +33,20 @@ pub fn run_model_with_data(model_path: &str, data_path: &str) -> Result<(FitResu
     eprintln!("Model: {}", parsed.model.name);
 
     let population = read_nonmem_csv(Path::new(data_path), None)?;
-    eprintln!("Data:  {} subjects, {} observations from {}", population.subjects.len(), population.n_obs(), data_path);
+    eprintln!(
+        "Data:  {} subjects, {} observations from {}",
+        population.subjects.len(),
+        population.n_obs(),
+        data_path
+    );
 
     let init_params = build_init_params(&parsed);
-    let result = fit(&parsed.model, &population, &init_params, &parsed.fit_options)?;
+    let result = fit(
+        &parsed.model,
+        &population,
+        &init_params,
+        &parsed.fit_options,
+    )?;
     Ok((result, population))
 }
 
@@ -44,7 +57,10 @@ pub fn run_model_simulate(model_path: &str) -> Result<(FitResult, Population), S
     use std::collections::HashMap;
 
     let mut parsed = parse_full_model_file(Path::new(model_path))?;
-    let sim_spec = parsed.simulation.clone().ok_or("Model file has no [simulation] block — use --data instead")?;
+    let sim_spec = parsed
+        .simulation
+        .clone()
+        .ok_or("Model file has no [simulation] block — use --data instead")?;
     set_model_name(&mut parsed.model, model_path);
 
     eprintln!("Model: {}", parsed.model.name);
@@ -53,7 +69,14 @@ pub fn run_model_simulate(model_path: &str) -> Result<(FitResult, Population), S
     let subjects: Vec<Subject> = (1..=sim_spec.n_subjects)
         .map(|i| Subject {
             id: format!("{}", i),
-            doses: vec![DoseEvent::new(0.0, sim_spec.dose_amt, sim_spec.dose_cmt, 0.0, false, 0.0)],
+            doses: vec![DoseEvent::new(
+                0.0,
+                sim_spec.dose_amt,
+                sim_spec.dose_cmt,
+                0.0,
+                false,
+                0.0,
+            )],
             obs_times: sim_spec.obs_times.clone(),
             observations: vec![0.0; sim_spec.obs_times.len()],
             obs_cmts: vec![1; sim_spec.obs_times.len()],
@@ -61,11 +84,24 @@ pub fn run_model_simulate(model_path: &str) -> Result<(FitResult, Population), S
             tvcov: HashMap::new(),
         })
         .collect();
-    let template = Population { subjects, covariate_names: vec![], dv_column: "dv".into() };
+    let template = Population {
+        subjects,
+        covariate_names: vec![],
+        dv_column: "dv".into(),
+    };
 
     // Simulate
-    eprintln!("Simulating {} subjects (seed={})...", sim_spec.n_subjects, sim_spec.seed);
-    let sim_results = simulate_with_seed(&parsed.model, &template, &parsed.model.default_params, 1, sim_spec.seed);
+    eprintln!(
+        "Simulating {} subjects (seed={})...",
+        sim_spec.n_subjects, sim_spec.seed
+    );
+    let sim_results = simulate_with_seed(
+        &parsed.model,
+        &template,
+        &parsed.model.default_params,
+        1,
+        sim_spec.seed,
+    );
 
     let mut population = template;
     for subject in &mut population.subjects {
@@ -77,10 +113,19 @@ pub fn run_model_simulate(model_path: &str) -> Result<(FitResult, Population), S
         }
     }
 
-    eprintln!("Loaded {} subjects, {} observations", population.subjects.len(), population.n_obs());
+    eprintln!(
+        "Loaded {} subjects, {} observations",
+        population.subjects.len(),
+        population.n_obs()
+    );
 
     let init_params = build_init_params(&parsed);
-    let result = fit(&parsed.model, &population, &init_params, &parsed.fit_options)?;
+    let result = fit(
+        &parsed.model,
+        &population,
+        &init_params,
+        &parsed.fit_options,
+    )?;
     Ok((result, population))
 }
 
@@ -185,10 +230,8 @@ pub fn fit(
     let bic = ofv + n_params as f64 * (n_obs as f64).ln();
 
     // Extract SEs from covariance matrix using converged parameter values
-    let (se_theta, se_omega, se_sigma) = extract_standard_errors(
-        &result.covariance_matrix,
-        &result.params,
-    );
+    let (se_theta, se_omega, se_sigma) =
+        extract_standard_errors(&result.covariance_matrix, &result.params);
 
     let fit_result = FitResult {
         method: options.method,
@@ -238,7 +281,8 @@ fn compute_subject_results(
             let h = &h_matrices[i];
 
             // Individual predictions: f(eta_hat)
-            let pk_params_ind = (model.pk_param_fn)(&params.theta, eta.as_slice(), &subject.covariates);
+            let pk_params_ind =
+                (model.pk_param_fn)(&params.theta, eta.as_slice(), &subject.covariates);
             let ipred = model_preds(model, subject, &pk_params_ind);
 
             // Population predictions: f(eta = 0)
@@ -310,7 +354,11 @@ fn extract_standard_errors(
     let se_packed: Vec<f64> = (0..n)
         .map(|i| {
             let v = cov[(i, i)];
-            if v > 0.0 { v.sqrt() } else { 0.0 }
+            if v > 0.0 {
+                v.sqrt()
+            } else {
+                0.0
+            }
         })
         .collect();
 
@@ -342,11 +390,12 @@ fn extract_standard_errors(
         .collect();
 
     // Sigma: SE via delta method (log-transformed)
-    let sigma_start = omega_start + if template.omega.diagonal {
-        n_eta
-    } else {
-        n_eta * (n_eta + 1) / 2
-    };
+    let sigma_start = omega_start
+        + if template.omega.diagonal {
+            n_eta
+        } else {
+            n_eta * (n_eta + 1) / 2
+        };
     let se_sigma: Vec<f64> = (0..n_sigma)
         .map(|i| {
             let idx = sigma_start + i;
