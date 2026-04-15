@@ -8,6 +8,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  RUSTUP_TOOLCHAIN: nightly
 
 jobs:
   check:
@@ -17,8 +18,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install nightly toolchain
         run: rustup toolchain install nightly --profile minimal
-      - name: Set nightly as default
-        run: rustup default nightly
+
       - uses: Swatinem/rust-cache@v2
       - name: cargo check
         run: cargo check --no-default-features --features ci
@@ -30,8 +30,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install nightly toolchain
         run: rustup toolchain install nightly --profile minimal
-      - name: Set nightly as default
-        run: rustup default nightly
+
       - uses: Swatinem/rust-cache@v2
       - name: cargo test
         run: cargo test --lib --no-default-features --features ci
@@ -43,8 +42,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install nightly toolchain
         run: rustup toolchain install nightly --profile minimal -c clippy
-      - name: Set nightly as default
-        run: rustup default nightly
+
       - uses: Swatinem/rust-cache@v2
       - name: cargo clippy
         run: cargo clippy --no-default-features --features ci
@@ -57,7 +55,6 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install nightly toolchain
         run: rustup toolchain install nightly --profile minimal -c rustfmt
-      - name: Set nightly as default
-        run: rustup default nightly
+
       - name: cargo fmt
         run: cargo fmt -- --check
