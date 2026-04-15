@@ -233,6 +233,37 @@ pub fn fit(
     let (se_theta, se_omega, se_sigma) =
         extract_standard_errors(&result.covariance_matrix, &result.params);
 
+    // Optional SIR step
+    let sir_result = if options.sir {
+        if let Some(ref cov) = result.covariance_matrix {
+            if options.verbose {
+                eprintln!("\nRunning SIR...");
+            }
+            match crate::estimation::sir::run_sir(
+                model,
+                population,
+                &result.params,
+                &result.eta_hats,
+                cov,
+                result.ofv,
+                options,
+            ) {
+                Ok(sir) => Some(sir),
+                Err(e) => {
+                    eprintln!("Warning: SIR failed: {}", e);
+                    None
+                }
+            }
+        } else {
+            if options.verbose {
+                eprintln!("Warning: SIR requires covariance matrix, skipping");
+            }
+            None
+        }
+    } else {
+        None
+    };
+
     let fit_result = FitResult {
         method: options.method,
         converged: result.converged,
@@ -254,6 +285,10 @@ pub fn fit(
         n_iterations: result.n_iterations,
         interaction: options.interaction,
         warnings: result.warnings,
+        sir_ci_theta: sir_result.as_ref().map(|s| s.ci_theta.clone()),
+        sir_ci_omega: sir_result.as_ref().map(|s| s.ci_omega.clone()),
+        sir_ci_sigma: sir_result.as_ref().map(|s| s.ci_sigma.clone()),
+        sir_ess: sir_result.as_ref().map(|s| s.effective_sample_size),
     };
 
     if options.verbose {

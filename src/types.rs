@@ -310,6 +310,11 @@ pub struct FitResult {
     pub n_iterations: usize,
     pub interaction: bool,
     pub warnings: Vec<String>,
+    // SIR results (optional)
+    pub sir_ci_theta: Option<Vec<(f64, f64)>>,
+    pub sir_ci_omega: Option<Vec<(f64, f64)>>,
+    pub sir_ci_sigma: Option<Vec<(f64, f64)>>,
+    pub sir_ess: Option<f64>,
 }
 
 /// Options for fit()
@@ -337,6 +342,11 @@ pub struct FitOptions {
     pub saem_seed: Option<u64>,
     /// Levenberg-Marquardt damping factor for Gauss-Newton (0 = pure GN).
     pub gn_lambda: f64,
+    // SIR options
+    pub sir: bool,
+    pub sir_samples: usize,
+    pub sir_resamples: usize,
+    pub sir_seed: Option<u64>,
 }
 
 impl Default for FitOptions {
@@ -360,6 +370,10 @@ impl Default for FitOptions {
             saem_adapt_interval: 50,
             saem_seed: None,
             gn_lambda: 0.01,
+            sir: false,
+            sir_samples: 1000,
+            sir_resamples: 500,
+            sir_seed: None,
         }
     }
 }
