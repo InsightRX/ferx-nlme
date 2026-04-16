@@ -90,3 +90,7 @@ PK parameters use a fixed-size array `[f64; 8]` with indices: CL=0, V/V1=1, Q=2,
 ### Parameterization
 
 The optimizer works in a transformed space: theta and sigma are log-transformed, omega uses Cholesky factorization. `estimation/parameterization.rs` handles packing/unpacking between the optimizer vector and model parameters.
+
+### Warning and Error Conventions
+
+Warnings and non-fatal issues should be collected into `FitResult.warnings` (a `Vec<String>`), not printed directly to stderr. The CLI layer (`output::print_results`) handles display. This keeps the library quiet for non-verbose callers and ensures warnings appear in both console and YAML output.

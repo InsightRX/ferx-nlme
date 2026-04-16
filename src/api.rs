@@ -216,6 +216,40 @@ pub fn fit(
     let (se_theta, se_omega, se_sigma) =
         extract_standard_errors(&result.covariance_matrix, &result.params);
 
+    // Optional SIR step
+    let mut warnings = result.warnings;
+    let sir_result = if options.sir {
+        if let Some(ref cov) = result.covariance_matrix {
+            if options.verbose {
+                eprintln!("\nRunning SIR...");
+            }
+            match crate::estimation::sir::run_sir(
+                model,
+                population,
+                &result.params,
+                &result.eta_hats,
+                cov,
+                result.ofv,
+                options,
+            ) {
+                Ok(sir) => Some(sir),
+                Err(e) => {
+                    warnings.push(format!("SIR failed: {}", e));
+                    None
+                }
+            }
+        } else {
+            warnings.push(
+                "SIR requested but covariance matrix is not available. \
+                 Enable covariance = true in [fit_options]."
+                    .to_string(),
+            );
+            None
+        }
+    } else {
+        None
+    };
+
     let fit_result = FitResult {
         method: options.method,
         converged: result.converged,
@@ -236,7 +270,11 @@ pub fn fit(
         n_parameters: n_params,
         n_iterations: result.n_iterations,
         interaction: options.interaction,
-        warnings: result.warnings,
+        warnings,
+        sir_ci_theta: sir_result.as_ref().map(|s| s.ci_theta.clone()),
+        sir_ci_omega: sir_result.as_ref().map(|s| s.ci_omega.clone()),
+        sir_ci_sigma: sir_result.as_ref().map(|s| s.ci_sigma.clone()),
+        sir_ess: sir_result.as_ref().map(|s| s.effective_sample_size),
     };
 
     if options.verbose {

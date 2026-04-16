@@ -301,6 +301,10 @@ fn parse_fit_options(lines: &[String]) -> Result<FitOptions, String> {
             "n_mh_steps" => opts.saem_n_mh_steps = parts[1].trim().parse().unwrap_or(3),
             "adapt_interval" => opts.saem_adapt_interval = parts[1].trim().parse().unwrap_or(50),
             "seed" => opts.saem_seed = parts[1].trim().parse().ok(),
+            "sir" => opts.sir = parts[1].trim() == "true",
+            "sir_samples" => opts.sir_samples = parts[1].trim().parse().unwrap_or(1000),
+            "sir_resamples" => opts.sir_resamples = parts[1].trim().parse().unwrap_or(250),
+            "sir_seed" => opts.sir_seed = parts[1].trim().parse().ok(),
             _ => {}
         }
     }

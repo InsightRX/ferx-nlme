@@ -108,6 +108,36 @@ pub fn print_results(result: &FitResult) {
         eprintln!("  SIGMA({}) = {:.6}  SE = {}", i + 1, s, se_str);
     }
 
+    // SIR results
+    if let Some(ess) = result.sir_ess {
+        eprintln!("\n--- SIR Uncertainty (95% CI) ---");
+        eprintln!("Effective sample size: {:.1}", ess);
+        if let Some(ref ci) = result.sir_ci_theta {
+            for (i, name) in result.theta_names.iter().enumerate() {
+                if i < ci.len() {
+                    eprintln!("  {} : [{:.6}, {:.6}]", name, ci[i].0, ci[i].1);
+                }
+            }
+        }
+        if let Some(ref ci) = result.sir_ci_omega {
+            let n_eta = result.omega.nrows();
+            for i in 0..n_eta.min(ci.len()) {
+                eprintln!(
+                    "  OMEGA({},{}) : [{:.6}, {:.6}]",
+                    i + 1,
+                    i + 1,
+                    ci[i].0,
+                    ci[i].1
+                );
+            }
+        }
+        if let Some(ref ci) = result.sir_ci_sigma {
+            for (i, (lo, hi)) in ci.iter().enumerate() {
+                eprintln!("  SIGMA({}) : [{:.6}, {:.6}]", i + 1, lo, hi);
+            }
+        }
+    }
+
     // Warnings
     if !result.warnings.is_empty() {
         eprintln!("\n--- Warnings ---");
@@ -294,6 +324,38 @@ pub fn write_estimates_yaml(result: &FitResult, path: &str) -> Result<(), String
         match se {
             Some(sv) => writeln!(f, "    se: {:.6}", sv).map_err(|e| e.to_string())?,
             None => writeln!(f, "    se: ~").map_err(|e| e.to_string())?,
+        }
+    }
+
+    // SIR section
+    if let Some(ess) = result.sir_ess {
+        writeln!(f, "\nsir:").map_err(|e| e.to_string())?;
+        writeln!(f, "  effective_sample_size: {:.1}", ess).map_err(|e| e.to_string())?;
+        if let Some(ref ci) = result.sir_ci_theta {
+            writeln!(f, "  ci_theta:").map_err(|e| e.to_string())?;
+            for (i, name) in result.theta_names.iter().enumerate() {
+                if i < ci.len() {
+                    writeln!(f, "    {}:", name).map_err(|e| e.to_string())?;
+                    writeln!(f, "      lower: {:.6}", ci[i].0).map_err(|e| e.to_string())?;
+                    writeln!(f, "      upper: {:.6}", ci[i].1).map_err(|e| e.to_string())?;
+                }
+            }
+        }
+        if let Some(ref ci) = result.sir_ci_omega {
+            writeln!(f, "  ci_omega:").map_err(|e| e.to_string())?;
+            for (i, (lo, hi)) in ci.iter().enumerate() {
+                writeln!(f, "    omega_{}{}:", i + 1, i + 1).map_err(|e| e.to_string())?;
+                writeln!(f, "      lower: {:.6}", lo).map_err(|e| e.to_string())?;
+                writeln!(f, "      upper: {:.6}", hi).map_err(|e| e.to_string())?;
+            }
+        }
+        if let Some(ref ci) = result.sir_ci_sigma {
+            writeln!(f, "  ci_sigma:").map_err(|e| e.to_string())?;
+            for (i, (lo, hi)) in ci.iter().enumerate() {
+                writeln!(f, "    sigma_{}:", i + 1).map_err(|e| e.to_string())?;
+                writeln!(f, "      lower: {:.6}", lo).map_err(|e| e.to_string())?;
+                writeln!(f, "      upper: {:.6}", hi).map_err(|e| e.to_string())?;
+            }
         }
     }
 
