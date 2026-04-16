@@ -59,7 +59,7 @@ pub fn three_cpt_iv_bolus(
     q3: f64,
     v3: f64,
 ) -> f64 {
-    if t < 0.0 || v1 <= 0.0 || cl <= 0.0 {
+    if t < 0.0 || v1 <= 0.0 || v2 <= 0.0 || v3 <= 0.0 || cl <= 0.0 || q2 < 0.0 || q3 < 0.0 {
         return 0.0;
     }
     let (alpha, beta, gamma, k21, k31) = macro_rates_three_cpt(cl, v1, q2, v2, q3, v3);
@@ -89,7 +89,7 @@ pub fn three_cpt_infusion(
     q3: f64,
     v3: f64,
 ) -> f64 {
-    if t < 0.0 || v1 <= 0.0 || cl <= 0.0 {
+    if t < 0.0 || v1 <= 0.0 || v2 <= 0.0 || v3 <= 0.0 || cl <= 0.0 || q2 < 0.0 || q3 < 0.0 {
         return 0.0;
     }
     let (alpha, beta, gamma, k21, k31) = macro_rates_three_cpt(cl, v1, q2, v2, q3, v3);
@@ -142,7 +142,15 @@ pub fn three_cpt_oral_f(
     ka: f64,
     f_bio: f64,
 ) -> f64 {
-    if t < 0.0 || v1 <= 0.0 || cl <= 0.0 || ka <= 0.0 {
+    if t < 0.0
+        || v1 <= 0.0
+        || v2 <= 0.0
+        || v3 <= 0.0
+        || cl <= 0.0
+        || q2 < 0.0
+        || q3 < 0.0
+        || ka <= 0.0
+    {
         return 0.0;
     }
     let (alpha, beta, gamma, k21, k31) = macro_rates_three_cpt(cl, v1, q2, v2, q3, v3);
@@ -326,6 +334,9 @@ mod tests {
         assert_eq!(three_cpt_iv_bolus(&dose, -1.0, CL, V1, Q2, V2, Q3, V3), 0.0);
         assert_eq!(three_cpt_iv_bolus(&dose, 1.0, CL, 0.0, Q2, V2, Q3, V3), 0.0);
         assert_eq!(three_cpt_iv_bolus(&dose, 1.0, 0.0, V1, Q2, V2, Q3, V3), 0.0);
+        // v2=0 and v3=0 must not produce NaN
+        assert_eq!(three_cpt_iv_bolus(&dose, 1.0, CL, V1, Q2, 0.0, Q3, V3), 0.0);
+        assert_eq!(three_cpt_iv_bolus(&dose, 1.0, CL, V1, Q2, V2, Q3, 0.0), 0.0);
     }
 
     // --- Infusion ---
