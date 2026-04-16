@@ -398,12 +398,9 @@ pub struct SimulationSpec {
     pub covariates: Vec<(String, Vec<f64>)>,
 }
 
-/// Full parsed model including simulation spec, initial values, and fit options
+/// Full parsed model including simulation spec and fit options
 pub struct ParsedModel {
     pub model: CompiledModel,
     pub simulation: Option<SimulationSpec>,
-    pub init_theta: Option<Vec<f64>>,
-    pub init_omega: Option<Vec<f64>>,
-    pub init_sigma: Option<Vec<f64>>,
     pub fit_options: FitOptions,
 }

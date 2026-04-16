@@ -192,11 +192,6 @@ pub fn parse_full_model(content: &str) -> Result<ParsedModel, String> {
         .get("simulation")
         .map(|lines| parse_simulation_block(lines))
         .transpose()?;
-    let (init_theta, init_omega, init_sigma) = if let Some(lines) = blocks.get("initial_values") {
-        parse_initial_values(lines)?
-    } else {
-        (None, None, None)
-    };
     let fit_options = if let Some(lines) = blocks.get("fit_options") {
         parse_fit_options(lines)?
     } else {
@@ -206,9 +201,6 @@ pub fn parse_full_model(content: &str) -> Result<ParsedModel, String> {
     Ok(ParsedModel {
         model,
         simulation,
-        init_theta,
-        init_omega,
-        init_sigma,
         fit_options,
     })
 }
@@ -260,30 +252,6 @@ fn parse_simulation_block(lines: &[String]) -> Result<SimulationSpec, String> {
         seed,
         covariates: vec![],
     })
-}
-
-// ── [initial_values] block parser ───────────────────────────────────────────
-
-fn parse_initial_values(
-    lines: &[String],
-) -> Result<(Option<Vec<f64>>, Option<Vec<f64>>, Option<Vec<f64>>), String> {
-    let mut theta = None;
-    let mut omega = None;
-    let mut sigma = None;
-
-    for line in lines {
-        let parts: Vec<&str> = line.splitn(2, '=').map(|s| s.trim()).collect();
-        if parts.len() != 2 {
-            continue;
-        }
-        match parts[0] {
-            "theta" => theta = Some(parse_float_array(parts[1])?),
-            "omega" => omega = Some(parse_float_array(parts[1])?),
-            "sigma" => sigma = Some(parse_float_array(parts[1])?),
-            _ => {}
-        }
-    }
-    Ok((theta, omega, sigma))
 }
 
 // ── [fit_options] block parser ──────────────────────────────────────────────
