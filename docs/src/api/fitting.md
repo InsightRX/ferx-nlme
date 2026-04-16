@@ -65,7 +65,7 @@ pub fn run_model_with_data(
 ) -> Result<(FitResult, Population), String>
 ```
 
-Uses the `[initial_values]` and `[fit_options]` from the model file.
+Uses the `[fit_options]` from the model file.
 
 ## `run_model_simulate()`
 
