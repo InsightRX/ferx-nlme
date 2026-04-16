@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "ayu";
-            window.path_to_searchindex_js = "../searchindex-9191bc24.js";
+            window.path_to_searchindex_js = "../searchindex-e9d51f09.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-0538b220.js"></script>
+        <script src="../toc-e6e24f6b.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -194,6 +194,7 @@ theta TVV(8.1, 0.1, 500.0)
 theta TVKA(1.0, 0.01, 50.0)
 </code></pre>
 <h2 id="omega-between-subject-variability"><a class="header" href="#omega-between-subject-variability">Omega (Between-Subject Variability)</a></h2>
+<h3 id="diagonal-omega"><a class="header" href="#diagonal-omega">Diagonal omega</a></h3>
 <pre><code>omega NAME ~ variance
 </code></pre>
 <ul>
@@ -205,8 +206,32 @@ theta TVKA(1.0, 0.01, 50.0)
 omega ETA_V  ~ 0.02
 omega ETA_KA ~ 0.40
 </code></pre>
-<p>The omega matrix is currently estimated as a diagonal matrix (no covariances between random effects). Each variance represents the between-subject variability for that parameter.</p>
-<p>The coefficient of variation (CV%) is approximately <code>sqrt(variance) * 100</code> for log-normally distributed parameters. For example, <code>omega ETA_CL ~ 0.09</code> corresponds to ~30% CV.</p>
+<p>Each variance represents the between-subject variability for that parameter. The coefficient of variation (CV%) is approximately <code>sqrt(variance) * 100</code> for log-normally distributed parameters. For example, <code>omega ETA_CL ~ 0.09</code> corresponds to ~30% CV.</p>
+<h3 id="block-omega-correlated-random-effects"><a class="header" href="#block-omega-correlated-random-effects">Block omega (correlated random effects)</a></h3>
+<p>To estimate correlations between random effects, use <code>block_omega</code>:</p>
+<pre><code>block_omega (NAME1, NAME2, ...) = [lower_triangle_values]
+</code></pre>
+<p>The values are the lower triangle of the covariance matrix, specified row-wise. For a 2x2 block:</p>
+<pre><code>block_omega (ETA_CL, ETA_V) = [var_CL, cov_CL_V, var_V]
+</code></pre>
+<p>For a 3x3 block:</p>
+<pre><code>block_omega (ETA_CL, ETA_V, ETA_KA) = [var_CL, cov_CL_V, var_V, cov_CL_KA, cov_V_KA, var_KA]
+</code></pre>
+<p>You can mix diagonal and block omega specifications. Diagonal omegas specify uncorrelated random effects, while block omegas estimate the full covariance sub-matrix:</p>
+<pre><code>block_omega (ETA_CL, ETA_V) = [0.09, 0.02, 0.04]
+omega ETA_KA ~ 0.40
+</code></pre>
+<p>This estimates a 3x3 omega where ETA_CL and ETA_V are correlated (2x2 block), but ETA_KA is uncorrelated with both.</p>
+<h3 id="declaration-order"><a class="header" href="#declaration-order">Declaration order</a></h3>
+<p>The order of <code>omega</code> and <code>block_omega</code> lines in the <code>[parameters]</code> block determines the ETA indexing throughout the model: in the omega matrix and all output. For example:</p>
+<pre><code>block_omega (ETA_CL, ETA_V) = [0.09, 0.02, 0.04]
+omega ETA_KA ~ 0.40
+</code></pre>
+<p>produces ETA order <code>[ETA_CL, ETA_V, ETA_KA]</code> (indices 1, 2, 3), while:</p>
+<pre><code>omega ETA_KA ~ 0.40
+block_omega (ETA_CL, ETA_V) = [0.09, 0.02, 0.04]
+</code></pre>
+<p>produces <code>[ETA_KA, ETA_CL, ETA_V]</code> (indices 1, 2, 3). The <code>[individual_parameters]</code> block should list assignments in the same order for clarity, though the parameter mapping is by name, not position.</p>
 <h2 id="sigma-residual-error"><a class="header" href="#sigma-residual-error">Sigma (Residual Error)</a></h2>
 <pre><code>sigma NAME ~ value
 </code></pre>
@@ -231,19 +256,28 @@ sigma ADD_ERR  ~ 1.0
 </tbody>
 </table>
 </div>
-<h2 id="complete-example"><a class="header" href="#complete-example">Complete Example</a></h2>
+<h2 id="complete-examples"><a class="header" href="#complete-examples">Complete Examples</a></h2>
+<p>Diagonal omega (no correlations):</p>
 <pre><code>[parameters]
-  # Fixed effects
   theta TVCL(0.134, 0.001, 10.0)
   theta TVV(8.1, 0.1, 500.0)
   theta TVKA(1.0, 0.01, 50.0)
 
-  # Between-subject variability
   omega ETA_CL ~ 0.07
   omega ETA_V  ~ 0.02
   omega ETA_KA ~ 0.40
 
-  # Residual error
+  sigma PROP_ERR ~ 0.01
+</code></pre>
+<p>Block omega (correlated CL and V):</p>
+<pre><code>[parameters]
+  theta TVCL(0.134, 0.001, 10.0)
+  theta TVV(8.1, 0.1, 500.0)
+  theta TVKA(1.0, 0.01, 50.0)
+
+  block_omega (ETA_CL, ETA_V) = [0.09, 0.02, 0.04]
+  omega ETA_KA ~ 0.40
+
   sigma PROP_ERR ~ 0.01
 </code></pre>
 

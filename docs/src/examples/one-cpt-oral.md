@@ -8,15 +8,15 @@ This example fits a one-compartment oral pharmacokinetic model to warfarin conce
 # One-compartment oral PK model (warfarin)
 
 [parameters]
-  theta TVCL(0.134, 0.001, 10.0)
-  theta TVV(8.1, 0.1, 500.0)
-  theta TVKA(1.0, 0.01, 50.0)
+  theta TVCL(0.2, 0.001, 10.0)
+  theta TVV(10.0, 0.1, 500.0)
+  theta TVKA(1.5, 0.01, 50.0)
 
-  omega ETA_CL ~ 0.07
-  omega ETA_V  ~ 0.02
-  omega ETA_KA ~ 0.40
+  omega ETA_CL ~ 0.09
+  omega ETA_V  ~ 0.04
+  omega ETA_KA ~ 0.30
 
-  sigma PROP_ERR ~ 0.01
+  sigma PROP_ERR ~ 0.02
 
 [individual_parameters]
   CL = TVCL * exp(ETA_CL)
@@ -28,11 +28,6 @@ This example fits a one-compartment oral pharmacokinetic model to warfarin conce
 
 [error_model]
   DV ~ proportional(PROP_ERR)
-
-[initial_values]
-  theta = [0.2, 10.0, 1.5]
-  omega = [0.09, 0.04, 0.30]
-  sigma = [0.02]
 
 [fit_options]
   method     = foce

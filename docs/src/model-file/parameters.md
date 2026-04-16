@@ -71,7 +71,7 @@ This estimates a 3x3 omega where ETA_CL and ETA_V are correlated (2x2 block), bu
 
 ### Declaration order
 
-The order of `omega` and `block_omega` lines in the `[parameters]` block determines the ETA indexing throughout the model: in the omega matrix, the `omega_matrix` initial values, and all output. For example:
+The order of `omega` and `block_omega` lines in the `[parameters]` block determines the ETA indexing throughout the model: in the omega matrix and all output. For example:
 
 ```
 block_omega (ETA_CL, ETA_V) = [0.09, 0.02, 0.04]
@@ -86,22 +86,6 @@ block_omega (ETA_CL, ETA_V) = [0.09, 0.02, 0.04]
 ```
 
 produces `[ETA_KA, ETA_CL, ETA_V]` (indices 1, 2, 3). The `[individual_parameters]` block should list assignments in the same order for clarity, though the parameter mapping is by name, not position.
-
-### Initial values for block omega
-
-In the `[initial_values]` block, use `omega_matrix` to specify the full lower triangle:
-
-```
-[initial_values]
-  omega_matrix = [0.09, 0.02, 0.04, 0.0, 0.0, 0.40]
-```
-
-Or use the standard `omega` key for diagonal-only initial values:
-
-```
-[initial_values]
-  omega = [0.09, 0.04, 0.40]
-```
 
 ## Sigma (Residual Error)
 

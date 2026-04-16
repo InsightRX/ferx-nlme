@@ -143,44 +143,7 @@ fn set_model_name(model: &mut CompiledModel, path: &str) {
 }
 
 fn build_init_params(parsed: &ParsedModel) -> ModelParameters {
-    let mut init_params = parsed.model.default_params.clone();
-    if let Some(ref th) = parsed.init_theta {
-        if th.len() == init_params.theta.len() {
-            init_params.theta = th.clone();
-        }
-    }
-    if let Some(ref om) = parsed.init_omega {
-        let eta_names = init_params.omega.eta_names.clone();
-        let n_eta = eta_names.len();
-        match om {
-            OmegaInit::Diagonal(variances) => {
-                init_params.omega = OmegaMatrix::from_diagonal(variances, eta_names);
-            }
-            OmegaInit::LowerTriangle(values) => {
-                let expected = n_eta * (n_eta + 1) / 2;
-                if values.len() == expected {
-                    let mut matrix = nalgebra::DMatrix::zeros(n_eta, n_eta);
-                    let mut idx = 0;
-                    for row in 0..n_eta {
-                        for col in 0..=row {
-                            matrix[(row, col)] = values[idx];
-                            matrix[(col, row)] = values[idx];
-                            idx += 1;
-                        }
-                    }
-                    init_params.omega = OmegaMatrix::from_matrix(matrix, eta_names, false);
-                }
-            }
-        }
-    }
-    if let Some(ref sg) = parsed.init_sigma {
-        for (i, &v) in sg.iter().enumerate() {
-            if i < init_params.sigma.values.len() {
-                init_params.sigma.values[i] = v;
-            }
-        }
-    }
-    init_params
+    parsed.model.default_params.clone()
 }
 
 /// High-level fit: model file path + data file path → FitResult
