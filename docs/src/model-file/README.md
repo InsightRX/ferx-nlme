@@ -11,7 +11,6 @@ FeRx models are defined in `.ferx` files using a declarative DSL. Each file is o
 | `[structural_model]` | Yes | Specify the PK model (analytical or ODE) |
 | `[error_model]` | Yes | Define the residual error model |
 | `[odes]` | If ODE | ODE right-hand-side equations |
-| `[initial_values]` | No | Override default starting values |
 | `[fit_options]` | No | Configure estimation method and optimizer |
 | `[simulation]` | No | Define a simulation trial design |
 
