@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "ayu";
-            window.path_to_searchindex_js = "../searchindex-9191bc24.js";
+            window.path_to_searchindex_js = "../searchindex-b5c82d49.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-0538b220.js"></script>
+        <script src="../toc-e6e24f6b.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -215,7 +215,7 @@
 let model = parse_model_string(model_str)?;
 <span class="boring">}</span></code></pre>
 <h3 id="parse_full_model_file"><a class="header" href="#parse_full_model_file"><code>parse_full_model_file()</code></a></h3>
-<p>Parse a complete model file including <code>[initial_values]</code>, <code>[fit_options]</code>, and <code>[simulation]</code> blocks.</p>
+<p>Parse a complete model file including <code>[fit_options]</code> and <code>[simulation]</code> blocks.</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>pub fn parse_full_model_file(path: &amp;Path) -&gt; Result&lt;ParsedModel, String&gt;
@@ -226,9 +226,6 @@ let model = parse_model_string(model_str)?;
 </span>pub struct ParsedModel {
     pub model: CompiledModel,
     pub simulation: Option&lt;SimulationSpec&gt;,
-    pub init_theta: Option&lt;Vec&lt;f64&gt;&gt;,
-    pub init_omega: Option&lt;Vec&lt;f64&gt;&gt;,
-    pub init_sigma: Option&lt;Vec&lt;f64&gt;&gt;,
     pub fit_options: FitOptions,
 }
 <span class="boring">}</span></code></pre>
