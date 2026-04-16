@@ -70,12 +70,34 @@ pub fn run_sir(
         ));
     }
 
-    // Cholesky decomposition of proposal covariance for sampling
-    let proposal_chol = proposal_cov
-        .clone()
-        .cholesky()
-        .ok_or("Proposal covariance is not positive definite")?
-        .l();
+    // Symmetrize and Cholesky-decompose the proposal covariance.
+    // The FD covariance may not be perfectly symmetric or positive definite;
+    // regularize with an eigenvalue floor if needed (same pattern as OmegaMatrix::from_matrix).
+    let sym_cov = (proposal_cov + proposal_cov.transpose()) * 0.5;
+    let proposal_chol = match sym_cov.clone().cholesky() {
+        Some(c) => c.l(),
+        None => {
+            // Regularize: shift eigenvalues to be at least 1e-8
+            let eig = sym_cov.clone().symmetric_eigen();
+            let min_eig = eig.eigenvalues.min();
+            let reg = if min_eig < 1e-8 {
+                -min_eig + 1e-8
+            } else {
+                1e-8
+            };
+            let reg_cov = &sym_cov + DMatrix::identity(n_packed, n_packed) * reg;
+            if options.verbose {
+                eprintln!(
+                    "  SIR: proposal covariance not PD (min eigenvalue = {:.2e}), regularizing",
+                    min_eig
+                );
+            }
+            reg_cov
+                .cholesky()
+                .ok_or("Proposal covariance could not be made positive definite")?
+                .l()
+        }
+    };
 
     // Log-determinant of proposal covariance (for density computation)
     let log_det_proposal = 2.0
