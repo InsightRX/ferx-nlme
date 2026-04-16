@@ -13,9 +13,8 @@ use crate::stats::likelihood::foce_population_nll;
 use crate::types::*;
 use nalgebra::{DMatrix, DVector};
 use rand::rngs::StdRng;
-use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
-use rand_distr::StandardNormal;
+use rand_distr::{Distribution, StandardNormal, WeightedIndex};
 use rayon::prelude::*;
 
 /// Results from the SIR procedure.
@@ -236,13 +235,10 @@ pub fn run_sir(
     }
 
     // Step 3: Resample with replacement proportional to weights
-    let indices: Vec<usize> = (0..n_samples).collect();
+    let weighted_dist = WeightedIndex::new(&weights)
+        .map_err(|e| format!("Failed to build weighted sampler: {}", e))?;
     let resampled_indices: Vec<usize> = (0..n_resamples)
-        .map(|_| {
-            *indices
-                .choose_weighted(&mut rng, |&i| normalized_weights[i])
-                .unwrap_or(&0)
-        })
+        .map(|_| weighted_dist.sample(&mut rng))
         .collect();
 
     // Step 4: Unpack resampled parameter vectors and compute CIs
