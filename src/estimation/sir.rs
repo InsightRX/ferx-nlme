@@ -8,7 +8,7 @@
 //! more robust than the asymptotic covariance matrix.
 
 use crate::estimation::inner_optimizer::run_inner_loop_warm;
-use crate::estimation::parameterization::{pack_params, unpack_params};
+use crate::estimation::parameterization::{compute_bounds, pack_params, unpack_params};
 use crate::stats::likelihood::foce_population_nll;
 use crate::types::*;
 use nalgebra::{DMatrix, DVector};
@@ -135,21 +135,37 @@ pub fn run_sir(
     let inner_maxiter = options.inner_maxiter;
     let inner_tol = options.inner_tol;
     let interaction = options.interaction;
+    let bounds = compute_bounds(params);
 
     let log_weights: Vec<f64> = samples
         .par_iter()
         .zip(z_vectors.par_iter())
         .map(|(x_k, z)| {
+            // Reject samples outside parameter bounds (avoids wasting inner-loop work)
+            let out_of_bounds = x_k
+                .iter()
+                .zip(bounds.lower.iter().zip(bounds.upper.iter()))
+                .any(|(&x, (&lo, &hi))| x < lo || x > hi);
+            if out_of_bounds {
+                return f64::NEG_INFINITY;
+            }
+
             let params_k = unpack_params(x_k, params);
 
-            // Check for invalid parameters
-            let any_invalid = params_k.theta.iter().any(|&t| !t.is_finite() || t <= 0.0)
-                || params_k
-                    .sigma
-                    .values
-                    .iter()
-                    .any(|&s| !s.is_finite() || s <= 0.0);
-            if any_invalid {
+            // Check for invalid parameters: theta, sigma, and omega
+            let theta_invalid = params_k.theta.iter().any(|&t| !t.is_finite() || t <= 0.0);
+            let sigma_invalid = params_k
+                .sigma
+                .values
+                .iter()
+                .any(|&s| !s.is_finite() || s <= 0.0);
+            let n_eta = params_k.omega.dim();
+            let omega_invalid = (0..n_eta).any(|i| {
+                let var = params_k.omega.matrix[(i, i)];
+                let lii = params_k.omega.chol[(i, i)];
+                !var.is_finite() || var <= 0.0 || !lii.is_finite() || lii <= 0.0
+            });
+            if theta_invalid || sigma_invalid || omega_invalid {
                 return f64::NEG_INFINITY;
             }
 
