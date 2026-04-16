@@ -32,7 +32,7 @@ pub fn parse_full_model(content: &str) -> Result<ParsedModel, String> {
     let param_lines = blocks
         .get("parameters")
         .ok_or("Missing [parameters] block")?;
-    let (thetas, omegas, block_omegas, sigmas) = parse_parameters(param_lines)?;
+    let (thetas, omegas, block_omegas, sigmas, eta_names) = parse_parameters(param_lines)?;
 
     let struct_lines = blocks
         .get("structural_model")
@@ -48,13 +48,6 @@ pub fn parse_full_model(content: &str) -> Result<ParsedModel, String> {
         .ok_or("Missing [individual_parameters] block")?;
 
     let theta_names: Vec<String> = thetas.iter().map(|t| t.name.clone()).collect();
-    // Collect eta names from both diagonal and block omega specs
-    let mut eta_names: Vec<String> = omegas.iter().map(|o| o.name.clone()).collect();
-    for block in &block_omegas {
-        for name in &block.names {
-            eta_names.push(name.clone());
-        }
-    }
     let sigma_names: Vec<String> = sigmas.iter().map(|s| s.name.clone()).collect();
     let n_theta = theta_names.len();
     let n_eta = eta_names.len();
@@ -556,6 +549,7 @@ fn parse_parameters(
         Vec<OmegaSpec>,
         Vec<BlockOmegaSpec>,
         Vec<SigmaSpec>,
+        Vec<String>, // eta names in declaration order
     ),
     String,
 > {
@@ -563,6 +557,7 @@ fn parse_parameters(
     let mut omegas = Vec::new();
     let mut block_omegas = Vec::new();
     let mut sigmas = Vec::new();
+    let mut eta_names_ordered = Vec::new();
 
     // theta NAME(init, lower, upper)  or  theta NAME(init)
     let theta_re = Regex::new(
@@ -620,6 +615,9 @@ fn parse_parameters(
                     line
                 ));
             }
+            for n in &names {
+                eta_names_ordered.push(n.clone());
+            }
             block_omegas.push(BlockOmegaSpec {
                 names,
                 lower_triangle: values,
@@ -629,6 +627,7 @@ fn parse_parameters(
             let variance: f64 = caps[2]
                 .parse()
                 .map_err(|_| format!("Bad omega: {}", line))?;
+            eta_names_ordered.push(name.clone());
             omegas.push(OmegaSpec { name, variance });
         } else if let Some(caps) = sigma_re.captures(line) {
             let name = caps[1].to_string();
@@ -639,14 +638,14 @@ fn parse_parameters(
         }
     }
 
-    Ok((thetas, omegas, block_omegas, sigmas))
+    Ok((thetas, omegas, block_omegas, sigmas, eta_names_ordered))
 }
 
 // --- Build omega matrix from diagonal + block specs ---
 
 /// Construct a full OmegaMatrix from diagonal omega specs and block omega specs.
-/// Diagonal omegas come first, then block omegas in declaration order.
-/// If any block omega is present, the full matrix is marked as non-diagonal.
+/// The `eta_names` vector determines the matrix ordering (declaration order from
+/// the model file). If any block omega is present, the matrix is non-diagonal.
 fn build_omega_matrix(
     diag_omegas: &[OmegaSpec],
     block_omegas: &[BlockOmegaSpec],
@@ -1180,7 +1179,7 @@ mod tests {
             "omega ETA_CL ~ 0.07".to_string(),
             "omega ETA_V  ~ 0.02".to_string(),
         ];
-        let (_, omegas, block_omegas, _) = parse_parameters(&lines).unwrap();
+        let (_, omegas, block_omegas, _, _) = parse_parameters(&lines).unwrap();
         assert_eq!(omegas.len(), 2);
         assert_eq!(block_omegas.len(), 0);
         assert_eq!(omegas[0].name, "ETA_CL");
@@ -1190,7 +1189,7 @@ mod tests {
     #[test]
     fn test_parse_block_omega() {
         let lines = vec!["block_omega (ETA_CL, ETA_V) = [0.09, 0.02, 0.04]".to_string()];
-        let (_, omegas, block_omegas, _) = parse_parameters(&lines).unwrap();
+        let (_, omegas, block_omegas, _, _) = parse_parameters(&lines).unwrap();
         assert_eq!(omegas.len(), 0);
         assert_eq!(block_omegas.len(), 1);
         assert_eq!(block_omegas[0].names, vec!["ETA_CL", "ETA_V"]);
@@ -1203,7 +1202,7 @@ mod tests {
             "block_omega (ETA_CL, ETA_V, ETA_KA) = [0.09, 0.01, 0.04, 0.005, 0.002, 0.16]"
                 .to_string(),
         ];
-        let (_, _, block_omegas, _) = parse_parameters(&lines).unwrap();
+        let (_, _, block_omegas, _, _) = parse_parameters(&lines).unwrap();
         assert_eq!(block_omegas[0].names.len(), 3);
         assert_eq!(block_omegas[0].lower_triangle.len(), 6); // 3*(3+1)/2
     }
@@ -1223,9 +1222,22 @@ mod tests {
             "omega ETA_KA ~ 0.40".to_string(),
             "block_omega (ETA_CL, ETA_V) = [0.09, 0.02, 0.04]".to_string(),
         ];
-        let (_, omegas, block_omegas, _) = parse_parameters(&lines).unwrap();
+        let (_, omegas, block_omegas, _, eta_names) = parse_parameters(&lines).unwrap();
         assert_eq!(omegas.len(), 1);
         assert_eq!(block_omegas.len(), 1);
+        // Declaration order preserved: ETA_KA first, then block (ETA_CL, ETA_V)
+        assert_eq!(eta_names, vec!["ETA_KA", "ETA_CL", "ETA_V"]);
+    }
+
+    #[test]
+    fn test_declaration_order_block_before_diagonal() {
+        let lines = vec![
+            "block_omega (ETA_CL, ETA_V) = [0.09, 0.02, 0.04]".to_string(),
+            "omega ETA_KA ~ 0.40".to_string(),
+        ];
+        let (_, _, _, _, eta_names) = parse_parameters(&lines).unwrap();
+        // block_omega declared first, so ETA_CL, ETA_V come before ETA_KA
+        assert_eq!(eta_names, vec!["ETA_CL", "ETA_V", "ETA_KA"]);
     }
 
     #[test]
@@ -1313,13 +1325,12 @@ mod tests {
         let omega = &parsed.model.default_params.omega;
         assert_eq!(omega.dim(), 3);
         assert!(!omega.diagonal);
-        // Block: ETA_CL, ETA_V come first, then diagonal ETA_KA
-        assert_eq!(omega.eta_names, vec!["ETA_KA", "ETA_CL", "ETA_V"]);
-        // But the names are ordered: first diagonal omegas, then block omegas
-        // ETA_KA = index 0 (diagonal), ETA_CL = index 1, ETA_V = index 2
-        assert!((omega.matrix[(0, 0)] - 0.40).abs() < 1e-10); // ETA_KA
-        assert!((omega.matrix[(1, 1)] - 0.09).abs() < 1e-10); // ETA_CL
-        assert!((omega.matrix[(2, 2)] - 0.04).abs() < 1e-10); // ETA_V
-        assert!((omega.matrix[(1, 2)] - 0.02).abs() < 1e-10); // cov(CL, V)
+        // Eta names preserve declaration order from the model file
+        assert_eq!(omega.eta_names, vec!["ETA_CL", "ETA_V", "ETA_KA"]);
+        // ETA_CL = index 0, ETA_V = index 1, ETA_KA = index 2
+        assert!((omega.matrix[(0, 0)] - 0.09).abs() < 1e-10); // ETA_CL
+        assert!((omega.matrix[(1, 1)] - 0.04).abs() < 1e-10); // ETA_V
+        assert!((omega.matrix[(2, 2)] - 0.40).abs() < 1e-10); // ETA_KA
+        assert!((omega.matrix[(0, 1)] - 0.02).abs() < 1e-10); // cov(CL, V)
     }
 }
