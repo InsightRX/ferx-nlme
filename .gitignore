@@ -1,3 +1,11 @@
 .cargo
 .claude
 target
+
+# Model run output
+*-fit.yaml
+*-sdtab.csv
+*-timing.txt
+
+# Rust compiler crash dumps
+rustc-ice-*.txt
