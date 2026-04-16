@@ -36,10 +36,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "ayu";
-            window.path_to_searchindex_js = "searchindex-9191bc24.js";
+            window.path_to_searchindex_js = "searchindex-e9d51f09.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-0538b220.js"></script>
+        <script src="toc-e6e24f6b.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -303,15 +303,15 @@ sudo dnf install NLopt-devel
 <h2 id="1-create-a-model-file"><a class="header" href="#1-create-a-model-file">1. Create a model file</a></h2>
 <p>Save the following as <code>warfarin.ferx</code>:</p>
 <pre><code>[parameters]
-  theta TVCL(0.134, 0.001, 10.0)
-  theta TVV(8.1, 0.1, 500.0)
-  theta TVKA(1.0, 0.01, 50.0)
+  theta TVCL(0.2, 0.001, 10.0)
+  theta TVV(10.0, 0.1, 500.0)
+  theta TVKA(1.5, 0.01, 50.0)
 
-  omega ETA_CL ~ 0.07
-  omega ETA_V  ~ 0.02
-  omega ETA_KA ~ 0.40
+  omega ETA_CL ~ 0.09
+  omega ETA_V  ~ 0.04
+  omega ETA_KA ~ 0.30
 
-  sigma PROP_ERR ~ 0.01
+  sigma PROP_ERR ~ 0.02
 
 [individual_parameters]
   CL = TVCL * exp(ETA_CL)
@@ -323,11 +323,6 @@ sudo dnf install NLopt-devel
 
 [error_model]
   DV ~ proportional(PROP_ERR)
-
-[initial_values]
-  theta = [0.2, 10.0, 1.5]
-  omega = [0.09, 0.04, 0.30]
-  sigma = [0.02]
 
 [fit_options]
   method     = foce
@@ -419,7 +414,6 @@ TVKA                 0.757498     0.034986        4.6
 <tr><td><code>[structural_model]</code></td><td>Yes</td><td>Specify the PK model (analytical or ODE)</td></tr>
 <tr><td><code>[error_model]</code></td><td>Yes</td><td>Define the residual error model</td></tr>
 <tr><td><code>[odes]</code></td><td>If ODE</td><td>ODE right-hand-side equations</td></tr>
-<tr><td><code>[initial_values]</code></td><td>No</td><td>Override default starting values</td></tr>
 <tr><td><code>[fit_options]</code></td><td>No</td><td>Configure estimation method and optimizer</td></tr>
 <tr><td><code>[simulation]</code></td><td>No</td><td>Define a simulation trial design</td></tr>
 </tbody>
@@ -462,6 +456,7 @@ theta TVV(8.1, 0.1, 500.0)
 theta TVKA(1.0, 0.01, 50.0)
 </code></pre>
 <h2 id="omega-between-subject-variability"><a class="header" href="#omega-between-subject-variability">Omega (Between-Subject Variability)</a></h2>
+<h3 id="diagonal-omega"><a class="header" href="#diagonal-omega">Diagonal omega</a></h3>
 <pre><code>omega NAME ~ variance
 </code></pre>
 <ul>
@@ -473,8 +468,32 @@ theta TVKA(1.0, 0.01, 50.0)
 omega ETA_V  ~ 0.02
 omega ETA_KA ~ 0.40
 </code></pre>
-<p>The omega matrix is currently estimated as a diagonal matrix (no covariances between random effects). Each variance represents the between-subject variability for that parameter.</p>
-<p>The coefficient of variation (CV%) is approximately <code>sqrt(variance) * 100</code> for log-normally distributed parameters. For example, <code>omega ETA_CL ~ 0.09</code> corresponds to ~30% CV.</p>
+<p>Each variance represents the between-subject variability for that parameter. The coefficient of variation (CV%) is approximately <code>sqrt(variance) * 100</code> for log-normally distributed parameters. For example, <code>omega ETA_CL ~ 0.09</code> corresponds to ~30% CV.</p>
+<h3 id="block-omega-correlated-random-effects"><a class="header" href="#block-omega-correlated-random-effects">Block omega (correlated random effects)</a></h3>
+<p>To estimate correlations between random effects, use <code>block_omega</code>:</p>
+<pre><code>block_omega (NAME1, NAME2, ...) = [lower_triangle_values]
+</code></pre>
+<p>The values are the lower triangle of the covariance matrix, specified row-wise. For a 2x2 block:</p>
+<pre><code>block_omega (ETA_CL, ETA_V) = [var_CL, cov_CL_V, var_V]
+</code></pre>
+<p>For a 3x3 block:</p>
+<pre><code>block_omega (ETA_CL, ETA_V, ETA_KA) = [var_CL, cov_CL_V, var_V, cov_CL_KA, cov_V_KA, var_KA]
+</code></pre>
+<p>You can mix diagonal and block omega specifications. Diagonal omegas specify uncorrelated random effects, while block omegas estimate the full covariance sub-matrix:</p>
+<pre><code>block_omega (ETA_CL, ETA_V) = [0.09, 0.02, 0.04]
+omega ETA_KA ~ 0.40
+</code></pre>
+<p>This estimates a 3x3 omega where ETA_CL and ETA_V are correlated (2x2 block), but ETA_KA is uncorrelated with both.</p>
+<h3 id="declaration-order"><a class="header" href="#declaration-order">Declaration order</a></h3>
+<p>The order of <code>omega</code> and <code>block_omega</code> lines in the <code>[parameters]</code> block determines the ETA indexing throughout the model: in the omega matrix and all output. For example:</p>
+<pre><code>block_omega (ETA_CL, ETA_V) = [0.09, 0.02, 0.04]
+omega ETA_KA ~ 0.40
+</code></pre>
+<p>produces ETA order <code>[ETA_CL, ETA_V, ETA_KA]</code> (indices 1, 2, 3), while:</p>
+<pre><code>omega ETA_KA ~ 0.40
+block_omega (ETA_CL, ETA_V) = [0.09, 0.02, 0.04]
+</code></pre>
+<p>produces <code>[ETA_KA, ETA_CL, ETA_V]</code> (indices 1, 2, 3). The <code>[individual_parameters]</code> block should list assignments in the same order for clarity, though the parameter mapping is by name, not position.</p>
 <h2 id="sigma-residual-error"><a class="header" href="#sigma-residual-error">Sigma (Residual Error)</a></h2>
 <pre><code>sigma NAME ~ value
 </code></pre>
@@ -499,19 +518,28 @@ sigma ADD_ERR  ~ 1.0
 </tbody>
 </table>
 </div>
-<h2 id="complete-example"><a class="header" href="#complete-example">Complete Example</a></h2>
+<h2 id="complete-examples"><a class="header" href="#complete-examples">Complete Examples</a></h2>
+<p>Diagonal omega (no correlations):</p>
 <pre><code>[parameters]
-  # Fixed effects
   theta TVCL(0.134, 0.001, 10.0)
   theta TVV(8.1, 0.1, 500.0)
   theta TVKA(1.0, 0.01, 50.0)
 
-  # Between-subject variability
   omega ETA_CL ~ 0.07
   omega ETA_V  ~ 0.02
   omega ETA_KA ~ 0.40
 
-  # Residual error
+  sigma PROP_ERR ~ 0.01
+</code></pre>
+<p>Block omega (correlated CL and V):</p>
+<pre><code>[parameters]
+  theta TVCL(0.134, 0.001, 10.0)
+  theta TVV(8.1, 0.1, 500.0)
+  theta TVKA(1.0, 0.01, 50.0)
+
+  block_omega (ETA_CL, ETA_V) = [0.09, 0.02, 0.04]
+  omega ETA_KA ~ 0.40
+
   sigma PROP_ERR ~ 0.01
 </code></pre>
 <div style="break-before: page; page-break-before: always;"></div>
@@ -788,49 +816,9 @@ sigma ADD_ERR  ~ 1.0
 <li>Steady-state (<code>SS=1</code>) is not directly supported for ODE models</li>
 </ul>
 <div style="break-before: page; page-break-before: always;"></div>
-<h1 id="initial-values"><a class="header" href="#initial-values">Initial Values</a></h1>
-<p>The optional <code>[initial_values]</code> block overrides the default starting values for the optimizer. If omitted, the values from the <code>[parameters]</code> block are used.</p>
-<h2 id="syntax-2"><a class="header" href="#syntax-2">Syntax</a></h2>
-<pre><code>[initial_values]
-  theta = [val1, val2, ...]
-  omega = [var1, var2, ...]
-  sigma = [val1, ...]
-</code></pre>
-<p>Values are listed in the same order as parameters are declared in <code>[parameters]</code>.</p>
-<h2 id="example"><a class="header" href="#example">Example</a></h2>
-<p>Given parameters:</p>
-<pre><code>[parameters]
-  theta TVCL(0.134, 0.001, 10.0)
-  theta TVV(8.1, 0.1, 500.0)
-  theta TVKA(1.0, 0.01, 50.0)
-  omega ETA_CL ~ 0.07
-  omega ETA_V  ~ 0.02
-  omega ETA_KA ~ 0.40
-  sigma PROP_ERR ~ 0.01
-</code></pre>
-<p>Override initial values:</p>
-<pre><code>[initial_values]
-  theta = [0.2, 10.0, 1.5]
-  omega = [0.09, 0.04, 0.30]
-  sigma = [0.02]
-</code></pre>
-<p>This sets TVCL=0.2, TVV=10.0, TVKA=1.5, etc., regardless of the values in <code>[parameters]</code>.</p>
-<h2 id="when-to-use"><a class="header" href="#when-to-use">When to Use</a></h2>
-<ul>
-<li><strong>Starting from known estimates</strong>: If you have prior estimates from a previous run or the literature, provide them as initial values for faster convergence</li>
-<li><strong>Troubleshooting convergence</strong>: Poor initial values can lead to convergence failure. Try starting closer to expected parameter values</li>
-<li><strong>Sensitivity analysis</strong>: Run the model with different starting points to check for local minima</li>
-</ul>
-<h2 id="notes"><a class="header" href="#notes">Notes</a></h2>
-<ul>
-<li>Theta initial values must be within the bounds specified in <code>[parameters]</code></li>
-<li>Omega values are the diagonal variances (not standard deviations or Cholesky factors)</li>
-<li>The number of values must match the number of parameters declared</li>
-</ul>
-<div style="break-before: page; page-break-before: always;"></div>
 <h1 id="fit-options"><a class="header" href="#fit-options">Fit Options</a></h1>
 <p>The optional <code>[fit_options]</code> block configures the estimation method and optimizer settings.</p>
-<h2 id="syntax-3"><a class="header" href="#syntax-3">Syntax</a></h2>
+<h2 id="syntax-2"><a class="header" href="#syntax-2">Syntax</a></h2>
 <pre><code>[fit_options]
   key = value
 </code></pre>
@@ -922,7 +910,7 @@ sigma ADD_ERR  ~ 1.0
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="simulation"><a class="header" href="#simulation">Simulation</a></h1>
 <p>The optional <code>[simulation]</code> block defines a virtual clinical trial design for generating simulated data. This is useful for model validation and testing.</p>
-<h2 id="syntax-4"><a class="header" href="#syntax-4">Syntax</a></h2>
+<h2 id="syntax-3"><a class="header" href="#syntax-3">Syntax</a></h2>
 <pre><code>[simulation]
   subjects = N
   dose = AMOUNT
@@ -944,7 +932,7 @@ sigma ADD_ERR  ~ 1.0
 </tbody>
 </table>
 </div>
-<h2 id="example-1"><a class="header" href="#example-1">Example</a></h2>
+<h2 id="example"><a class="header" href="#example">Example</a></h2>
 <pre><code>[simulation]
   subjects = 100
   dose = 100
@@ -1159,7 +1147,7 @@ sigma ADD_ERR  ~ 1.0
   covariance = true
 </code></pre>
 <p>The initial Levenberg-Marquardt damping factor defaults to 0.01 and adapts automatically.</p>
-<h2 id="when-to-use-1"><a class="header" href="#when-to-use-1">When to Use</a></h2>
+<h2 id="when-to-use"><a class="header" href="#when-to-use">When to Use</a></h2>
 <p><strong>Use <code>gn</code></strong> when:</p>
 <ul>
 <li>You want fast convergence and the model is well-conditioned</li>
@@ -1471,7 +1459,7 @@ where \( V_j \) is the residual variance evaluated at the individual prediction.
 <p><strong>CWRES</strong> (Conditional Weighted Residual):
 \[ \text{CWRES}<em>j = \frac{y_j - f</em>{0,j}}{\sqrt{\tilde{R}_{jj}}} \]
 where \( f_0 = f(\hat{\eta}) - H\hat{\eta} \) is the linearized population prediction and \( \tilde{R} = H\Omega H^T + R \) is the conditional variance.</p>
-<h3 id="example-2"><a class="header" href="#example-2">Example</a></h3>
+<h3 id="example-1"><a class="header" href="#example-1">Example</a></h3>
 <pre><code class="language-csv">ID,TIME,DV,PRED,IPRED,CWRES,IWRES,ETA1,ETA2,ETA3
 1,0.5,9.49,10.12,9.55,-0.23,-0.06,0.15,-0.08,0.32
 1,1.0,14.42,14.87,14.35,0.18,0.05,0.15,-0.08,0.32
@@ -1566,15 +1554,15 @@ ferx examples/warfarin_saem.ferx --data data/warfarin.csv
 <pre><code># One-compartment oral PK model (warfarin)
 
 [parameters]
-  theta TVCL(0.134, 0.001, 10.0)
-  theta TVV(8.1, 0.1, 500.0)
-  theta TVKA(1.0, 0.01, 50.0)
+  theta TVCL(0.2, 0.001, 10.0)
+  theta TVV(10.0, 0.1, 500.0)
+  theta TVKA(1.5, 0.01, 50.0)
 
-  omega ETA_CL ~ 0.07
-  omega ETA_V  ~ 0.02
-  omega ETA_KA ~ 0.40
+  omega ETA_CL ~ 0.09
+  omega ETA_V  ~ 0.04
+  omega ETA_KA ~ 0.30
 
-  sigma PROP_ERR ~ 0.01
+  sigma PROP_ERR ~ 0.02
 
 [individual_parameters]
   CL = TVCL * exp(ETA_CL)
@@ -1586,11 +1574,6 @@ ferx examples/warfarin_saem.ferx --data data/warfarin.csv
 
 [error_model]
   DV ~ proportional(PROP_ERR)
-
-[initial_values]
-  theta = [0.2, 10.0, 1.5]
-  omega = [0.09, 0.04, 0.30]
-  sigma = [0.02]
 
 [fit_options]
   method     = foce
@@ -1693,7 +1676,7 @@ SIGMA(1) = 0.010638
 <h2 id="running-1"><a class="header" href="#running-1">Running</a></h2>
 <pre><code class="language-bash">ferx examples/two_cpt_iv.ferx --data data/two_cpt_iv.csv
 </code></pre>
-<h2 id="notes-1"><a class="header" href="#notes-1">Notes</a></h2>
+<h2 id="notes"><a class="header" href="#notes">Notes</a></h2>
 <ul>
 <li>Two-compartment models have more parameters and may need more iterations to converge</li>
 <li>The <code>global_search = true</code> option can help if convergence is difficult</li>
@@ -1759,7 +1742,7 @@ SIGMA(1) = 0.010638
 <h2 id="running-2"><a class="header" href="#running-2">Running</a></h2>
 <pre><code class="language-bash">ferx examples/two_cpt_oral_cov.ferx --data data/two_cpt_oral_cov.csv
 </code></pre>
-<h2 id="notes-2"><a class="header" href="#notes-2">Notes</a></h2>
+<h2 id="notes-1"><a class="header" href="#notes-1">Notes</a></h2>
 <ul>
 <li>FOCEI is used here because the proportional error model creates an interaction between random effects and residual error</li>
 <li>Covariate centering (dividing by 70 for weight, 100 for CRCL) improves numerical stability and makes the typical value (TVCL) interpretable as the clearance for a 70 kg patient with CRCL of 100 mL/min</li>
@@ -1833,7 +1816,7 @@ d/dt(central) = KA * depot / V - VMAX * central / (KM + central)
 <h2 id="running-3"><a class="header" href="#running-3">Running</a></h2>
 <pre><code class="language-bash">ferx examples/mm_oral.ferx --data data/mm_oral.csv
 </code></pre>
-<h2 id="notes-3"><a class="header" href="#notes-3">Notes</a></h2>
+<h2 id="notes-2"><a class="header" href="#notes-2">Notes</a></h2>
 <ul>
 <li>ODE models are slower than analytical models because each prediction requires numerical integration</li>
 <li>The ODE solver uses adaptive step-size control (Dormand-Prince RK45) for accuracy</li>
@@ -2101,7 +2084,7 @@ println!("OFV: {:.4}", result.ofv);
     data_path: &amp;str,
 ) -&gt; Result&lt;(FitResult, Population), String&gt;
 <span class="boring">}</span></code></pre>
-<p>Uses the <code>[initial_values]</code> and <code>[fit_options]</code> from the model file.</p>
+<p>Uses the <code>[fit_options]</code> from the model file.</p>
 <h2 id="run_model_simulate"><a class="header" href="#run_model_simulate"><code>run_model_simulate()</code></a></h2>
 <p>Simulation-estimation: parse model, generate data from <code>[simulation]</code> block, fit.</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -2258,7 +2241,7 @@ pub struct PredictionResult {
 let model = parse_model_string(model_str)?;
 <span class="boring">}</span></code></pre>
 <h3 id="parse_full_model_file"><a class="header" href="#parse_full_model_file"><code>parse_full_model_file()</code></a></h3>
-<p>Parse a complete model file including <code>[initial_values]</code>, <code>[fit_options]</code>, and <code>[simulation]</code> blocks.</p>
+<p>Parse a complete model file including <code>[fit_options]</code> and <code>[simulation]</code> blocks.</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>pub fn parse_full_model_file(path: &amp;Path) -&gt; Result&lt;ParsedModel, String&gt;
@@ -2269,9 +2252,6 @@ let model = parse_model_string(model_str)?;
 </span>pub struct ParsedModel {
     pub model: CompiledModel,
     pub simulation: Option&lt;SimulationSpec&gt;,
-    pub init_theta: Option&lt;Vec&lt;f64&gt;&gt;,
-    pub init_omega: Option&lt;Vec&lt;f64&gt;&gt;,
-    pub init_sigma: Option&lt;Vec&lt;f64&gt;&gt;,
     pub fit_options: FitOptions,
 }
 <span class="boring">}</span></code></pre>

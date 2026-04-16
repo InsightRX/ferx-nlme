@@ -10,7 +10,6 @@
   - [Structural Model](model-file/structural-model.md)
   - [Error Model](model-file/error-model.md)
   - [ODE Models](model-file/ode-models.md)
-  - [Initial Values](model-file/initial-values.md)
   - [Fit Options](model-file/fit-options.md)
   - [Simulation](model-file/simulation.md)
 - [Estimation Methods](estimation/README.md)
