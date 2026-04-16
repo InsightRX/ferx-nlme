@@ -259,7 +259,7 @@ pub fn write_estimates_yaml(result: &FitResult, path: &str) -> Result<(), String
         let var = result.omega[(i, i)];
         let cv_pct = if var > 0.0 { var.sqrt() * 100.0 } else { 0.0 };
         let se = result.se_omega.as_ref().and_then(|v| v.get(i).copied());
-        writeln!(f, "  omega_{}{}:", i + 1, i + 1).map_err(|e| e.to_string())?;
+        writeln!(f, "  omega_{}_{}:", i + 1, i + 1).map_err(|e| e.to_string())?;
         writeln!(f, "    variance: {:.6}", var).map_err(|e| e.to_string())?;
         writeln!(f, "    cv_pct: {:.2}", cv_pct).map_err(|e| e.to_string())?;
         match se {
@@ -279,7 +279,7 @@ pub fn write_estimates_yaml(result: &FitResult, path: &str) -> Result<(), String
                 } else {
                     0.0
                 };
-                writeln!(f, "  omega_{}{}:", i + 1, j + 1).map_err(|e| e.to_string())?;
+                writeln!(f, "  omega_{}_{}:", i + 1, j + 1).map_err(|e| e.to_string())?;
                 writeln!(f, "    covariance: {:.6}", cov).map_err(|e| e.to_string())?;
                 writeln!(f, "    correlation: {:.6}", corr).map_err(|e| e.to_string())?;
             }
