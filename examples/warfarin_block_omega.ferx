@@ -1,12 +1,12 @@
-# One-compartment oral PK model (warfarin) — SAEM estimation
+# One-compartment oral PK model (warfarin) with block omega
+# Demonstrates correlated random effects on CL and V
 
 [parameters]
   theta TVCL(0.2, 0.001, 10.0)
   theta TVV(10.0, 0.1, 500.0)
   theta TVKA(1.5, 0.01, 50.0)
 
-  omega ETA_CL ~ 0.09
-  omega ETA_V  ~ 0.04
+  block_omega (ETA_CL, ETA_V) = [0.09, 0.02, 0.04]
   omega ETA_KA ~ 0.30
 
   sigma PROP_ERR ~ 0.02
@@ -23,9 +23,6 @@
   DV ~ proportional(PROP_ERR)
 
 [fit_options]
-  method        = saem
-  n_exploration = 150
-  n_convergence = 250
-  n_mh_steps    = 3
-  seed          = 12345
-  covariance    = true
+  method     = foce
+  maxiter    = 300
+  covariance = true

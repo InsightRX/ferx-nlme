@@ -22,6 +22,8 @@ theta TVKA(1.0, 0.01, 50.0)
 
 ## Omega (Between-Subject Variability)
 
+### Diagonal omega
+
 ```
 omega NAME ~ variance
 ```
@@ -36,9 +38,54 @@ omega ETA_V  ~ 0.02
 omega ETA_KA ~ 0.40
 ```
 
-The omega matrix is currently estimated as a diagonal matrix (no covariances between random effects). Each variance represents the between-subject variability for that parameter.
+Each variance represents the between-subject variability for that parameter. The coefficient of variation (CV%) is approximately `sqrt(variance) * 100` for log-normally distributed parameters. For example, `omega ETA_CL ~ 0.09` corresponds to ~30% CV.
 
-The coefficient of variation (CV%) is approximately `sqrt(variance) * 100` for log-normally distributed parameters. For example, `omega ETA_CL ~ 0.09` corresponds to ~30% CV.
+### Block omega (correlated random effects)
+
+To estimate correlations between random effects, use `block_omega`:
+
+```
+block_omega (NAME1, NAME2, ...) = [lower_triangle_values]
+```
+
+The values are the lower triangle of the covariance matrix, specified row-wise. For a 2x2 block:
+
+```
+block_omega (ETA_CL, ETA_V) = [var_CL, cov_CL_V, var_V]
+```
+
+For a 3x3 block:
+
+```
+block_omega (ETA_CL, ETA_V, ETA_KA) = [var_CL, cov_CL_V, var_V, cov_CL_KA, cov_V_KA, var_KA]
+```
+
+You can mix diagonal and block omega specifications. Diagonal omegas specify uncorrelated random effects, while block omegas estimate the full covariance sub-matrix:
+
+```
+block_omega (ETA_CL, ETA_V) = [0.09, 0.02, 0.04]
+omega ETA_KA ~ 0.40
+```
+
+This estimates a 3x3 omega where ETA_CL and ETA_V are correlated (2x2 block), but ETA_KA is uncorrelated with both.
+
+### Declaration order
+
+The order of `omega` and `block_omega` lines in the `[parameters]` block determines the ETA indexing throughout the model: in the omega matrix and all output. For example:
+
+```
+block_omega (ETA_CL, ETA_V) = [0.09, 0.02, 0.04]
+omega ETA_KA ~ 0.40
+```
+
+produces ETA order `[ETA_CL, ETA_V, ETA_KA]` (indices 1, 2, 3), while:
+
+```
+omega ETA_KA ~ 0.40
+block_omega (ETA_CL, ETA_V) = [0.09, 0.02, 0.04]
+```
+
+produces `[ETA_KA, ETA_CL, ETA_V]` (indices 1, 2, 3). The `[individual_parameters]` block should list assignments in the same order for clarity, though the parameter mapping is by name, not position.
 
 ## Sigma (Residual Error)
 
@@ -63,20 +110,31 @@ The interpretation of sigma depends on the error model:
 | Proportional | Coefficient of proportional error |
 | Combined | First sigma = proportional coefficient, second = additive SD |
 
-## Complete Example
+## Complete Examples
 
+Diagonal omega (no correlations):
 ```
 [parameters]
-  # Fixed effects
   theta TVCL(0.134, 0.001, 10.0)
   theta TVV(8.1, 0.1, 500.0)
   theta TVKA(1.0, 0.01, 50.0)
 
-  # Between-subject variability
   omega ETA_CL ~ 0.07
   omega ETA_V  ~ 0.02
   omega ETA_KA ~ 0.40
 
-  # Residual error
+  sigma PROP_ERR ~ 0.01
+```
+
+Block omega (correlated CL and V):
+```
+[parameters]
+  theta TVCL(0.134, 0.001, 10.0)
+  theta TVV(8.1, 0.1, 500.0)
+  theta TVKA(1.0, 0.01, 50.0)
+
+  block_omega (ETA_CL, ETA_V) = [0.09, 0.02, 0.04]
+  omega ETA_KA ~ 0.40
+
   sigma PROP_ERR ~ 0.01
 ```

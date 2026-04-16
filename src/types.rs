@@ -37,11 +37,12 @@ impl DoseEvent {
 /// Index convention:
 ///   0: CL   (clearance)
 ///   1: V    (volume, or V1 for 2-cmt)
-///   2: Q    (intercompartmental clearance, 2-cmt only)
-///   3: V2   (peripheral volume, 2-cmt only)
+///   2: Q/Q2 (intercompartmental clearance, central ↔ peripheral 1; 2-cmt and 3-cmt)
+///   3: V2   (peripheral volume 1; 2-cmt and 3-cmt)
 ///   4: KA   (absorption rate constant, oral only)
 ///   5: F    (bioavailability, default 1.0)
-///   6-7: reserved
+///   6: Q3   (intercompartmental clearance, 3-cmt: central ↔ peripheral 2)
+///   7: V3   (peripheral volume 2, 3-cmt only)
 pub const MAX_PK_PARAMS: usize = 8;
 
 pub const PK_IDX_CL: usize = 0;
@@ -50,6 +51,8 @@ pub const PK_IDX_Q: usize = 2;
 pub const PK_IDX_V2: usize = 3;
 pub const PK_IDX_KA: usize = 4;
 pub const PK_IDX_F: usize = 5;
+pub const PK_IDX_Q3: usize = 6;
+pub const PK_IDX_V3: usize = 7;
 
 #[derive(Debug, Clone, Copy)]
 pub struct PkParams {
@@ -83,16 +86,24 @@ impl PkParams {
     pub fn f_bio(&self) -> f64 {
         self.values[PK_IDX_F]
     }
+    pub fn q3(&self) -> f64 {
+        self.values[PK_IDX_Q3]
+    }
+    pub fn v3(&self) -> f64 {
+        self.values[PK_IDX_V3]
+    }
 
     /// Map a PK parameter name to its index in the fixed-size array.
     pub fn name_to_index(name: &str) -> Option<usize> {
         match name {
             "cl" => Some(PK_IDX_CL),
             "v" | "v1" => Some(PK_IDX_V),
-            "q" => Some(PK_IDX_Q),
+            "q" | "q2" => Some(PK_IDX_Q),
             "v2" => Some(PK_IDX_V2),
             "ka" => Some(PK_IDX_KA),
             "f" => Some(PK_IDX_F),
+            "q3" => Some(PK_IDX_Q3),
+            "v3" => Some(PK_IDX_V3),
             _ => None,
         }
     }
@@ -112,6 +123,9 @@ impl PkParams {
         if let Some(&v) = map.get("q") {
             p.values[PK_IDX_Q] = v;
         }
+        if let Some(&v) = map.get("q2") {
+            p.values[PK_IDX_Q] = v;
+        }
         if let Some(&v) = map.get("v2") {
             p.values[PK_IDX_V2] = v;
         }
@@ -120,6 +134,12 @@ impl PkParams {
         }
         if let Some(&v) = map.get("f") {
             p.values[PK_IDX_F] = v;
+        }
+        if let Some(&v) = map.get("q3") {
+            p.values[PK_IDX_Q3] = v;
+        }
+        if let Some(&v) = map.get("v3") {
+            p.values[PK_IDX_V3] = v;
         }
         p
     }
@@ -222,6 +242,9 @@ pub enum PkModel {
     TwoCptIvBolus,
     TwoCptOral,
     TwoCptInfusion,
+    ThreeCptIvBolus,
+    ThreeCptOral,
+    ThreeCptInfusion,
 }
 
 /// Supported residual error models
@@ -412,12 +435,9 @@ pub struct SimulationSpec {
     pub covariates: Vec<(String, Vec<f64>)>,
 }
 
-/// Full parsed model including simulation spec, initial values, and fit options
+/// Full parsed model including simulation spec and fit options
 pub struct ParsedModel {
     pub model: CompiledModel,
     pub simulation: Option<SimulationSpec>,
-    pub init_theta: Option<Vec<f64>>,
-    pub init_omega: Option<Vec<f64>>,
-    pub init_sigma: Option<Vec<f64>>,
     pub fit_options: FitOptions,
 }

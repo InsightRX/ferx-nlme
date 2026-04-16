@@ -143,24 +143,7 @@ fn set_model_name(model: &mut CompiledModel, path: &str) {
 }
 
 fn build_init_params(parsed: &ParsedModel) -> ModelParameters {
-    let mut init_params = parsed.model.default_params.clone();
-    if let Some(ref th) = parsed.init_theta {
-        if th.len() == init_params.theta.len() {
-            init_params.theta = th.clone();
-        }
-    }
-    if let Some(ref om) = parsed.init_omega {
-        let eta_names = init_params.omega.eta_names.clone();
-        init_params.omega = OmegaMatrix::from_diagonal(om, eta_names);
-    }
-    if let Some(ref sg) = parsed.init_sigma {
-        for (i, &v) in sg.iter().enumerate() {
-            if i < init_params.sigma.values.len() {
-                init_params.sigma.values[i] = v;
-            }
-        }
-    }
-    init_params
+    parsed.model.default_params.clone()
 }
 
 /// High-level fit: model file path + data file path → FitResult

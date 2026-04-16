@@ -43,7 +43,7 @@ let model = parse_model_string(model_str)?;
 
 ### `parse_full_model_file()`
 
-Parse a complete model file including `[initial_values]`, `[fit_options]`, and `[simulation]` blocks.
+Parse a complete model file including `[fit_options]` and `[simulation]` blocks.
 
 ```rust
 pub fn parse_full_model_file(path: &Path) -> Result<ParsedModel, String>
@@ -55,9 +55,6 @@ Returns a `ParsedModel` which contains:
 pub struct ParsedModel {
     pub model: CompiledModel,
     pub simulation: Option<SimulationSpec>,
-    pub init_theta: Option<Vec<f64>>,
-    pub init_omega: Option<Vec<f64>>,
-    pub init_sigma: Option<Vec<f64>>,
     pub fit_options: FitOptions,
 }
 ```
