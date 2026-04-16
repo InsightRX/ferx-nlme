@@ -37,8 +37,8 @@ impl DoseEvent {
 /// Index convention:
 ///   0: CL   (clearance)
 ///   1: V    (volume, or V1 for 2-cmt)
-///   2: Q    (intercompartmental clearance, 2-cmt only)
-///   3: V2   (peripheral volume, 2-cmt only)
+///   2: Q/Q2 (intercompartmental clearance, central ↔ peripheral 1; 2-cmt and 3-cmt)
+///   3: V2   (peripheral volume 1; 2-cmt and 3-cmt)
 ///   4: KA   (absorption rate constant, oral only)
 ///   5: F    (bioavailability, default 1.0)
 ///   6: Q3   (intercompartmental clearance, 3-cmt: central ↔ peripheral 2)
@@ -121,6 +121,9 @@ impl PkParams {
             p.values[PK_IDX_V] = v;
         }
         if let Some(&v) = map.get("q") {
+            p.values[PK_IDX_Q] = v;
+        }
+        if let Some(&v) = map.get("q2") {
             p.values[PK_IDX_Q] = v;
         }
         if let Some(&v) = map.get("v2") {
