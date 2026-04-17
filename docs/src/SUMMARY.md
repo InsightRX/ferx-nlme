@@ -30,3 +30,4 @@
   - [Fitting Functions](api/fitting.md)
   - [Simulation](api/simulation.md)
   - [Parsing](api/parsing.md)
+- [FAQ](faq.md)

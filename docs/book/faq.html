@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Introduction - FeRx-NLME Documentation</title>
+        <title>FAQ - FeRx-NLME Documentation</title>
 
 
         <!-- Custom HTML head -->
@@ -177,68 +177,40 @@
 
                 <div id="mdbook-content" class="content">
                     <main>
-                        <h1 id="introduction"><a class="header" href="#introduction">Introduction</a></h1>
-<p>FeRx-NLME is a high-performance Nonlinear Mixed Effects (NLME) modeling engine written in Rust. It is designed for population pharmacokinetic (PopPK) analysis, implementing the same statistical methodology as established tools like NONMEM, Monolix, and Pumas.</p>
-<h2 id="key-features"><a class="header" href="#key-features">Key Features</a></h2>
-<ul>
-<li><strong>FOCE/FOCEI estimation</strong> – First-Order Conditional Estimation with optional interaction, the gold standard for PopPK</li>
-<li><strong>SAEM estimation</strong> – Stochastic Approximation EM for robust convergence on complex models</li>
-<li><strong>Analytical PK solutions</strong> – Built-in one- and two-compartment models (IV bolus, oral, infusion) with numerical stability guarantees</li>
-<li><strong>ODE solver</strong> – Dormand-Prince RK45 adaptive integrator for custom kinetic models (e.g. Michaelis-Menten)</li>
-<li><strong>Automatic differentiation</strong> – Enzyme-based reverse-mode AD for fast, exact gradients</li>
-<li><strong>Simple model DSL</strong> – Declarative <code>.ferx</code> model files that read like equations</li>
-<li><strong>NONMEM-compatible data</strong> – Reads standard NONMEM CSV datasets directly</li>
-<li><strong>Covariate support</strong> – Time-constant and time-varying covariates with automatic detection</li>
-<li><strong>Parallel estimation</strong> – Per-subject computations parallelized via Rayon</li>
-</ul>
-<h2 id="how-it-compares"><a class="header" href="#how-it-compares">How It Compares</a></h2>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Feature</th><th>FeRx</th><th>NONMEM</th><th>Monolix</th><th>Pumas</th></tr>
-</thead>
-<tbody>
-<tr><td>Language</td><td>Rust</td><td>Fortran</td><td>C++</td><td>Julia</td></tr>
-<tr><td>FOCE/FOCEI</td><td>Yes</td><td>Yes</td><td>No</td><td>Yes</td></tr>
-<tr><td>SAEM</td><td>Yes</td><td>No</td><td>Yes</td><td>Yes</td></tr>
-<tr><td>Analytical PK</td><td>Yes</td><td>Yes</td><td>Yes</td><td>Yes</td></tr>
-<tr><td>ODE models</td><td>Yes</td><td>Yes</td><td>Yes</td><td>Yes</td></tr>
-<tr><td>Auto-diff</td><td>Yes (Enzyme)</td><td>No</td><td>No</td><td>Yes (ForwardDiff)</td></tr>
-<tr><td>Open source</td><td>Yes</td><td>No</td><td>No</td><td>No</td></tr>
-</tbody>
-</table>
-</div>
-<h2 id="architecture-overview"><a class="header" href="#architecture-overview">Architecture Overview</a></h2>
-<p>FeRx uses a two-level optimization structure:</p>
-<ul>
-<li><strong>Outer loop</strong>: Optimizes population parameters (theta, omega, sigma) using NLopt or built-in BFGS</li>
-<li><strong>Inner loop</strong>: For each subject, finds empirical Bayes estimates (EBEs) of random effects by minimizing individual negative log-likelihood</li>
-</ul>
-<p>Parameters are internally transformed for unconstrained optimization: theta and sigma are log-transformed, and omega uses Cholesky factorization to guarantee positive-definiteness.</p>
-<h2 id="project-structure"><a class="header" href="#project-structure">Project Structure</a></h2>
-<pre><code>src/
-  types.rs          -- Core data structures
-  api.rs            -- Public API (fit, simulate, predict)
-  parser/           -- .ferx model file parser
-  pk/               -- Analytical PK solutions
-  ode/              -- ODE solver and predictions
-  estimation/       -- FOCE, FOCEI, SAEM algorithms
-  stats/            -- Likelihood and residual computations
-  io/               -- Data reading and output writing
-  ad/               -- Automatic differentiation
-  bin/run_model.rs  -- CLI binary
+                        <h1 id="frequently-asked-questions"><a class="header" href="#frequently-asked-questions">Frequently Asked Questions</a></h1>
+<h2 id="do-i-need-to-use-mu-referencing-in-my-model-definitions-like-in-nonmem--nlmixr2"><a class="header" href="#do-i-need-to-use-mu-referencing-in-my-model-definitions-like-in-nonmem--nlmixr2">Do I need to use MU-referencing in my model definitions, like in NONMEM / nlmixr2?</a></h2>
+<p><strong>No.</strong> FeRx does not require MU-referencing.</p>
+<p>In NONMEM and nlmixr2, MU-referencing is a convention in which each random effect <code>ETA(i)</code> is linearly associated with a single <code>MU_i</code> term (typically <code>MU_i = LOG(THETA(i))</code>), so individual parameters look like:</p>
+<pre><code>MU_1 = LOG(THETA(1))
+CL = EXP(MU_1 + ETA(1))
 </code></pre>
-<h2 id="license"><a class="header" href="#license">License</a></h2>
-<p>FeRx-NLME is released under the <a href="https://github.com/InsightRX/ferx-nlme/blob/main/LICENSE">MIT License</a>. Copyright © 2026 InsightRX, Inc.</p>
+<p>This structure is required by those tools’ SAEM implementations because they rely on conjugate Gibbs updates that are only valid when the <code>MU_i</code> → <code>ETA(i)</code> relationship is strictly linear (and typically on a log scale). If you deviate — for example by writing <code>CL = THETA(1) * EXP(ETA(1))</code> without going through an intermediate <code>MU_1</code>, or by mixing multiple etas into one parameter — NONMEM SAEM will either reject the model or silently produce biased estimates.</p>
+<p>FeRx’s SAEM implementation uses <strong>Metropolis-Hastings sampling</strong> for the E-step rather than Gibbs, which does not require MU-referencing. You can write individual parameters in any form you like:</p>
+<pre><code># All of these work fine in ferx:
+CL = TVCL * exp(ETA_CL)
+CL = TVCL + ETA_CL                              # additive eta
+CL = TVCL * (WT/70)^0.75 * exp(ETA_CL)          # with covariates
+CL = TVCL * exp(ETA_CL + ETA_CL_OCC)            # multiple etas
+VMAX = TVVMAX * exp(ETA_VMAX)
+KM   = TVKM                                      # no eta at all
+</code></pre>
+<p>The FOCE / FOCEI estimators have no MU-referencing requirement in any NLME tool — they use MAP optimization over etas regardless of parameterization. This is equally true in ferx.</p>
+<h3 id="performance-implication"><a class="header" href="#performance-implication">Performance implication</a></h3>
+<p>The main tradeoff is that MH sampling is slightly less efficient per iteration than conjugate Gibbs for MU-referenced models. In practice:</p>
+<ul>
+<li>For models with a few random effects, the difference is negligible</li>
+<li>For models with many (&gt;10) random effects, conjugate Gibbs would converge in fewer iterations — but in exchange you gain flexibility to write models that don’t fit the MU-referenced mold</li>
+</ul>
+<p>If you have a NONMEM model that uses MU-referencing and want to port it to ferx, you can drop the MU intermediate step and write the individual parameters directly — the results will be equivalent.</p>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-
-                            <a rel="next prefetch" href="getting-started.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
-                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                            <a rel="prev" href="api/parsing.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
+
 
                         <div style="clear: both"></div>
                     </nav>
@@ -246,10 +218,10 @@
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-
-                    <a rel="next prefetch" href="getting-started.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
-                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                    <a rel="prev" href="api/parsing.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
+
             </nav>
 
         </div>
