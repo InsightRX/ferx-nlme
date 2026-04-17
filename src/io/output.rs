@@ -10,14 +10,12 @@ pub fn print_results(result: &FitResult) {
         "\nConverged: {}",
         if result.converged { "YES" } else { "NO" }
     );
-    let method_str = match result.method {
-        EstimationMethod::Saem => "SAEM",
-        EstimationMethod::FoceI => "FOCEI",
-        EstimationMethod::Foce => "FOCE",
-        EstimationMethod::FoceGn => "FOCE-GN",
-        EstimationMethod::FoceGnHybrid => "FOCE-GN-Hybrid",
-    };
-    eprintln!("Estimation method: {}", method_str);
+    if result.method_chain.len() > 1 {
+        let chain: Vec<&str> = result.method_chain.iter().map(|m| m.label()).collect();
+        eprintln!("Estimation chain:  {}", chain.join(" → "));
+    } else {
+        eprintln!("Estimation method: {}", result.method.label());
+    }
     eprintln!("Iterations: {}", result.n_iterations);
 
     eprintln!("\n--- Objective Function ---");
@@ -241,12 +239,11 @@ pub fn write_estimates_yaml(result: &FitResult, path: &str) -> Result<(), String
 
     writeln!(f, "model:").map_err(|e| e.to_string())?;
     writeln!(f, "  converged: {}", result.converged).map_err(|e| e.to_string())?;
-    writeln!(
-        f,
-        "  method: FOCE{}",
-        if result.interaction { "I" } else { "" }
-    )
-    .map_err(|e| e.to_string())?;
+    writeln!(f, "  method: {}", result.method.label()).map_err(|e| e.to_string())?;
+    if result.method_chain.len() > 1 {
+        let chain: Vec<&str> = result.method_chain.iter().map(|m| m.label()).collect();
+        writeln!(f, "  method_chain: [{}]", chain.join(", ")).map_err(|e| e.to_string())?;
+    }
 
     writeln!(f, "\nobjective_function:").map_err(|e| e.to_string())?;
     writeln!(f, "  ofv: {:.6}", result.ofv).map_err(|e| e.to_string())?;
