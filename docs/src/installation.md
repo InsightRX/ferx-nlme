@@ -2,21 +2,21 @@
 
 FeRx requires a nightly Rust toolchain with the Enzyme LLVM plugin for automatic differentiation. As of 2026, Enzyme is not yet distributed via rustup, so a one-time plugin build is required.
 
-This page covers:
-- [Quick install (single user, dev machine)](#quick-install-single-user-dev-machine)
-- [Shared install (multi-user server)](#shared-install-multi-user-server)
-- [Building ferx-nlme from source](#building-ferx-nlme-from-source)
-- [Installing the ferx R package](#installing-the-ferx-r-package)
+Pick your platform:
+
+- [**Linux**](#linux) — fully supported, one-time ~30 min plugin build
+- [**macOS**](#macos) — supported with caveats
+- [**Windows**](#windows) — **not supported** (see [why below](#windows))
 
 ---
 
-## Quick install (single user, dev machine)
+## Linux
 
-For a personal dev machine where you're the only user.
+Tested on Ubuntu 22.04. Other distributions (Debian, Fedora, Arch) should work with adjustments to the package manager commands.
 
 ### 1. Install rustup + upstream nightly
 
-**Do not use snap's rustup** — its filesystem confinement breaks on non-standard home directories.
+**Do not use snap's rustup** — its filesystem confinement breaks on non-standard home directories (common on enterprise servers).
 
 ```bash
 # Remove snap rustup if you had it:
@@ -48,14 +48,16 @@ wget https://apt.llvm.org/llvm.sh
 chmod +x llvm.sh
 sudo ./llvm.sh <MAJOR>
 
-# Fix GPG keyring if apt warns:
+# Fix GPG keyring permissions if apt warns:
 sudo chmod 644 /etc/apt/trusted.gpg.d/apt.llvm.org.asc
 sudo apt update
 
 sudo apt install -y llvm-<MAJOR>-dev clang-<MAJOR>
 ```
 
-### 3. Build and install the Enzyme plugin
+For other distros, install the matching llvm-dev + clang packages from your package manager. The LLVM major version must exactly match what rustc reports.
+
+### 3. Build the Enzyme plugin
 
 ```bash
 git clone https://github.com/EnzymeAD/Enzyme /tmp/enzyme-build
@@ -70,11 +72,13 @@ ninja
 # 15–30 min
 ```
 
-Drop the built `.so` into nightly's target-specific sysroot. **This location is not obvious** — rustc looks in `lib/rustlib/<target>/lib/`, not just `lib/`:
+### 4. Install the plugin into nightly's sysroot
+
+**This location is not obvious** — rustc looks in `lib/rustlib/<target>/lib/`, not just `lib/`. Despite the error wording ("folder not found"), it's searching for a file:
 
 ```bash
 SYSROOT=$(rustc +nightly --print sysroot)
-TARGET=x86_64-unknown-linux-gnu   # adjust for other platforms
+TARGET=x86_64-unknown-linux-gnu   # or aarch64-unknown-linux-gnu on ARM
 
 cp /tmp/enzyme-build/enzyme/build/Enzyme/LLVMEnzyme-<MAJOR>.so \
    $SYSROOT/lib/rustlib/$TARGET/lib/libEnzyme-<MAJOR>.so
@@ -82,32 +86,26 @@ cp /tmp/enzyme-build/enzyme/build/Enzyme/LLVMEnzyme-<MAJOR>.so \
 
 Note the filename rewrite: `LLVMEnzyme-<N>.so` → `libEnzyme-<N>.so` (with `lib` prefix).
 
-### 4. Register the toolchain as `enzyme`
+### 5. Register the toolchain as `enzyme`
 
-The ferx build system pins to a toolchain named `enzyme`, so register nightly under that alias:
+ferx's build system pins to a toolchain named `enzyme`:
 
 ```bash
 rustup toolchain link enzyme "$(rustc +nightly --print sysroot)"
 rustc +enzyme --version
 ```
 
-### 5. Verify
+### 6. Verify
 
 ```bash
 rustc +enzyme -Z autodiff=Enable - </dev/null 2>&1 | head
 ```
 
-Expected output: `error[E0601]: `main` function not found`. That's the success signal — rustc + Enzyme loaded correctly. If you see `autodiff backend not found in the sysroot`, the `.so` is missing or in the wrong place.
+Expected: `error[E0601]: `main` function not found`. That's the success signal. If you see `autodiff backend not found in the sysroot`, the `.so` is missing or in the wrong place (step 4).
 
----
+### Multi-user servers
 
-## Shared install (multi-user server)
-
-For a server where multiple users need ferx. A sysadmin builds once into `/opt/rust-nightly`; each user links it into their own rustup.
-
-### Sysadmin steps (one-time)
-
-Same as quick install steps 1–3, but stage the built toolchain in `/opt`:
+For shared Linux servers, stage the built toolchain in `/opt/rust-nightly` so all users can share one build:
 
 ```bash
 sudo mkdir -p /opt/rust-nightly
@@ -117,27 +115,11 @@ sudo chmod -R a+rX /opt/rust-nightly
 sudo chmod a+rx /opt/rust-nightly/bin/*
 ```
 
-Then drop the Enzyme `.so` into the shared tree:
-
+Each user then links the shared toolchain into their own rustup:
 ```bash
-TARGET=x86_64-unknown-linux-gnu
-sudo cp /tmp/enzyme-build/enzyme/build/Enzyme/LLVMEnzyme-<MAJOR>.so \
-   /opt/rust-nightly/lib/rustlib/$TARGET/lib/libEnzyme-<MAJOR>.so
-sudo chmod a+r /opt/rust-nightly/lib/rustlib/$TARGET/lib/libEnzyme-<MAJOR>.so
-```
-
-### Per-user steps
-
-Each user who wants to use ferx runs these **once** in their account:
-
-```bash
-# Each user installs their own rustup, no default toolchain
+# per user, once
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none
-source "$HOME/.cargo/env"
-
-# Link the shared toolchain as `enzyme`
 rustup toolchain link enzyme /opt/rust-nightly
-rustc +enzyme --version
 ```
 
 For R users, add to `~/.Renviron`:
@@ -146,22 +128,125 @@ PATH=/opt/rust-nightly/bin:${HOME}/.cargo/bin:${PATH}
 RUSTUP_TOOLCHAIN=enzyme
 ```
 
-Restart R afterwards.
+---
+
+## macOS
+
+Supported on both Intel and Apple Silicon, with caveats around LLVM installation.
+
+### 1. Install Xcode Command Line Tools
+
+```bash
+xcode-select --install
+```
+
+### 2. Install rustup + upstream nightly
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+source "$HOME/.cargo/env"
+
+rustup toolchain install nightly
+```
+
+### 3. Install matching LLVM via Homebrew
+
+Check which LLVM major version nightly needs:
+```bash
+rustc +nightly --version --verbose | grep LLVM
+```
+
+Homebrew only ships a handful of LLVM versions at a time. If the version you need is on Homebrew:
+```bash
+brew install llvm@<MAJOR>
+# Path will be /opt/homebrew/opt/llvm@<MAJOR> (Apple Silicon)
+# or           /usr/local/opt/llvm@<MAJOR>     (Intel)
+```
+
+If Homebrew doesn't have your version, you'll need to build LLVM from source (much longer — consider sticking with a slightly older nightly that matches an available LLVM version).
+
+### 4. Build the Enzyme plugin
+
+```bash
+git clone https://github.com/EnzymeAD/Enzyme /tmp/enzyme-build
+cd /tmp/enzyme-build/enzyme
+mkdir build && cd build
+
+# Adjust paths for your brew prefix (/opt/homebrew or /usr/local)
+cmake -G Ninja .. \
+  -DLLVM_DIR=$(brew --prefix)/opt/llvm@<MAJOR>/lib/cmake/llvm \
+  -DENZYME_CLANG=OFF \
+  -DENZYME_FLANG=OFF
+ninja
+```
+
+You may need to install `ninja` if not present: `brew install ninja cmake`.
+
+### 5. Install the plugin into nightly's sysroot
+
+```bash
+SYSROOT=$(rustc +nightly --print sysroot)
+
+# On Apple Silicon:
+TARGET=aarch64-apple-darwin
+# On Intel:
+# TARGET=x86_64-apple-darwin
+
+# Note: on macOS the shared library extension is .dylib, not .so
+cp /tmp/enzyme-build/enzyme/build/Enzyme/LLVMEnzyme-<MAJOR>.dylib \
+   $SYSROOT/lib/rustlib/$TARGET/lib/libEnzyme-<MAJOR>.dylib
+```
+
+### 6. Register and verify
+
+```bash
+rustup toolchain link enzyme "$(rustc +nightly --print sysroot)"
+rustc +enzyme -Z autodiff=Enable - </dev/null 2>&1 | head
+# Expect: error[E0601]: `main` function not found
+```
+
+### macOS caveats
+
+- **Apple Silicon (M1/M2/M3/M4)**: use `aarch64-apple-darwin` as `TARGET`. Intel Macs use `x86_64-apple-darwin`
+- **System Integrity Protection (SIP)**: If you see code-signing errors loading the `.dylib` during `rustc` invocation, try `sudo codesign --force --sign - <path-to-libEnzyme.dylib>` — should be rare on dev machines
+- **Nightly toolchain distribution mismatches**: Apple Silicon nightlies occasionally lag x86_64 by a day or two; if LLVM version mismatches after `rustup update`, prefer installing a specific dated nightly
+
+---
+
+## Windows
+
+**Windows is not currently supported.** The blockers are:
+
+1. **EnzymeAD plugin build on MSVC is not well-tested.** The Enzyme project primarily targets Linux with LLVM clang/gcc. While Windows builds exist in theory, the toolchain integration (rustc sysroot path conventions, plugin discovery, MSVC vs MinGW linking) has known issues that haven't been worked through.
+
+2. **Rust autodiff feature gate interactions with MSVC codegen.** The `-Z autodiff=Enable` path has not been exercised on the x86_64-pc-windows-msvc target. Anecdotal reports from the Rust autodiff tracking issue show crashes or "backend not found" errors on Windows even when the plugin `.dll` is present.
+
+3. **We haven't set up CI for Windows.** Without a green CI signal we can't promise the build works.
+
+### Workarounds for Windows users
+
+- **WSL2 (recommended)**: Install Ubuntu under WSL2 and follow the [Linux instructions](#linux). Performance is near-native for CPU-bound workloads like model fitting.
+- **Docker**: Use the forthcoming ferx-nlme Docker image (coming soon) which ships with the toolchain pre-installed.
+- **Remote dev**: SSH into a Linux server or cloud VM.
+
+### Future Windows support
+
+Once upstream Enzyme integration lands in rustup (tracked at [rust-lang/rust autodiff tracking issue](https://github.com/rust-lang/rust/issues/124509)), Windows support should become straightforward since the plugin distribution problem goes away. No ETA; the feature is still experimental in rustc.
+
+If you're a Windows developer who would like to help, a CI run against `x86_64-pc-windows-msvc` + contributed docs for that platform would be very welcome.
 
 ---
 
 ## Building ferx-nlme from source
 
-Once the Enzyme toolchain is set up:
+Once your Enzyme toolchain is set up:
 
 ```bash
 git clone https://github.com/InsightRX/ferx-nlme
 cd ferx-nlme
 
-# Release build (recommended for performance)
 cargo build --release --features autodiff
-
-# Binary is at target/release/ferx
+# Binary at target/release/ferx
 ```
 
 ### Build options
@@ -180,7 +265,7 @@ cargo clippy --features autodiff
 cargo build --release --no-default-features --features ci
 ```
 
-The `ci` feature is useful if you want to develop/test without the full Enzyme toolchain setup — at the cost of much slower gradient computation.
+The `ci` feature is useful for development on machines without the full Enzyme toolchain — at the cost of much slower gradient computation.
 
 ### Verify the build
 
@@ -188,21 +273,19 @@ The `ci` feature is useful if you want to develop/test without the full Enzyme t
 cargo run --release --features autodiff --bin ferx -- examples/warfarin.ferx --simulate
 ```
 
-You should see a successful model fit with parameter estimates.
+Should print a successful model fit with parameter estimates.
 
 ---
 
 ## Installing the ferx R package
 
-If you want the R interface instead of the command-line binary:
-
-Ensure you completed steps 1–4 of the [Quick install](#quick-install-single-user-dev-machine) (or the equivalent shared setup). Then:
+Ensure the Enzyme toolchain is set up (above). Then:
 
 ```r
 devtools::install_github("InsightRX/ferx")
 ```
 
-The R package drives the Rust build via its `Makevars`. R uses `rustc` from your `PATH` and resolves the `enzyme` toolchain via rustup, so both must be set up correctly in your shell/Renviron before calling `install_github`.
+The R package's build is driven by its `Makevars`, which invokes `cargo` and resolves the `enzyme` toolchain via rustup. Both must be set up correctly in your shell/Renviron before calling `install_github`.
 
 See the [ferx R package README](https://github.com/InsightRX/ferx) for API usage.
 
@@ -221,13 +304,13 @@ FeRx depends on these crates (managed automatically by Cargo):
 | `csv` | CSV data file reading |
 | `regex` | Model file expression parsing |
 
-The `nlopt` crate requires the NLopt C library. Most platforms handle this automatically; if build fails on NLopt:
+The `nlopt` crate requires the NLopt C library. Most platforms handle this automatically; if the build fails on NLopt, install it via your system package manager:
 ```bash
 # macOS
 brew install nlopt
 
 # Ubuntu/Debian
-sudo apt-get install libnlopt-dev
+sudo apt install libnlopt-dev
 
 # Fedora
 sudo dnf install NLopt-devel
@@ -237,33 +320,33 @@ sudo dnf install NLopt-devel
 
 ## Troubleshooting
 
-### `"error: the option `Z` is only accepted on the nightly compiler"`
-Your R or shell is finding a non-nightly rustc. Check `rustc --version`, then verify `PATH` and `RUSTUP_TOOLCHAIN` in `~/.Renviron` (for R) or your shell rc (for CLI).
+### `"error: the option 'Z' is only accepted on the nightly compiler"`
+Your shell (or R) is finding a non-nightly `rustc`. Check `rustc --version` and your `PATH`. For R, verify `Sys.which("rustc")` and `~/.Renviron`.
 
 ### `"autodiff backend not found in the sysroot: failed to find a libEnzyme-<N> folder"`
-Despite the wording ("folder"), rustc is looking for a file. Causes:
-- **Wrong directory**: the `.so` is in `<sysroot>/lib/` instead of `<sysroot>/lib/rustlib/<target>/lib/`
-- **LLVM version mismatch**: rebuild Enzyme against the LLVM version rustc reports (`rustc --version --verbose | grep LLVM`)
-- **Filename**: must be `libEnzyme-<MAJOR>.so`, not `LLVMEnzyme-<MAJOR>.so` (note the `lib` prefix)
+Despite the wording ("folder"), rustc is searching for a file. Causes:
+- **Wrong directory**: the `.so`/`.dylib` is in `<sysroot>/lib/` instead of `<sysroot>/lib/rustlib/<target>/lib/`
+- **LLVM version mismatch**: rebuild Enzyme against the LLVM version rustc reports
+- **Filename**: must be `libEnzyme-<MAJOR>.so` (Linux) or `libEnzyme-<MAJOR>.dylib` (macOS), with `lib` prefix
 
 ### `"custom toolchain 'enzyme' specified in override file ... is not installed"`
-You haven't registered the toolchain. Run `rustup toolchain link enzyme <path>`. See [Quick install step 4](#4-register-the-toolchain-as-enzyme).
+Run `rustup toolchain link enzyme <path-to-nightly-sysroot>`.
 
 ### `"not a directory: '/<path>/lib'"` from `rustup toolchain link`
-Permission issue — the user running `toolchain link` can't read the target path. For shared installs, run `sudo chmod -R a+rX /opt/rust-nightly`.
+Permission issue — the user running `toolchain link` can't read the target path. On shared installs, run `sudo chmod -R a+rX /opt/rust-nightly`.
 
-### `"incorrect value ... for unstable option autodiff"`
-Valid autodiff values change between nightly builds. Currently accepted: `Enable` (most common). Verify with:
+### `"incorrect value 'X' for unstable option 'autodiff'"`
+Valid autodiff values change between nightly builds. Test with:
 ```bash
 rustc +enzyme -Z autodiff=Enable - </dev/null 2>&1 | head
 ```
-If `Enable` is rejected, try other values: `LooseTypes`, `PrintTA`, `Inline`. Whichever produces only the "missing main" error is valid.
+If `Enable` is rejected, try `LooseTypes`, `Inline`, or `PrintTA`.
 
 ### `"Enzyme: cannot handle (forward) unknown intrinsic llvm.maximumnum"`
-Recent rustc lowers `f64::max()` / `f64::min()` to intrinsics Enzyme doesn't differentiate yet. The workaround lives in ferx-nlme source — AD-instrumented functions must use manual `if` comparisons instead. If you hit this, report upstream.
+Recent rustc lowers `f64::max()`/`f64::min()` to intrinsics Enzyme can't yet differentiate. This is a ferx-nlme code-level issue — AD-instrumented functions must use manual `if` expressions. Should not happen on released ferx-nlme versions; if it does, please file an issue.
 
 ### `"cargo is unavailable for the active toolchain"` (info, not error)
-Cargo wasn't copied into your linked toolchain. Either add it (`cp ~/.cargo/bin/cargo /opt/rust-nightly/bin/`) or ignore — rustup falls back to nightly's cargo, which works.
+Cargo wasn't copied into your linked toolchain. Either copy it (`cp ~/.cargo/bin/cargo /opt/rust-nightly/bin/`) or ignore — rustup falls back to nightly's cargo, which works.
 
-### Need a refresh after upstream nightly rolls forward
-If a new ferx-nlme release references stdlib items your cached toolchain doesn't have (e.g. `autodiff_forward` not found), rebuild `/opt/rust-nightly` against the current nightly and rebuild Enzyme if LLVM major version changed.
+### Refreshing when upstream nightly rolls forward
+If a new ferx-nlme release references stdlib items your cached toolchain doesn't have (e.g. `autodiff_forward` not found), rebuild `/opt/rust-nightly` against the current nightly, and rebuild Enzyme if the LLVM major version changed.
