@@ -158,9 +158,12 @@ pub fn sdtab(result: &FitResult, population: &Population) -> Vec<(String, Vec<f6
         result.subjects[0].eta.len()
     };
 
+    let any_cens = result.subjects.iter().any(|s| s.cens.iter().any(|&c| c != 0));
+
     let mut ids = Vec::with_capacity(n_total);
     let mut times = Vec::with_capacity(n_total);
     let mut dvs = Vec::with_capacity(n_total);
+    let mut cens_col = Vec::with_capacity(n_total);
     let mut preds = Vec::with_capacity(n_total);
     let mut ipreds = Vec::with_capacity(n_total);
     let mut cwres_vec = Vec::with_capacity(n_total);
@@ -173,6 +176,7 @@ pub fn sdtab(result: &FitResult, population: &Population) -> Vec<(String, Vec<f6
             ids.push(si as f64 + 1.0);
             times.push(subj.obs_times[j]);
             dvs.push(subj.observations[j]);
+            cens_col.push(sr.cens.get(j).copied().unwrap_or(0) as f64);
             preds.push(sr.pred[j]);
             ipreds.push(sr.ipred[j]);
             cwres_vec.push(sr.cwres[j]);
@@ -187,11 +191,16 @@ pub fn sdtab(result: &FitResult, population: &Population) -> Vec<(String, Vec<f6
         ("ID".to_string(), ids),
         ("TIME".to_string(), times),
         ("DV".to_string(), dvs),
+    ];
+    if any_cens {
+        cols.push(("CENS".to_string(), cens_col));
+    }
+    cols.extend([
         ("PRED".to_string(), preds),
         ("IPRED".to_string(), ipreds),
         ("CWRES".to_string(), cwres_vec),
         ("IWRES".to_string(), iwres_vec),
-    ];
+    ]);
     for k in 0..n_eta {
         cols.push((format!("ETA{}", k + 1), eta_cols[k].clone()));
     }
@@ -220,11 +229,19 @@ pub fn write_sdtab_csv(
     let header: Vec<&str> = cols.iter().map(|(name, _)| name.as_str()).collect();
     writeln!(f, "{}", header.join(",")).map_err(|e| e.to_string())?;
 
-    // Rows
+    // Rows. NaN (used for BLOQ IWRES/CWRES) is written as an empty cell so
+    // downstream tools handle it as missing rather than a sentinel.
     for row in 0..n_rows {
         let vals: Vec<String> = cols
             .iter()
-            .map(|(_, values)| format!("{:.6}", values[row]))
+            .map(|(_, values)| {
+                let v = values[row];
+                if v.is_nan() {
+                    String::new()
+                } else {
+                    format!("{:.6}", v)
+                }
+            })
             .collect();
         writeln!(f, "{}", vals.join(",")).map_err(|e| e.to_string())?;
     }

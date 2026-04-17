@@ -82,6 +82,7 @@ pub fn run_model_simulate(model_path: &str) -> Result<(FitResult, Population), S
             obs_cmts: vec![1; sim_spec.obs_times.len()],
             covariates: HashMap::new(),
             tvcov: HashMap::new(),
+            cens: vec![0; sim_spec.obs_times.len()],
         })
         .collect();
     let template = Population {
@@ -153,9 +154,10 @@ pub fn fit_from_files(
     covariate_columns: Option<&[&str]>,
     options: Option<FitOptions>,
 ) -> Result<FitResult, String> {
-    let model = crate::parser::model_parser::parse_model_file(Path::new(model_path))?;
+    let mut model = crate::parser::model_parser::parse_model_file(Path::new(model_path))?;
     let population = read_nonmem_csv(Path::new(data_path), covariate_columns)?;
     let opts = options.unwrap_or_default();
+    model.bloq_method = opts.bloq_method;
     fit(&model, &population, &model.default_params, &opts)
 }
 
@@ -218,6 +220,23 @@ pub fn fit(
 
     // Optional SIR step
     let mut warnings = result.warnings;
+
+    // When M3 BLOQ is combined with non-interaction FOCE, mixing linearized
+    // Gaussian residuals with non-linearized log Φ terms gives inconsistent
+    // OFVs near the LLOQ boundary. The FOCE dispatcher routes affected
+    // subjects through FOCEI internally — surface the promotion to the user.
+    if matches!(model.bloq_method, BloqMethod::M3)
+        && matches!(options.method, EstimationMethod::Foce | EstimationMethod::FoceGn)
+        && !options.interaction
+        && population.subjects.iter().any(|s| s.has_bloq())
+    {
+        warnings.push(
+            "M3 BLOQ handling requires FOCEI semantics; subjects with CENS=1 \
+             rows were evaluated with η-interaction. Set method=focei explicitly \
+             to silence this notice."
+                .to_string(),
+        );
+    }
     let sir_result = if options.sir {
         if let Some(ref cov) = result.covariance_matrix {
             if options.verbose {
@@ -311,13 +330,18 @@ fn compute_subject_results(
             let pk_params_pop = (model.pk_param_fn)(&params.theta, &zero_eta, &subject.covariates);
             let pred = model_preds(model, subject, &pk_params_pop);
 
-            // IWRES
-            let iwres = compute_iwres(
+            // IWRES (NaN on BLOQ rows — see compute_cwres for CWRES handling).
+            let mut iwres = compute_iwres(
                 &subject.observations,
                 &ipred,
                 model.error_model,
                 &params.sigma.values,
             );
+            for (j, c) in subject.cens.iter().enumerate() {
+                if *c != 0 {
+                    iwres[j] = f64::NAN;
+                }
+            }
 
             // CWRES
             let cwres = compute_cwres(
@@ -350,6 +374,7 @@ fn compute_subject_results(
                 iwres,
                 cwres,
                 ofv_contribution: 2.0 * ofv_i,
+                cens: subject.cens.clone(),
             }
         })
         .collect()

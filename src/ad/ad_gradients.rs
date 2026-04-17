@@ -25,6 +25,7 @@ use std::autodiff::{autodiff_forward, autodiff_reverse};
     Const,
     Const,
     Const,
+    Const,
     Active
 )]
 pub fn individual_nll_ad(
@@ -39,7 +40,8 @@ pub fn individual_nll_ad(
     dose_durations: &[f64],
     obs_times: &[f64],
     observations: &[f64],
-    pk_idx_f64: &[f64],    // PK parameter indices as f64 (cast to usize inside)
+    cens_f64: &[f64], // per-observation censoring flag; > 0.5 ⇒ BLOQ (M3)
+    pk_idx_f64: &[f64], // PK parameter indices as f64 (cast to usize inside)
     pk_and_err_model: f64, // pk_model_id * 10 + error_model_id
 ) -> f64 {
     let n_eta = eta.len();
@@ -94,11 +96,56 @@ pub fn individual_nll_ad(
         }
 
         let v = residual_variance_ad(error_model_id, conc, sigma_values);
-        let resid = observations[obs_idx] - conc;
-        data_ll += resid * resid / v + v.ln();
+        if cens_f64[obs_idx] > 0.5 {
+            // BLOQ under M3: observations[j] carries LLOQ.
+            let z = (observations[obs_idx] - conc) / v.sqrt();
+            data_ll += -2.0 * log_normal_cdf_ad(z);
+        } else {
+            let resid = observations[obs_idx] - conc;
+            data_ll += resid * resid / v + v.ln();
+        }
     }
 
     0.5 * (eta_prior + log_det_omega + data_ll)
+}
+
+/// AD-safe erf (Abramowitz & Stegun 7.1.26). Duplicated from stats/special.rs so
+/// Enzyme sees the polynomial body inline and the LLVM IR contains no calls to
+/// `llvm.maximumnum`/`llvm.minimumnum` intrinsics — see CLAUDE.md.
+fn erf_ad(x: f64) -> f64 {
+    let a1 = 0.254_829_592;
+    let a2 = -0.284_496_736;
+    let a3 = 1.421_413_741;
+    let a4 = -1.453_152_027;
+    let a5 = 1.061_405_429;
+    let p = 0.327_591_1;
+
+    let sign = if x < 0.0 { -1.0 } else { 1.0 };
+    let ax = if x < 0.0 { -x } else { x };
+    let t = 1.0 / (1.0 + p * ax);
+    let y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * (-ax * ax).exp();
+    sign * y
+}
+
+/// AD-safe log Φ(z). For z > -5 uses ln(max(Φ,floor)), for z ≤ -5 uses the
+/// Mills-ratio asymptotic expansion. Both branches use only +, *, /, exp, ln —
+/// no min/max intrinsics.
+fn log_normal_cdf_ad(z: f64) -> f64 {
+    // Pre-resolved constants: INV_SQRT_2 = 1/√2; LOG_SQRT_2PI = ln(√(2π)).
+    const INV_SQRT_2: f64 = std::f64::consts::FRAC_1_SQRT_2;
+    const LOG_SQRT_2PI: f64 = 0.918_938_533_204_672_7;
+    const MIN_PROB: f64 = 1e-300;
+
+    if z > -5.0 {
+        let p = 0.5 * (1.0 + erf_ad(z * INV_SQRT_2));
+        let p_floor = if p < MIN_PROB { MIN_PROB } else { p };
+        p_floor.ln()
+    } else {
+        let log_phi = -0.5 * z * z - LOG_SQRT_2PI;
+        let inv_z2 = 1.0 / (z * z);
+        let series = 1.0 - inv_z2 + 3.0 * inv_z2 * inv_z2 - 15.0 * inv_z2 * inv_z2 * inv_z2;
+        log_phi - (-z).ln() + series.ln()
+    }
 }
 
 // ─── Predictions: forward-mode AD for Jacobian ─────────────────────────────
@@ -500,6 +547,9 @@ impl FlatDoseData {
 
 /// Compute gradient of individual_nll w.r.t. eta using reverse-mode AD.
 /// `tv_adjusted` = covariate-adjusted typical values (length n_eta).
+/// `cens_f64` = per-observation censoring flags (0 or 1 as f64); pass all
+/// zeros when M3 is disabled.
+#[allow(clippy::too_many_arguments)]
 pub fn compute_nll_gradient_ad(
     eta: &[f64],
     tv_adjusted: &[f64],
@@ -509,6 +559,7 @@ pub fn compute_nll_gradient_ad(
     dose_data: &FlatDoseData,
     obs_times: &[f64],
     observations: &[f64],
+    cens_f64: &[f64],
     pk_model: PkModel,
     error_model: ErrorModel,
     pk_indices: &[usize],
@@ -532,6 +583,7 @@ pub fn compute_nll_gradient_ad(
         &dose_data.durations,
         obs_times,
         observations,
+        cens_f64,
         &pk_idx_f64,
         pk_and_err,
         1.0,

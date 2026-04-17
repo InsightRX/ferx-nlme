@@ -98,6 +98,7 @@ fn simulate_subjects(
                 obs_cmts: vec![1; obs_times.len()],
                 covariates: cov,
                 tvcov: HashMap::new(),
+                cens: vec![0; obs_times.len()],
             }
         })
         .collect();
@@ -177,6 +178,7 @@ fn build_warfarin_model() -> CompiledModel {
         tv_fn: None,
         pk_indices: vec![PK_IDX_CL, PK_IDX_V, PK_IDX_KA],
         ode_spec: None,
+        bloq_method: BloqMethod::Drop,
     }
 }
 
@@ -244,6 +246,7 @@ fn generate_two_cpt_iv() {
         tv_fn: None,
         pk_indices: vec![PK_IDX_CL, PK_IDX_V, PK_IDX_Q, PK_IDX_V2],
         ode_spec: None,
+        bloq_method: BloqMethod::Drop,
     };
     let obs_times = vec![0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 12.0, 24.0, 48.0, 72.0];
     let subjects = simulate_subjects(&model, &params, 15, 100.0, 1, &obs_times, 123, None);
@@ -315,6 +318,7 @@ fn generate_two_cpt_oral_cov() {
         tv_fn: None,
         pk_indices: vec![PK_IDX_CL, PK_IDX_V, PK_IDX_Q, PK_IDX_V2, PK_IDX_KA],
         ode_spec: None,
+        bloq_method: BloqMethod::Drop,
     };
 
     // Generate random covariates (matching Julia seed 456)
@@ -344,6 +348,7 @@ fn generate_two_cpt_oral_cov() {
             obs_cmts: vec![1; obs_times.len()],
             covariates: covs[i].clone(),
             tvcov: HashMap::new(),
+            cens: vec![0; obs_times.len()],
         })
         .collect();
     let pop = Population {
@@ -428,6 +433,7 @@ fn generate_mm_oral() {
         tv_fn: None,
         pk_indices: vec![0, 2],
         ode_spec: Some(ode_spec),
+        bloq_method: BloqMethod::Drop,
     };
     let obs_times = vec![
         0.25, 0.5, 1.0, 2.0, 3.0, 4.0, 6.0, 8.0, 12.0, 24.0, 36.0, 48.0,

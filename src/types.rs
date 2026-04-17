@@ -155,6 +155,15 @@ pub struct Subject {
     pub obs_cmts: Vec<usize>,
     pub covariates: HashMap<String, f64>,
     pub tvcov: HashMap<String, Vec<f64>>,
+    /// Censoring flag per observation (0 = quantified, 1 = below LLOQ).
+    /// When `cens[j] == 1`, `observations[j]` holds the LLOQ value (NONMEM convention).
+    pub cens: Vec<u8>,
+}
+
+impl Subject {
+    pub fn has_bloq(&self) -> bool {
+        self.cens.iter().any(|&c| c != 0)
+    }
 }
 
 /// A collection of subjects
@@ -284,6 +293,9 @@ pub struct CompiledModel {
     /// analytical PK equations. The `pk_param_fn` output is flattened and passed
     /// to the ODE RHS function as the parameter vector.
     pub ode_spec: Option<crate::ode::OdeSpec>,
+    /// Set by `fit()` from [`FitOptions::bloq_method`] so likelihood/AD paths can
+    /// read it without threading it through every call site.
+    pub bloq_method: BloqMethod,
 }
 
 impl std::fmt::Debug for CompiledModel {
@@ -308,6 +320,7 @@ pub struct SubjectResult {
     pub iwres: Vec<f64>,
     pub cwres: Vec<f64>,
     pub ofv_contribution: f64,
+    pub cens: Vec<u8>,
 }
 
 /// Full fit result
@@ -370,6 +383,10 @@ pub struct FitOptions {
     pub sir_samples: usize,
     pub sir_resamples: usize,
     pub sir_seed: Option<u64>,
+    /// How BLOQ (Below Limit of Quantification) observations are handled.
+    /// See [`BloqMethod`]. Defaults to `Drop` (backward-compatible: no effect
+    /// when the data has no CENS column).
+    pub bloq_method: BloqMethod,
 }
 
 impl Default for FitOptions {
@@ -397,8 +414,24 @@ impl Default for FitOptions {
             sir_samples: 1000,
             sir_resamples: 250,
             sir_seed: None,
+            bloq_method: BloqMethod::Drop,
         }
     }
+}
+
+/// BLOQ (Below Limit of Quantification) handling.
+///
+/// `Drop` — CENS rows are kept as ordinary observations (no special treatment). If
+/// the dataset has no CENS column, every row is treated as quantified and this is
+/// equivalent to the pre-M3 behavior.
+///
+/// `M3` — Beal's M3 method: each BLOQ observation contributes
+/// `P(y < LLOQ | θ,η) = Φ((LLOQ - f)/√V)` to the likelihood instead of a
+/// Gaussian residual term. LLOQ is read from DV on CENS=1 rows (NONMEM convention).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BloqMethod {
+    Drop,
+    M3,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

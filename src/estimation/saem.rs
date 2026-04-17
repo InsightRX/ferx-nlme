@@ -11,6 +11,7 @@ use crate::estimation::outer_optimizer::{compute_covariance, OuterResult};
 use crate::estimation::parameterization::*;
 use crate::stats::likelihood::{foce_population_nll, individual_nll};
 use crate::stats::residual_error::residual_variance;
+use crate::stats::special::log_normal_cdf;
 use crate::types::*;
 use nalgebra::{DMatrix, DVector};
 use rand::prelude::*;
@@ -175,6 +176,11 @@ fn theta_sigma_mstep_light(
 }
 
 /// Sum of observation log-likelihoods with ETAs held fixed.
+///
+/// Under M3, CENS=1 rows contribute `-log Φ((LLOQ - f)/√V)` instead of the
+/// Gaussian residual term. Without this branch, the SAEM M-step would optimize
+/// θ/σ as if censored observations were exact Gaussians at the LLOQ value,
+/// producing silently-biased population estimates.
 fn obs_nll_sum(
     model: &CompiledModel,
     population: &Population,
@@ -182,6 +188,7 @@ fn obs_nll_sum(
     sigma_values: &[f64],
     etas: &[Vec<f64>],
 ) -> f64 {
+    let m3 = matches!(model.bloq_method, BloqMethod::M3);
     population
         .subjects
         .iter()
@@ -194,10 +201,15 @@ fn obs_nll_sum(
                 crate::pk::compute_predictions(model.pk_model, subject, &pk_params)
             };
             let mut nll = 0.0;
-            for (&y, &f) in subject.observations.iter().zip(preds.iter()) {
+            for (j, (&y, &f)) in subject.observations.iter().zip(preds.iter()).enumerate() {
                 let f = f.max(1e-12);
                 let v = residual_variance(model.error_model, f, sigma_values).max(1e-12);
-                nll += 0.5 * (v.ln() + (y - f).powi(2) / v);
+                if m3 && subject.cens.get(j).copied().unwrap_or(0) != 0 {
+                    let z = (y - f) / v.sqrt();
+                    nll += -log_normal_cdf(z);
+                } else {
+                    nll += 0.5 * (v.ln() + (y - f).powi(2) / v);
+                }
             }
             nll
         })

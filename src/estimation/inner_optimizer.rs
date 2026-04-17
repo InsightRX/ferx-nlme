@@ -80,6 +80,14 @@ pub fn find_ebe(
         };
 
         let pk_indices = &model.pk_indices;
+        // Under M3, feed actual CENS flags so the AD path applies -log Φ to
+        // censored rows. Otherwise pass zeros — Enzyme will trace the Gaussian
+        // branch for every observation, identical to the pre-M3 behavior.
+        let cens_f64: Vec<f64> = if matches!(model.bloq_method, BloqMethod::M3) {
+            subject.cens.iter().map(|&c| c as f64).collect()
+        } else {
+            vec![0.0; subject.observations.len()]
+        };
         let grad_fn = |e: &[f64]| -> Vec<f64> {
             let (_, g) = ad_gradients::compute_nll_gradient_ad(
                 e,
@@ -90,6 +98,7 @@ pub fn find_ebe(
                 &dose_data,
                 &subject.obs_times,
                 &subject.observations,
+                &cens_f64,
                 model.pk_model,
                 model.error_model,
                 pk_indices,
