@@ -156,4 +156,6 @@ preds <- ferx_predict("warfarin.ferx", "warfarin.csv")
 
 ## License
 
-Proprietary - InsightRX, Inc.
+MIT — see [LICENSE](LICENSE).
+
+Copyright © 2026 InsightRX, Inc.

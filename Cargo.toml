@@ -3,6 +3,10 @@ name = "ferx-nlme"
 version = "0.1.0"
 edition = "2021"
 description = "Nonlinear Mixed Effects modeling engine with FOCE/FOCEI estimation"
+license = "MIT"
+authors = ["InsightRX, Inc."]
+repository = "https://github.com/InsightRX/ferx-nlme"
+readme = "README.md"
 
 [[bin]]
 name = "ferx"
