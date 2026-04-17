@@ -50,3 +50,7 @@ src/
   ad/               -- Automatic differentiation
   bin/run_model.rs  -- CLI binary
 ```
+
+## License
+
+FeRx-NLME is released under the [MIT License](https://github.com/InsightRX/ferx-nlme/blob/main/LICENSE). Copyright © 2026 InsightRX, Inc.
