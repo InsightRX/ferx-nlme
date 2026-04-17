@@ -400,8 +400,20 @@ fn macro_rates_three_cpt_ad(
     let lambda1 = m * (phi - pi_2_3).cos() + h;
     let lambda2 = m * (phi - 2.0 * pi_2_3).cos() + h;
 
-    let alpha = lambda0.max(lambda1).max(lambda2);
-    let gamma = lambda0.min(lambda1).min(lambda2);
+    let alpha = if lambda0 >= lambda1 && lambda0 >= lambda2 {
+        lambda0
+    } else if lambda1 >= lambda2 {
+        lambda1
+    } else {
+        lambda2
+    };
+    let gamma = if lambda0 <= lambda1 && lambda0 <= lambda2 {
+        lambda0
+    } else if lambda1 <= lambda2 {
+        lambda1
+    } else {
+        lambda2
+    };
     let beta = s2 - alpha - gamma;
 
     (alpha, beta, gamma, k21, k31)

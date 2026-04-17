@@ -31,7 +31,7 @@ pub fn run_foce_gn(
     options: &FitOptions,
 ) -> OuterResult {
     let n_subj = population.subjects.len();
-    let n_eta = model.n_eta;
+    let _n_eta = model.n_eta;
     let verbose = options.verbose;
     let maxiter = options.outer_maxiter;
     let mut lambda = options.gn_lambda; // LM damping factor
@@ -370,7 +370,7 @@ fn build_gn_system(
 
     // Compute per-subject NLL at current point
     let params = unpack_params(x, template);
-    let nll_base: Vec<f64> = population
+    let _nll_base: Vec<f64> = population
         .subjects
         .iter()
         .enumerate()
