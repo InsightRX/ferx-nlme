@@ -60,7 +60,24 @@ pub struct ModelParameters {
     pub omega: OmegaMatrix,
     pub sigma: SigmaVector,
 }
+
+impl ModelParameters {
+    /// Build from a converged `FitResult` plus a template for metadata the
+    /// `FitResult` doesn't carry (bounds, sigma names, omega diagonal flag).
+    pub fn from_fit_result(fit: &FitResult, template: &ModelParameters) -> Self;
+}
 ```
+
+Typical use after `fit()`:
+
+```rust
+let fit = fit(&model, &population, &model.default_params, &opts)?;
+let params = ModelParameters::from_fit_result(&fit, &model.default_params);
+// params is now usable with simulate / predict / fit again
+```
+
+See also the `simulate_from_fit` / `predict_from_fit` convenience wrappers in
+[Simulation](simulation.md).
 
 ## OmegaMatrix
 
