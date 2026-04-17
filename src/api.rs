@@ -455,6 +455,32 @@ pub fn simulate_with_seed(
     simulate_inner(model, population, params, n_sim, &mut rng)
 }
 
+/// Simulate using the fitted parameters from a [`FitResult`].
+///
+/// Metadata that `FitResult` doesn't carry (parameter bounds, sigma names,
+/// omega diagonal flag) is taken from `model.default_params`.
+pub fn simulate_from_fit(
+    model: &CompiledModel,
+    population: &Population,
+    fit: &FitResult,
+    n_sim: usize,
+) -> Vec<SimulationResult> {
+    let params = ModelParameters::from_fit_result(fit, &model.default_params);
+    simulate(model, population, &params, n_sim)
+}
+
+/// Simulate from a [`FitResult`] with a fixed seed.
+pub fn simulate_from_fit_with_seed(
+    model: &CompiledModel,
+    population: &Population,
+    fit: &FitResult,
+    n_sim: usize,
+    seed: u64,
+) -> Vec<SimulationResult> {
+    let params = ModelParameters::from_fit_result(fit, &model.default_params);
+    simulate_with_seed(model, population, &params, n_sim, seed)
+}
+
 fn simulate_inner<R: rand::Rng>(
     model: &CompiledModel,
     population: &Population,
@@ -540,6 +566,19 @@ pub fn predict(
     }
 
     results
+}
+
+/// Predict using the fitted parameters from a [`FitResult`].
+///
+/// Like [`simulate_from_fit`], metadata not carried by `FitResult` is taken
+/// from `model.default_params`.
+pub fn predict_from_fit(
+    model: &CompiledModel,
+    population: &Population,
+    fit: &FitResult,
+) -> Vec<PredictionResult> {
+    let params = ModelParameters::from_fit_result(fit, &model.default_params);
+    predict(model, population, &params)
 }
 
 /// A single prediction

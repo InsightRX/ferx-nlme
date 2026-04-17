@@ -20,7 +20,8 @@ pub mod stats;
 pub mod types;
 
 pub use api::{
-    fit, fit_from_files, predict, run_from_file, run_model_simulate, run_model_with_data, simulate,
+    fit, fit_from_files, predict, predict_from_fit, run_from_file, run_model_simulate,
+    run_model_with_data, simulate, simulate_from_fit, simulate_from_fit_with_seed,
     simulate_with_seed,
 };
 pub use io::datareader::read_nonmem_csv;

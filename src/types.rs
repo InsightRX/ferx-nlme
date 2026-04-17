@@ -233,6 +233,34 @@ pub struct ModelParameters {
     pub sigma: SigmaVector,
 }
 
+impl ModelParameters {
+    /// Build a `ModelParameters` from a converged [`FitResult`], using `template`
+    /// for metadata that `FitResult` does not carry (parameter names, bounds,
+    /// sigma names, omega diagonal flag).
+    ///
+    /// Typical use: after `fit()`, call this with `model.default_params` as the
+    /// template to get a `ModelParameters` suitable for `simulate()` /
+    /// `predict()` at the fitted estimates.
+    pub fn from_fit_result(fit: &FitResult, template: &ModelParameters) -> Self {
+        let omega = OmegaMatrix::from_matrix(
+            fit.omega.clone(),
+            template.omega.eta_names.clone(),
+            template.omega.diagonal,
+        );
+        Self {
+            theta: fit.theta.clone(),
+            theta_names: fit.theta_names.clone(),
+            theta_lower: template.theta_lower.clone(),
+            theta_upper: template.theta_upper.clone(),
+            omega,
+            sigma: SigmaVector {
+                values: fit.sigma.clone(),
+                names: template.sigma.names.clone(),
+            },
+        }
+    }
+}
+
 /// Supported PK structural models
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PkModel {
