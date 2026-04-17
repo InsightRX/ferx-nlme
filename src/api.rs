@@ -226,7 +226,10 @@ pub fn fit(
     // OFVs near the LLOQ boundary. The FOCE dispatcher routes affected
     // subjects through FOCEI internally — surface the promotion to the user.
     if matches!(model.bloq_method, BloqMethod::M3)
-        && matches!(options.method, EstimationMethod::Foce | EstimationMethod::FoceGn)
+        && matches!(
+            options.method,
+            EstimationMethod::Foce | EstimationMethod::FoceGn
+        )
         && !options.interaction
         && population.subjects.iter().any(|s| s.has_bloq())
     {

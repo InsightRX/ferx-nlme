@@ -40,8 +40,8 @@ pub fn individual_nll_ad(
     dose_durations: &[f64],
     obs_times: &[f64],
     observations: &[f64],
-    cens_f64: &[f64], // per-observation censoring flag; > 0.5 ⇒ BLOQ (M3)
-    pk_idx_f64: &[f64], // PK parameter indices as f64 (cast to usize inside)
+    cens_f64: &[f64],      // per-observation censoring flag; > 0.5 ⇒ BLOQ (M3)
+    pk_idx_f64: &[f64],    // PK parameter indices as f64 (cast to usize inside)
     pk_and_err_model: f64, // pk_model_id * 10 + error_model_id
 ) -> f64 {
     let n_eta = eta.len();

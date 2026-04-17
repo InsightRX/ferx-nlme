@@ -158,7 +158,10 @@ pub fn sdtab(result: &FitResult, population: &Population) -> Vec<(String, Vec<f6
         result.subjects[0].eta.len()
     };
 
-    let any_cens = result.subjects.iter().any(|s| s.cens.iter().any(|&c| c != 0));
+    let any_cens = result
+        .subjects
+        .iter()
+        .any(|s| s.cens.iter().any(|&c| c != 0));
 
     let mut ids = Vec::with_capacity(n_total);
     let mut times = Vec::with_capacity(n_total);

@@ -16,8 +16,7 @@ fn model_predictions(model: &CompiledModel, subject: &Subject, pk_params: &PkPar
 
 /// True when observation `j` of `subject` is censored AND the model requests M3.
 fn is_m3_bloq(model: &CompiledModel, subject: &Subject, j: usize) -> bool {
-    matches!(model.bloq_method, BloqMethod::M3)
-        && subject.cens.get(j).copied().unwrap_or(0) != 0
+    matches!(model.bloq_method, BloqMethod::M3) && subject.cens.get(j).copied().unwrap_or(0) != 0
 }
 
 /// Compute individual negative log-likelihood for EBE estimation (inner loop objective).
@@ -208,8 +207,7 @@ pub fn foce_subject_nll_interaction(
 
     // Partition observation indices into quantified vs BLOQ.
     let (quant_idx, bloq_idx): (Vec<usize>, Vec<usize>) = (0..n_obs).partition(|&j| {
-        !(matches!(bloq_method, BloqMethod::M3)
-            && subject.cens.get(j).copied().unwrap_or(0) != 0)
+        !(matches!(bloq_method, BloqMethod::M3) && subject.cens.get(j).copied().unwrap_or(0) != 0)
     });
 
     let n_quant = quant_idx.len();

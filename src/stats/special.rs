@@ -144,7 +144,13 @@ mod tests {
         let mut prev = log_normal_cdf(-30.0);
         for z in [-25.0, -20.0, -10.0, -5.5, -5.01, -4.99, -2.0, 0.0, 2.0].iter() {
             let v = log_normal_cdf(*z);
-            assert!(v >= prev - 1e-6, "non-monotone at z={}: {} < {}", z, v, prev);
+            assert!(
+                v >= prev - 1e-6,
+                "non-monotone at z={}: {} < {}",
+                z,
+                v,
+                prev
+            );
             prev = v;
         }
     }
