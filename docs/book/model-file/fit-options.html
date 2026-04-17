@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "ayu";
-            window.path_to_searchindex_js = "../searchindex-e9d51f09.js";
+            window.path_to_searchindex_js = "../searchindex-14374e85.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-e6e24f6b.js"></script>
+        <script src="../toc-1f3c5b60.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -227,6 +227,22 @@
 </tbody>
 </table>
 </div>
+<h2 id="sir-sampling-importance-resampling"><a class="header" href="#sir-sampling-importance-resampling">SIR (Sampling Importance Resampling)</a></h2>
+<p>SIR provides non-parametric parameter uncertainty estimates as an optional post-estimation step. Requires <code>covariance = true</code>.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Key</th><th>Default</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>sir</code></td><td><code>false</code></td><td>Enable SIR uncertainty estimation</td></tr>
+<tr><td><code>sir_samples</code></td><td><code>1000</code></td><td>Number of proposal samples (M)</td></tr>
+<tr><td><code>sir_resamples</code></td><td><code>250</code></td><td>Number of resampled vectors (m)</td></tr>
+<tr><td><code>sir_seed</code></td><td><code>12345</code></td><td>RNG seed for reproducibility</td></tr>
+</tbody>
+</table>
+</div>
+<p>See <a href="../estimation/sir.html">SIR documentation</a> for details.</p>
 <h2 id="optimizer-choices"><a class="header" href="#optimizer-choices">Optimizer Choices</a></h2>
 <div class="table-wrapper">
 <table>
@@ -267,6 +283,15 @@
   n_mh_steps    = 5
   seed          = 42
   covariance    = true
+</code></pre>
+<p>FOCEI with SIR uncertainty:</p>
+<pre><code>[fit_options]
+  method        = focei
+  covariance    = true
+  sir           = true
+  sir_samples   = 1000
+  sir_resamples = 250
+  sir_seed      = 42
 </code></pre>
 
                     </main>
