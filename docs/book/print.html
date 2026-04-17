@@ -36,10 +36,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "ayu";
-            window.path_to_searchindex_js = "searchindex-6ae0e9ed.js";
+            window.path_to_searchindex_js = "searchindex-1004e87f.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-1f3c5b60.js"></script>
+        <script src="toc-678ba3a2.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -2588,6 +2588,32 @@ println!("{} subjects, {} observations",
 <li>Time-constant covariates use the first non-missing value per subject</li>
 <li>Time-varying covariates use Last Observation Carried Forward (LOCF)</li>
 </ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="frequently-asked-questions"><a class="header" href="#frequently-asked-questions">Frequently Asked Questions</a></h1>
+<h2 id="do-i-need-to-use-mu-referencing-in-my-model-definitions-like-in-nonmem--nlmixr2"><a class="header" href="#do-i-need-to-use-mu-referencing-in-my-model-definitions-like-in-nonmem--nlmixr2">Do I need to use MU-referencing in my model definitions, like in NONMEM / nlmixr2?</a></h2>
+<p><strong>No.</strong> FeRx does not require MU-referencing.</p>
+<p>In NONMEM and nlmixr2, MU-referencing is a convention in which each random effect <code>ETA(i)</code> is linearly associated with a single <code>MU_i</code> term (typically <code>MU_i = LOG(THETA(i))</code>), so individual parameters look like:</p>
+<pre><code>MU_1 = LOG(THETA(1))
+CL = EXP(MU_1 + ETA(1))
+</code></pre>
+<p>This structure is required by those tools’ SAEM implementations because they rely on conjugate Gibbs updates that are only valid when the <code>MU_i</code> → <code>ETA(i)</code> relationship is strictly linear (and typically on a log scale). If you deviate — for example by writing <code>CL = THETA(1) * EXP(ETA(1))</code> without going through an intermediate <code>MU_1</code>, or by mixing multiple etas into one parameter — NONMEM SAEM will either reject the model or silently produce biased estimates.</p>
+<p>FeRx’s SAEM implementation uses <strong>Metropolis-Hastings sampling</strong> for the E-step rather than Gibbs, which does not require MU-referencing. You can write individual parameters in any form you like:</p>
+<pre><code># All of these work fine in ferx:
+CL = TVCL * exp(ETA_CL)
+CL = TVCL + ETA_CL                              # additive eta
+CL = TVCL * (WT/70)^0.75 * exp(ETA_CL)          # with covariates
+CL = TVCL * exp(ETA_CL + ETA_CL_OCC)            # multiple etas
+VMAX = TVVMAX * exp(ETA_VMAX)
+KM   = TVKM                                      # no eta at all
+</code></pre>
+<p>The FOCE / FOCEI estimators have no MU-referencing requirement in any NLME tool — they use MAP optimization over etas regardless of parameterization. This is equally true in ferx.</p>
+<h3 id="performance-implication"><a class="header" href="#performance-implication">Performance implication</a></h3>
+<p>The main tradeoff is that MH sampling is slightly less efficient per iteration than conjugate Gibbs for MU-referenced models. In practice:</p>
+<ul>
+<li>For models with a few random effects, the difference is negligible</li>
+<li>For models with many (&gt;10) random effects, conjugate Gibbs would converge in fewer iterations — but in exchange you gain flexibility to write models that don’t fit the MU-referenced mold</li>
+</ul>
+<p>If you have a NONMEM model that uses MU-referencing and want to port it to ferx, you can drop the MU intermediate step and write the individual parameters directly — the results will be equivalent.</p>
 
                     </main>
 
