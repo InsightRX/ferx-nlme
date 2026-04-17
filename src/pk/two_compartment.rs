@@ -9,7 +9,14 @@ fn macro_rates(cl: f64, v1: f64, q: f64, v2: f64) -> (f64, f64, f64) {
     let k21 = q / v2;
     let s = k10 + k12 + k21;
     let d = k10 * k21;
-    let disc = { let x = s * s - 4.0 * d; if x > 0.0 { x.sqrt() } else { 0.0 } };
+    let disc = {
+        let x = s * s - 4.0 * d;
+        if x > 0.0 {
+            x.sqrt()
+        } else {
+            0.0
+        }
+    };
     let alpha = (s + disc) / 2.0;
     // Vieta's formula: alpha * beta = d, so beta = d / alpha
     // This avoids subtracting two nearly-equal large numbers.
