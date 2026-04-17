@@ -19,6 +19,7 @@ The optional `[fit_options]` block configures the estimation method and optimize
 | `optimizer` | `slsqp`, `lbfgs`, `nlopt_lbfgs`, `mma`, `bfgs` | `slsqp` | Optimization algorithm |
 | `global_search` | `true`, `false` | `false` | Run gradient-free pre-search before local optimization |
 | `global_maxeval` | integer | auto | Max evaluations for global search |
+| `bloq_method` | `drop`, `m3` | `drop` | How to handle rows with `CENS=1`. `m3` enables Beal's M3 likelihood (see [BLOQ example](../examples/bloq.md)). |
 
 ## Estimation Methods
 

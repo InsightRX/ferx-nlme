@@ -25,6 +25,7 @@
   - [Two-Compartment IV](examples/two-cpt-iv.md)
   - [Covariates](examples/covariates.md)
   - [ODE Model](examples/ode-model.md)
+  - [BLOQ (M3 method)](examples/bloq.md)
 - [Rust API](api/README.md)
   - [Core Types](api/types.md)
   - [Fitting Functions](api/fitting.md)
