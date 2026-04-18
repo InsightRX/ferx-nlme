@@ -183,6 +183,7 @@ pub fn parse_full_model(content: &str) -> Result<ParsedModel, String> {
         tv_fn,
         pk_indices,
         ode_spec,
+        bloq_method: BloqMethod::Drop,
     };
 
     // ── Optional blocks ──
@@ -195,6 +196,11 @@ pub fn parse_full_model(content: &str) -> Result<ParsedModel, String> {
     } else {
         FitOptions::default()
     };
+
+    // Mirror fit-level BLOQ method onto the compiled model so the likelihood
+    // functions can branch without threading bloq_method through every call.
+    let mut model = model;
+    model.bloq_method = fit_options.bloq_method;
 
     Ok(ParsedModel {
         model,
@@ -305,6 +311,18 @@ fn parse_fit_options(lines: &[String]) -> Result<FitOptions, String> {
             "sir_samples" => opts.sir_samples = parts[1].trim().parse().unwrap_or(1000),
             "sir_resamples" => opts.sir_resamples = parts[1].trim().parse().unwrap_or(250),
             "sir_seed" => opts.sir_seed = parts[1].trim().parse().ok(),
+            "bloq_method" | "bloq" => {
+                opts.bloq_method = match parts[1].trim().to_lowercase().as_str() {
+                    "m3" => BloqMethod::M3,
+                    "drop" | "none" | "ignore" => BloqMethod::Drop,
+                    other => {
+                        return Err(format!(
+                            "Unknown bloq_method '{}' — expected 'm3' or 'drop'",
+                            other
+                        ));
+                    }
+                };
+            }
             _ => {}
         }
     }

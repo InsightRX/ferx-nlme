@@ -5,10 +5,11 @@ use std::path::Path;
 /// Read a NONMEM-format CSV file into a Population.
 ///
 /// Expected columns (case-insensitive):
-///   ID, TIME, DV, EVID, AMT, CMT, RATE, MDV, II, SS, [covariates...]
+///   ID, TIME, DV, EVID, AMT, CMT, RATE, MDV, II, SS, CENS, [covariates...]
 ///
 /// EVID: 0=observation, 1=dose, 4=reset+dose
 /// MDV: 1=missing dependent variable
+/// CENS: 1=observation is below LLOQ (DV carries the LLOQ value); 0 otherwise
 pub fn read_nonmem_csv(
     path: &Path,
     covariate_columns: Option<&[&str]>,
@@ -39,6 +40,7 @@ pub fn read_nonmem_csv(
     let mdv_col = col_idx("mdv");
     let ii_col = col_idx("ii");
     let ss_col = col_idx("ss");
+    let cens_col = col_idx("cens");
 
     // Identify covariate columns
     let cov_names: Vec<String> = match covariate_columns {
@@ -46,7 +48,7 @@ pub fn read_nonmem_csv(
         None => {
             // Auto-detect: columns not in standard set
             let standard = [
-                "id", "time", "dv", "evid", "amt", "cmt", "rate", "mdv", "ii", "ss",
+                "id", "time", "dv", "evid", "amt", "cmt", "rate", "mdv", "ii", "ss", "cens",
             ];
             headers
                 .iter()
@@ -91,6 +93,7 @@ pub fn read_nonmem_csv(
             mdv_col,
             ii_col,
             ss_col,
+            cens_col,
             &cov_indices,
         )?;
         subjects.push(subject);
@@ -123,12 +126,14 @@ fn parse_subject(
     mdv_col: Option<usize>,
     ii_col: Option<usize>,
     ss_col: Option<usize>,
+    cens_col: Option<usize>,
     cov_indices: &[(String, usize)],
 ) -> Result<Subject, String> {
     let mut doses = Vec::new();
     let mut obs_times = Vec::new();
     let mut observations = Vec::new();
     let mut obs_cmts = Vec::new();
+    let mut cens = Vec::new();
 
     // Time-constant covariates: first non-missing value
     let mut covariates: HashMap<String, f64> = HashMap::new();
@@ -219,9 +224,14 @@ fn parse_subject(
                 .and_then(|c| row.get(c))
                 .map(|s| parse_usize(s))
                 .unwrap_or(1);
+            let cens_flag = cens_col
+                .and_then(|c| row.get(c))
+                .map(|s| parse_usize(s))
+                .unwrap_or(0);
             obs_times.push(time);
             observations.push(dv);
             obs_cmts.push(cmt);
+            cens.push(if cens_flag > 0 { 1u8 } else { 0u8 });
         }
     }
 
@@ -236,5 +246,6 @@ fn parse_subject(
         obs_cmts,
         covariates,
         tvcov,
+        cens,
     })
 }

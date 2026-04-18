@@ -21,6 +21,7 @@ FeRx reads data in NONMEM-compatible CSV format. This is the standard format use
 | `MDV` | integer | 0 | Missing DV flag. 1 = DV should be ignored |
 | `II` | numeric | 0 | Interdose interval for repeated dosing |
 | `SS` | integer | 0 | Steady-state flag. 1 = assume steady state |
+| `CENS` | integer | 0 | Censoring flag. 1 = observation is below LLOQ; `DV` carries the LLOQ value. Paired with `bloq_method = m3` in `[fit_options]` to enable likelihood-based handling — see [BLOQ example](examples/bloq.md). |
 
 ## Covariate Columns
 

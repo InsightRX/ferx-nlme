@@ -16,8 +16,9 @@
 use crate::estimation::inner_optimizer::run_inner_loop_warm;
 use crate::estimation::outer_optimizer::{compute_covariance, OuterResult};
 use crate::estimation::parameterization::*;
-use crate::stats::likelihood::foce_population_nll;
-use crate::stats::residual_error::residual_variance;
+use crate::stats::likelihood::{
+    foce_population_nll, foce_subject_nll_interaction, foce_subject_nll_standard,
+};
 use crate::types::*;
 use nalgebra::{DMatrix, DVector};
 
@@ -42,6 +43,19 @@ pub fn run_foce_gn(
     let n_packed = x.len();
 
     let mut warnings = Vec::new();
+
+    // BHHH Information-matrix approximation degrades as the censoring fraction
+    // grows — each BLOQ row contributes less Fisher information than its
+    // Gaussian counterpart, biasing the outer-product Hessian small-sample.
+    if matches!(model.bloq_method, BloqMethod::M3)
+        && population.subjects.iter().any(|s| s.has_bloq())
+    {
+        warnings.push(
+            "Gauss-Newton (BHHH) approximation may be inaccurate with M3 BLOQ handling; \
+             consider method=foce_i for heavy BLOQ fractions (>20%)."
+                .to_string(),
+        );
+    }
 
     if verbose {
         eprintln!("Starting FOCE Gauss-Newton estimation...");
@@ -481,6 +495,9 @@ fn build_gn_system(
 }
 
 /// Compute FOCE NLL for a single subject at given parameters with fixed EBEs.
+///
+/// Delegates to the canonical `foce_subject_nll_{standard,interaction}` in
+/// `stats::likelihood` so M3 BLOQ support is single-sourced — do not re-inline.
 fn subject_nll_at(
     model: &CompiledModel,
     population: &Population,
@@ -498,7 +515,11 @@ fn subject_nll_at(
         crate::pk::compute_predictions(model.pk_model, subject, &pk_params)
     };
 
-    if options.interaction {
+    // M3 forces FOCEI for that subject (mirrors the dispatcher in
+    // `stats::likelihood::foce_subject_nll`).
+    let m3_active = matches!(model.bloq_method, BloqMethod::M3) && subject.has_bloq();
+
+    if options.interaction || m3_active {
         foce_subject_nll_interaction(
             subject,
             &ipreds,
@@ -507,6 +528,7 @@ fn subject_nll_at(
             &params.omega,
             &params.sigma.values,
             model.error_model,
+            model.bloq_method,
         )
     } else {
         foce_subject_nll_standard(
@@ -517,102 +539,7 @@ fn subject_nll_at(
             &params.omega,
             &params.sigma.values,
             model.error_model,
+            model.bloq_method,
         )
     }
-}
-
-/// Standard FOCE subject NLL (copied inline to avoid circular deps)
-fn foce_subject_nll_standard(
-    subject: &Subject,
-    ipreds: &[f64],
-    eta_hat: &DVector<f64>,
-    h_matrix: &DMatrix<f64>,
-    omega: &OmegaMatrix,
-    sigma_values: &[f64],
-    error_model: ErrorModel,
-) -> f64 {
-    let n_obs = subject.observations.len();
-    let h_eta = h_matrix * eta_hat;
-    let f0: Vec<f64> = ipreds
-        .iter()
-        .enumerate()
-        .map(|(j, &ip)| ip - h_eta[j])
-        .collect();
-    let r_diag: Vec<f64> = f0
-        .iter()
-        .map(|&f| residual_variance(error_model, f, sigma_values))
-        .collect();
-
-    let mut r_tilde = h_matrix * &omega.matrix * h_matrix.transpose();
-    for j in 0..n_obs {
-        r_tilde[(j, j)] += r_diag[j];
-    }
-
-    let chol = match r_tilde.cholesky() {
-        Some(c) => c,
-        None => return 1e20,
-    };
-
-    let residuals = DVector::from_iterator(
-        n_obs,
-        subject
-            .observations
-            .iter()
-            .zip(f0.iter())
-            .map(|(&y, &f)| y - f),
-    );
-
-    let solved = chol.solve(&residuals);
-    let quad_form = residuals.dot(&solved);
-    let log_det = 2.0 * chol.l().diagonal().iter().map(|&d| d.ln()).sum::<f64>();
-
-    0.5 * (quad_form + log_det)
-}
-
-/// FOCEI subject NLL
-fn foce_subject_nll_interaction(
-    subject: &Subject,
-    ipreds: &[f64],
-    eta_hat: &DVector<f64>,
-    h_matrix: &DMatrix<f64>,
-    omega: &OmegaMatrix,
-    sigma_values: &[f64],
-    error_model: ErrorModel,
-) -> f64 {
-    let n_obs = subject.observations.len();
-    let r_diag: Vec<f64> = ipreds
-        .iter()
-        .map(|&f| residual_variance(error_model, f, sigma_values))
-        .collect();
-
-    let mut r_tilde = h_matrix * &omega.matrix * h_matrix.transpose();
-    for j in 0..n_obs {
-        r_tilde[(j, j)] += r_diag[j];
-    }
-
-    let chol = match r_tilde.cholesky() {
-        Some(c) => c,
-        None => return 1e20,
-    };
-
-    // Data term
-    let mut data_term = 0.0;
-    for j in 0..n_obs {
-        let resid = subject.observations[j] - ipreds[j];
-        data_term += resid * resid / r_diag[j];
-    }
-
-    // Eta prior
-    let omega_inv = omega
-        .matrix
-        .clone()
-        .cholesky()
-        .map(|c| c.inverse())
-        .unwrap_or_else(|| DMatrix::identity(eta_hat.len(), eta_hat.len()));
-    let omega_inv_mat = &omega_inv * omega_inv.transpose();
-    let eta_prior = eta_hat.dot(&(&omega_inv_mat * eta_hat));
-
-    let log_det = 2.0 * chol.l().diagonal().iter().map(|&d| d.ln()).sum::<f64>();
-
-    0.5 * (data_term + eta_prior + log_det)
 }

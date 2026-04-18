@@ -139,6 +139,7 @@ mod tests {
             obs_cmts: vec![1; 4],
             covariates: HashMap::new(),
             tvcov: HashMap::new(),
+            cens: vec![0; 4],
         };
         let pk = make_pk_params(10.0, 100.0);
         let preds = compute_predictions(PkModel::OneCptIvBolus, &subject, &pk);
