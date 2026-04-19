@@ -5,7 +5,8 @@ use nalgebra::{DMatrix, DVector};
 use crate::estimation::inner_optimizer::run_inner_loop_warm;
 use crate::estimation::outer_optimizer::{compute_covariance, OuterResult};
 use crate::estimation::parameterization::{
-    clamp_to_bounds, compute_bounds, pack_params, unpack_params, PackedBounds,
+    clamp_to_bounds, compute_bounds, compute_mu_k, get_eta_init, pack_params, unpack_params,
+    PackedBounds,
 };
 use crate::stats::likelihood::foce_population_nll;
 use crate::types::{CompiledModel, FitOptions, ModelParameters, Population};
@@ -24,6 +25,7 @@ impl FoceiProblem<'_> {
         let params = unpack_params(x, self.init_params);
         let warm = self.cached_etas.lock().unwrap().clone();
         let warm_ref = if warm.is_empty() { None } else { Some(warm.as_slice()) };
+        let mu_k = compute_mu_k(self.model, &params.theta, self.options.mu_referencing);
         let (etas, h_mats, _) = run_inner_loop_warm(
             self.model,
             self.population,
@@ -31,6 +33,7 @@ impl FoceiProblem<'_> {
             self.options.inner_maxiter,
             self.options.inner_tol,
             warm_ref,
+            Some(&mu_k),
         );
         *self.cached_etas.lock().unwrap() = etas.clone();
         (etas, h_mats)
@@ -162,7 +165,11 @@ pub fn optimize_trust_region(
         options,
         init_params,
         bounds,
-        cached_etas: std::sync::Mutex::new(vec![DVector::zeros(n_eta); n_subj]),
+        cached_etas: std::sync::Mutex::new(
+            (0..n_subj)
+                .map(|_| DVector::from_vec(get_eta_init(n_eta, None, None)))
+                .collect(),
+        ),
     };
 
     if options.verbose {
@@ -211,6 +218,7 @@ pub fn optimize_trust_region(
     clamp_to_bounds(&mut best_x, &compute_bounds(init_params));
 
     let final_params = unpack_params(&best_x, init_params);
+    let tr_final_mu_k = compute_mu_k(model, &final_params.theta, options.mu_referencing);
     let (final_ehs, final_hms, _) = run_inner_loop_warm(
         model,
         population,
@@ -218,6 +226,7 @@ pub fn optimize_trust_region(
         options.inner_maxiter,
         options.inner_tol,
         None,
+        Some(&tr_final_mu_k),
     );
 
     let final_ofv = {
