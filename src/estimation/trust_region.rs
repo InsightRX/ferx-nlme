@@ -16,19 +16,23 @@ struct FoceiProblem<'a> {
     options: &'a FitOptions,
     init_params: &'a ModelParameters,
     bounds: PackedBounds,
+    cached_etas: std::sync::Mutex<Vec<DVector<f64>>>,
 }
 
 impl FoceiProblem<'_> {
     fn run_inner(&self, x: &[f64]) -> (Vec<DVector<f64>>, Vec<DMatrix<f64>>) {
         let params = unpack_params(x, self.init_params);
+        let warm = self.cached_etas.lock().unwrap().clone();
+        let warm_ref = if warm.is_empty() { None } else { Some(warm.as_slice()) };
         let (etas, h_mats, _) = run_inner_loop_warm(
             self.model,
             self.population,
             &params,
             self.options.inner_maxiter,
             self.options.inner_tol,
-            None,
+            warm_ref,
         );
+        *self.cached_etas.lock().unwrap() = etas.clone();
         (etas, h_mats)
     }
 
@@ -149,12 +153,16 @@ pub fn optimize_trust_region(
 
     let mut warnings = Vec::new();
 
+    let n_subj = population.subjects.len();
+    let n_eta = model.n_eta;
+
     let problem = FoceiProblem {
         model,
         population,
         options,
         init_params,
         bounds,
+        cached_etas: std::sync::Mutex::new(vec![DVector::zeros(n_eta); n_subj]),
     };
 
     if options.verbose {
