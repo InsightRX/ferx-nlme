@@ -24,11 +24,19 @@ pub fn optimize_population(
     options: &FitOptions,
 ) -> OuterResult {
     match options.optimizer {
-        Optimizer::Slsqp | Optimizer::NloptLbfgs | Optimizer::Mma => {
+        Optimizer::Slsqp | Optimizer::NloptLbfgs | Optimizer::Mma | Optimizer::Bobyqa => {
             optimize_nlopt(model, population, init_params, options)
         }
         Optimizer::Bfgs | Optimizer::Lbfgs => {
             optimize_bfgs(model, population, init_params, options)
+        }
+        Optimizer::TrustRegion => {
+            crate::estimation::trust_region::optimize_trust_region(
+                model,
+                population,
+                init_params,
+                options,
+            )
         }
     }
 }
@@ -89,6 +97,7 @@ fn optimize_nlopt(
         Optimizer::Slsqp => nlopt::Algorithm::Slsqp,
         Optimizer::NloptLbfgs => nlopt::Algorithm::Lbfgs,
         Optimizer::Mma => nlopt::Algorithm::Mma,
+        Optimizer::Bobyqa => nlopt::Algorithm::Bobyqa,
         _ => nlopt::Algorithm::Slsqp,
     };
 

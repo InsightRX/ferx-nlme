@@ -297,6 +297,8 @@ fn parse_fit_options(lines: &[String]) -> Result<FitOptions, String> {
                     "lbfgs" | "nlopt_lbfgs" => Optimizer::NloptLbfgs,
                     "mma" => Optimizer::Mma,
                     "bfgs" => Optimizer::Bfgs,
+                    "bobyqa" => Optimizer::Bobyqa,
+                    "trust_region" | "newton_tr" => Optimizer::TrustRegion,
                     _ => Optimizer::Slsqp,
                 };
             }

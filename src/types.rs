@@ -444,6 +444,10 @@ pub enum Optimizer {
     NloptLbfgs,
     /// NLopt LD_MMA — Method of Moving Asymptotes
     Mma,
+    /// NLopt LN_BOBYQA — derivative-free quadratic interpolation
+    Bobyqa,
+    /// Newton trust-region with Steihaug CG subproblem (via argmin)
+    TrustRegion,
 }
 
 /// Estimation method

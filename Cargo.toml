@@ -27,6 +27,8 @@ rand_distr = "0.4"
 regex = "1.11"
 thiserror = "2"
 nlopt = "0.8"
+argmin = { version = "0.11", features = ["serde1"] }
+argmin-math = { version = "0.5", features = ["nalgebra_latest"] }
 
 [dev-dependencies]
 approx = "0.5"
