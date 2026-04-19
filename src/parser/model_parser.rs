@@ -290,6 +290,8 @@ fn parse_fit_options(lines: &[String]) -> Result<FitOptions, String> {
                 }
             }
             "maxiter" => opts.outer_maxiter = parts[1].parse().unwrap_or(500),
+            "inner_maxiter" => opts.inner_maxiter = parts[1].parse().unwrap_or(200),
+            "inner_tol" => opts.inner_tol = parts[1].parse().unwrap_or(1e-8),
             "covariance" => opts.run_covariance_step = parts[1].trim() == "true",
             "optimizer" => {
                 opts.optimizer = match parts[1].to_lowercase().as_str() {
