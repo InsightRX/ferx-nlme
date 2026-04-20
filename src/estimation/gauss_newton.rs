@@ -93,6 +93,13 @@ pub fn run_foce_gn(
     let mut converged = false;
 
     for iter in 1..=maxiter {
+        if crate::cancel::is_cancelled(&options.cancel) {
+            if verbose {
+                eprintln!("  GN iter {:>3}: cancelled by user", iter);
+            }
+            warnings.push("cancelled by user".to_string());
+            break;
+        }
         let params = unpack_params(&x, init_params);
 
         // ---- Build the BHHH system ----
@@ -240,7 +247,9 @@ pub fn run_foce_gn(
 
     if !do_polish {
         // Pure GN — skip FOCEI polish, go directly to covariance step
-        let covariance_matrix = if options.run_covariance_step {
+        let covariance_matrix = if options.run_covariance_step
+            && !crate::cancel::is_cancelled(&options.cancel)
+        {
             if verbose {
                 eprintln!("Running covariance step...");
             }

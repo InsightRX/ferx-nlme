@@ -289,6 +289,16 @@ The R package's build is driven by its `Makevars`, which invokes `cargo` and res
 
 See the [ferx R package README](https://github.com/InsightRX/ferx) for API usage.
 
+### Cancelling a running fit (Ctrl-C)
+
+`ferx_fit()` runs the estimator on a worker thread and polls for R interrupts on the main thread every ~100 ms, so **Ctrl-C** (or RStudio's red stop button) aborts the fit cleanly. The worker exits at the next safe checkpoint — typically within a second or two, but up to one inner-loop evaluation for heavy ODE models. The call then returns with an R error:
+
+```
+Error: ferx_fit: cancelled by user
+```
+
+Ctrl-Z (SIGTSTP) will *not* abort the fit — it suspends the whole R process to the shell. Use Ctrl-C instead.
+
 ---
 
 ## Dependencies
