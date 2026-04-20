@@ -398,6 +398,10 @@ pub struct FitOptions {
     /// See [`BloqMethod`]. Defaults to `Drop` (backward-compatible: no effect
     /// when the data has no CENS column).
     pub bloq_method: BloqMethod,
+    /// Optional cooperative cancellation token. When present and flipped by
+    /// another thread, the outer/inner/SAEM/GN loops exit at the next safe
+    /// point and `fit()` returns `Err("cancelled by user")`. Default `None`.
+    pub cancel: Option<crate::cancel::CancelFlag>,
 }
 
 impl Default for FitOptions {
@@ -427,6 +431,7 @@ impl Default for FitOptions {
             sir_resamples: 250,
             sir_seed: None,
             bloq_method: BloqMethod::Drop,
+            cancel: None,
         }
     }
 }

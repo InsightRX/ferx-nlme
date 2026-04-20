@@ -191,6 +191,9 @@ pub fn fit(
     let mut total_iterations: usize = 0;
 
     for (stage_idx, &method) in chain.iter().enumerate() {
+        if crate::cancel::is_cancelled(&options.cancel) {
+            return Err("cancelled by user".to_string());
+        }
         let is_last = stage_idx + 1 == n_stages;
         let mut stage_opts = options.clone();
         stage_opts.method = method;
@@ -243,6 +246,10 @@ pub fn fit(
         result = Some(stage_result);
     }
 
+    if crate::cancel::is_cancelled(&options.cancel) {
+        return Err("cancelled by user".to_string());
+    }
+
     let mut result = result.expect("method chain must have at least one stage");
     // Overwrite with chain-aware totals
     result.n_iterations = total_iterations;
@@ -291,7 +298,7 @@ pub fn fit(
                 .to_string(),
         );
     }
-    let sir_result = if options.sir {
+    let sir_result = if options.sir && !crate::cancel::is_cancelled(&options.cancel) {
         if let Some(ref cov) = result.covariance_matrix {
             if options.verbose {
                 eprintln!("\nRunning SIR...");

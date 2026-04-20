@@ -11,6 +11,7 @@ compile_error!(
 
 pub mod ad;
 pub mod api;
+pub mod cancel;
 pub mod estimation;
 pub mod io;
 pub mod ode;
@@ -23,6 +24,7 @@ pub use api::{
     fit, fit_from_files, predict, run_from_file, run_model_simulate, run_model_with_data, simulate,
     simulate_with_seed,
 };
+pub use cancel::CancelFlag;
 pub use io::datareader::read_nonmem_csv;
 pub use parser::model_parser::{parse_full_model_file, parse_model_file, parse_model_string};
 pub use types::*;

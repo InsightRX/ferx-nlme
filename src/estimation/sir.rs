@@ -140,6 +140,9 @@ pub fn run_sir(
         .par_iter()
         .zip(z_vectors.par_iter())
         .map(|(x_k, z)| {
+            if crate::cancel::is_cancelled(&options.cancel) {
+                return f64::NEG_INFINITY;
+            }
             // Reject samples outside parameter bounds (avoids wasting inner-loop work)
             let out_of_bounds = x_k
                 .iter()
