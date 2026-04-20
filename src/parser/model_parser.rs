@@ -261,7 +261,10 @@ fn parse_simulation_block(lines: &[String]) -> Result<SimulationSpec, String> {
 // ── [fit_options] block parser ──────────────────────────────────────────────
 
 fn parse_method_token(token: &str) -> Result<EstimationMethod, String> {
-    let val = token.trim().trim_matches(|c| c == '"' || c == '\'').to_lowercase();
+    let val = token
+        .trim()
+        .trim_matches(|c| c == '"' || c == '\'')
+        .to_lowercase();
     if val == "saem" {
         Ok(EstimationMethod::Saem)
     } else if val.contains("hybrid") || val == "gn_hybrid" || val == "gn-hybrid" {
