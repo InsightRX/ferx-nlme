@@ -376,6 +376,26 @@ fn parse_simulation_block(lines: &[String]) -> Result<SimulationSpec, String> {
 
 // ── [fit_options] block parser ──────────────────────────────────────────────
 
+fn parse_method_token(token: &str) -> Result<EstimationMethod, String> {
+    let val = token
+        .trim()
+        .trim_matches(|c| c == '"' || c == '\'')
+        .to_lowercase();
+    if val == "saem" {
+        Ok(EstimationMethod::Saem)
+    } else if val.contains("hybrid") || val == "gn_hybrid" || val == "gn-hybrid" {
+        Ok(EstimationMethod::FoceGnHybrid)
+    } else if val == "gn" || val.contains("gauss") {
+        Ok(EstimationMethod::FoceGn)
+    } else if val == "focei" || val == "foce-i" || val == "foce_i" || val.contains("interaction") {
+        Ok(EstimationMethod::FoceI)
+    } else if val == "foce" {
+        Ok(EstimationMethod::Foce)
+    } else {
+        Err(format!("unknown estimation method: `{}`", token.trim()))
+    }
+}
+
 fn parse_fit_options(lines: &[String]) -> Result<FitOptions, String> {
     let mut opts = FitOptions::default();
     for line in lines {
@@ -385,24 +405,30 @@ fn parse_fit_options(lines: &[String]) -> Result<FitOptions, String> {
         }
         match parts[0] {
             "method" => {
-                let val = parts[1].to_lowercase();
-                if val.trim() == "saem" {
-                    opts.method = EstimationMethod::Saem;
-                } else if val.contains("hybrid")
-                    || val.contains("gn_hybrid")
-                    || val.contains("gn-hybrid")
-                {
-                    opts.method = EstimationMethod::FoceGnHybrid;
-                } else if val.contains("gn") || val.contains("gauss") {
-                    opts.method = EstimationMethod::FoceGn;
-                } else if val.contains("focei")
-                    || val.contains("foce-i")
-                    || val.contains("interaction")
-                {
-                    opts.method = EstimationMethod::FoceI;
-                    opts.interaction = true;
+                let raw = parts[1].trim();
+                // List form: `method = [a, b, c]` — chain of stages.
+                if raw.starts_with('[') {
+                    let inner = raw.trim_start_matches('[').trim_end_matches(']');
+                    let chain: Vec<EstimationMethod> = inner
+                        .split(',')
+                        .map(|s| s.trim())
+                        .filter(|s| !s.is_empty())
+                        .map(parse_method_token)
+                        .collect::<Result<_, _>>()?;
+                    if chain.is_empty() {
+                        return Err("method = [] is empty; provide at least one method".into());
+                    }
+                    // Interaction flag follows the final stage of the chain.
+                    opts.interaction = *chain.last().unwrap() == EstimationMethod::FoceI;
+                    opts.method = *chain.last().unwrap();
+                    opts.methods = chain;
                 } else {
-                    opts.method = EstimationMethod::Foce;
+                    let m = parse_method_token(raw)?;
+                    opts.method = m;
+                    opts.methods.clear();
+                    if m == EstimationMethod::FoceI {
+                        opts.interaction = true;
+                    }
                 }
             }
             "maxiter" => opts.outer_maxiter = parts[1].parse().unwrap_or(500),
@@ -1281,6 +1307,58 @@ fn parse_atom(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_parse_method_single() {
+        let opts = parse_fit_options(&["method = focei".to_string()]).unwrap();
+        assert_eq!(opts.method, EstimationMethod::FoceI);
+        assert!(opts.methods.is_empty());
+        assert!(opts.interaction);
+    }
+
+    #[test]
+    fn test_parse_method_chain() {
+        let opts = parse_fit_options(&["method = [saem, focei]".to_string()]).unwrap();
+        assert_eq!(
+            opts.methods,
+            vec![EstimationMethod::Saem, EstimationMethod::FoceI]
+        );
+        assert_eq!(opts.method, EstimationMethod::FoceI);
+        assert!(opts.interaction);
+    }
+
+    #[test]
+    fn test_parse_method_chain_final_foce() {
+        let opts = parse_fit_options(&["method = [saem, foce]".to_string()]).unwrap();
+        assert_eq!(opts.method, EstimationMethod::Foce);
+        assert!(!opts.interaction);
+    }
+
+    #[test]
+    fn test_parse_method_chain_empty_rejected() {
+        assert!(parse_fit_options(&["method = []".to_string()]).is_err());
+    }
+
+    #[test]
+    fn test_parse_method_unknown_rejected() {
+        assert!(parse_fit_options(&["method = [foce, wibble]".to_string()]).is_err());
+    }
+
+    #[test]
+    fn test_method_chain_helper_default() {
+        let opts = FitOptions::default();
+        assert_eq!(opts.method_chain(), vec![EstimationMethod::Foce]);
+    }
+
+    #[test]
+    fn test_method_chain_helper_populated() {
+        let mut opts = FitOptions::default();
+        opts.methods = vec![EstimationMethod::Saem, EstimationMethod::FoceI];
+        assert_eq!(
+            opts.method_chain(),
+            vec![EstimationMethod::Saem, EstimationMethod::FoceI]
+        );
+    }
 
     #[test]
     fn test_parse_diagonal_omega() {

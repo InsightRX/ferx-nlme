@@ -321,6 +321,12 @@ pub fn run_saem(
 
     // Main loop
     for k in 1..=n_iter {
+        if crate::cancel::is_cancelled(&options.cancel) {
+            if verbose {
+                eprintln!("SAEM: cancelled at iteration {}", k);
+            }
+            break;
+        }
         let gamma = if k <= k1 { 1.0 } else { 1.0 / (k - k1) as f64 };
 
         // Rebuild omega for this iteration
@@ -528,27 +534,28 @@ pub fn run_saem(
 
     // ---- Covariance step ----
     let mut warnings = Vec::new();
-    let covariance_matrix = if options.run_covariance_step {
-        if verbose {
-            eprintln!("Running covariance step...");
-        }
-        let packed = pack_params(&final_params);
-        let cov = compute_covariance(
-            &packed,
-            &final_params,
-            model,
-            population,
-            &eta_hats,
-            &h_matrices,
-            options,
-        );
-        if cov.is_none() {
-            warnings.push("Covariance step failed — SEs not available".to_string());
-        }
-        cov
-    } else {
-        None
-    };
+    let covariance_matrix =
+        if options.run_covariance_step && !crate::cancel::is_cancelled(&options.cancel) {
+            if verbose {
+                eprintln!("Running covariance step...");
+            }
+            let packed = pack_params(&final_params);
+            let cov = compute_covariance(
+                &packed,
+                &final_params,
+                model,
+                population,
+                &eta_hats,
+                &h_matrices,
+                options,
+            );
+            if cov.is_none() {
+                warnings.push("Covariance step failed — SEs not available".to_string());
+            }
+            cov
+        } else {
+            None
+        };
 
     if verbose {
         eprintln!("SAEM completed. Final OFV = {:.4}", ofv);

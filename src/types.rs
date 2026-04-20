@@ -337,7 +337,10 @@ pub struct SubjectResult {
 /// Full fit result
 #[derive(Debug, Clone)]
 pub struct FitResult {
+    /// Final method in the chain (same as `method_chain.last()`).
     pub method: EstimationMethod,
+    /// Full sequence of methods executed, in order. Always has at least one entry.
+    pub method_chain: Vec<EstimationMethod>,
     pub converged: bool,
     pub ofv: f64,
     pub aic: f64,
@@ -367,7 +370,15 @@ pub struct FitResult {
 /// Options for fit()
 #[derive(Debug, Clone)]
 pub struct FitOptions {
+    /// Primary estimation method (used when `methods` is empty).
+    /// When `methods` is non-empty, `method` is ignored for execution and
+    /// is set to the final method in the chain for backwards-compatible reporting.
     pub method: EstimationMethod,
+    /// Sequence of estimation methods to run. Each stage's converged parameters
+    /// are used as the initial values for the next stage. The final stage
+    /// produces the reported fit (covariance, diagnostics, OFV). Leave empty
+    /// to run a single stage using `method`.
+    pub methods: Vec<EstimationMethod>,
     pub outer_maxiter: usize,
     pub outer_gtol: f64,
     pub inner_maxiter: usize,
@@ -405,12 +416,17 @@ pub struct FitOptions {
     /// Maximum CG iterations for the Steihaug subproblem solver (trust-region only).
     /// Should be at least n_params; default 50 covers most population PK models.
     pub steihaug_max_iters: usize,
+    /// Optional cooperative cancellation token. When present and flipped by
+    /// another thread, the outer/inner/SAEM/GN loops exit at the next safe
+    /// point and `fit()` returns `Err("cancelled by user")`. Default `None`.
+    pub cancel: Option<crate::cancel::CancelFlag>,
 }
 
 impl Default for FitOptions {
     fn default() -> Self {
         Self {
             method: EstimationMethod::Foce,
+            methods: Vec::new(),
             outer_maxiter: 500,
             outer_gtol: 1e-6,
             inner_maxiter: 200,
@@ -435,6 +451,7 @@ impl Default for FitOptions {
             bloq_method: BloqMethod::Drop,
             mu_referencing: true,
             steihaug_max_iters: 50,
+            cancel: None,
         }
     }
 }
@@ -478,6 +495,30 @@ pub enum EstimationMethod {
     FoceGn,
     FoceGnHybrid,
     Saem,
+}
+
+impl EstimationMethod {
+    pub fn label(self) -> &'static str {
+        match self {
+            EstimationMethod::Foce => "FOCE",
+            EstimationMethod::FoceI => "FOCEI",
+            EstimationMethod::FoceGn => "FOCE-GN",
+            EstimationMethod::FoceGnHybrid => "FOCE-GN-Hybrid",
+            EstimationMethod::Saem => "SAEM",
+        }
+    }
+}
+
+impl FitOptions {
+    /// Returns the sequence of methods to execute. If `methods` is non-empty it
+    /// is returned as-is; otherwise a single-element chain wrapping `method`.
+    pub fn method_chain(&self) -> Vec<EstimationMethod> {
+        if self.methods.is_empty() {
+            vec![self.method]
+        } else {
+            self.methods.clone()
+        }
+    }
 }
 
 /// Trial design specification parsed from [simulation] block
