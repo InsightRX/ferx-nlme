@@ -402,6 +402,9 @@ pub struct FitOptions {
     /// ETA starting points on the current population mean at each outer step.
     /// Set to false to disable for comparison purposes.
     pub mu_referencing: bool,
+    /// Maximum CG iterations for the Steihaug subproblem solver (trust-region only).
+    /// Should be at least n_params; default 50 covers most population PK models.
+    pub steihaug_max_iters: usize,
 }
 
 impl Default for FitOptions {
@@ -431,6 +434,7 @@ impl Default for FitOptions {
             sir_seed: None,
             bloq_method: BloqMethod::Drop,
             mu_referencing: true,
+            steihaug_max_iters: 50,
         }
     }
 }

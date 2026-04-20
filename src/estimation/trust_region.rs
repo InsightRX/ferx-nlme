@@ -179,7 +179,7 @@ pub fn optimize_trust_region(
         );
     }
 
-    let subproblem = Steihaug::new().with_max_iters(50);
+    let subproblem = Steihaug::new().with_max_iters(options.steihaug_max_iters as u64);
     let solver = TrustRegion::new(subproblem)
         .with_radius(1.0)
         .expect("trust region radius must be positive")
