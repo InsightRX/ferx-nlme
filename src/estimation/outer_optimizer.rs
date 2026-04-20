@@ -387,24 +387,23 @@ fn optimize_nlopt(
 
     // Covariance step (skip if user cancelled — it's expensive and the result
     // will be discarded by the top-level fit() anyway).
-    let covariance_matrix = if options.run_covariance_step
-        && !crate::cancel::is_cancelled(&options.cancel)
-    {
-        if options.verbose {
-            eprintln!("Computing covariance matrix...");
-        }
-        compute_covariance(
-            &x0,
-            init_params,
-            model,
-            population,
-            &final_ehs,
-            &final_hms,
-            options,
-        )
-    } else {
-        None
-    };
+    let covariance_matrix =
+        if options.run_covariance_step && !crate::cancel::is_cancelled(&options.cancel) {
+            if options.verbose {
+                eprintln!("Computing covariance matrix...");
+            }
+            compute_covariance(
+                &x0,
+                init_params,
+                model,
+                population,
+                &final_ehs,
+                &final_hms,
+                options,
+            )
+        } else {
+            None
+        };
 
     if !converged {
         warnings.push("Outer optimization did not converge".to_string());
@@ -605,24 +604,23 @@ fn optimize_bfgs(
     );
     let final_ofv = ofv_at_fixed(&x, &final_ehs, &final_hms);
 
-    let covariance_matrix = if options.run_covariance_step
-        && !crate::cancel::is_cancelled(&options.cancel)
-    {
-        if options.verbose {
-            eprintln!("Computing covariance matrix...");
-        }
-        compute_covariance(
-            &x,
-            init_params,
-            model,
-            population,
-            &final_ehs,
-            &final_hms,
-            options,
-        )
-    } else {
-        None
-    };
+    let covariance_matrix =
+        if options.run_covariance_step && !crate::cancel::is_cancelled(&options.cancel) {
+            if options.verbose {
+                eprintln!("Computing covariance matrix...");
+            }
+            compute_covariance(
+                &x,
+                init_params,
+                model,
+                population,
+                &final_ehs,
+                &final_hms,
+                options,
+            )
+        } else {
+            None
+        };
 
     if !converged {
         warnings.push("Outer optimization did not converge".to_string());

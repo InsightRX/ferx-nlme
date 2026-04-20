@@ -247,28 +247,27 @@ pub fn run_foce_gn(
 
     if !do_polish {
         // Pure GN — skip FOCEI polish, go directly to covariance step
-        let covariance_matrix = if options.run_covariance_step
-            && !crate::cancel::is_cancelled(&options.cancel)
-        {
-            if verbose {
-                eprintln!("Running covariance step...");
-            }
-            let cov = compute_covariance(
-                &x,
-                &gn_params,
-                model,
-                population,
-                &eta_hats,
-                &h_matrices,
-                options,
-            );
-            if cov.is_none() {
-                warnings.push("Covariance step failed".to_string());
-            }
-            cov
-        } else {
-            None
-        };
+        let covariance_matrix =
+            if options.run_covariance_step && !crate::cancel::is_cancelled(&options.cancel) {
+                if verbose {
+                    eprintln!("Running covariance step...");
+                }
+                let cov = compute_covariance(
+                    &x,
+                    &gn_params,
+                    model,
+                    population,
+                    &eta_hats,
+                    &h_matrices,
+                    options,
+                );
+                if cov.is_none() {
+                    warnings.push("Covariance step failed".to_string());
+                }
+                cov
+            } else {
+                None
+            };
 
         if verbose {
             eprintln!("FOCE-GN completed. Final OFV = {:.4}", ofv);
