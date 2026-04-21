@@ -1246,6 +1246,46 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_threads_positive() {
+        let opts = parse_fit_options(&["threads = 4".to_string()]).unwrap();
+        assert_eq!(opts.threads, Some(4));
+    }
+
+    #[test]
+    fn test_parse_threads_auto() {
+        let opts = parse_fit_options(&["threads = auto".to_string()]).unwrap();
+        assert_eq!(opts.threads, None);
+        // Case-insensitive.
+        let opts = parse_fit_options(&["threads = AUTO".to_string()]).unwrap();
+        assert_eq!(opts.threads, None);
+    }
+
+    #[test]
+    fn test_parse_threads_zero_means_auto() {
+        // `threads = 0` is treated as "leave rayon default alone",
+        // matching the R binding's `threads <= 0` sentinel.
+        let opts = parse_fit_options(&["threads = 0".to_string()]).unwrap();
+        assert_eq!(opts.threads, None);
+    }
+
+    #[test]
+    fn test_parse_threads_invalid_falls_back_to_none() {
+        // Consistent with how other numeric fit_options (maxiter, sir_samples)
+        // silently fall back on parse failure rather than erroring out.
+        let opts = parse_fit_options(&["threads = -1".to_string()]).unwrap();
+        assert_eq!(opts.threads, None);
+        let opts = parse_fit_options(&["threads = wibble".to_string()]).unwrap();
+        assert_eq!(opts.threads, None);
+    }
+
+    #[test]
+    fn test_parse_threads_default_is_none() {
+        // No `threads` line → None (rayon global pool, one worker per logical CPU).
+        let opts = parse_fit_options(&["method = focei".to_string()]).unwrap();
+        assert_eq!(opts.threads, None);
+    }
+
+    #[test]
     fn test_parse_diagonal_omega() {
         let lines = vec![
             "omega ETA_CL ~ 0.07".to_string(),
