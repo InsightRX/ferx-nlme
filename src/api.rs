@@ -161,8 +161,31 @@ pub fn fit_from_files(
     fit(&model, &population, &model.default_params, &opts)
 }
 
-/// Main fit entry point: CompiledModel + Population → FitResult
+/// Main fit entry point: CompiledModel + Population → FitResult.
+///
+/// When `options.threads` is `Some(n)`, the fit runs inside a scoped rayon
+/// pool of `n` workers, so this setting is per-call (different fits in the
+/// same process can use different thread counts). When `None`, rayon's
+/// global pool is used (one worker per logical CPU).
 pub fn fit(
+    model: &CompiledModel,
+    population: &Population,
+    init_params: &ModelParameters,
+    options: &FitOptions,
+) -> Result<FitResult, String> {
+    match options.threads {
+        Some(n) if n > 0 => {
+            let pool = rayon::ThreadPoolBuilder::new()
+                .num_threads(n)
+                .build()
+                .map_err(|e| format!("failed to build rayon pool with {} threads: {}", n, e))?;
+            pool.install(|| fit_inner(model, population, init_params, options))
+        }
+        _ => fit_inner(model, population, init_params, options),
+    }
+}
+
+fn fit_inner(
     model: &CompiledModel,
     population: &Population,
     init_params: &ModelParameters,
@@ -171,7 +194,17 @@ pub fn fit(
     let chain = options.method_chain();
     if options.verbose {
         let chain_str: Vec<&str> = chain.iter().map(|m| m.label()).collect();
-        eprintln!("Starting estimation (chain: {})...", chain_str.join(" → "));
+        // rayon::current_num_threads() reports whichever pool par_iter would use
+        // from the current call — the scoped pool when options.threads is Some,
+        // otherwise the global pool. So this stays accurate in both paths.
+        let n_threads = rayon::current_num_threads();
+        let thread_word = if n_threads == 1 { "thread" } else { "threads" };
+        eprintln!(
+            "Starting estimation (chain: {}) on {} {}...",
+            chain_str.join(" → "),
+            n_threads,
+            thread_word
+        );
         eprintln!(
             "  {} subjects, {} observations",
             population.subjects.len(),

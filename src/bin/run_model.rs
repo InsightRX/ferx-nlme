@@ -5,8 +5,8 @@ fn main() {
     let args: Vec<String> = env::args().collect();
 
     if args.len() < 2 {
-        eprintln!("Usage: ferx <model.ferx> --data <data.csv>");
-        eprintln!("       ferx <model.ferx> --simulate");
+        eprintln!("Usage: ferx <model.ferx> --data <data.csv> [--threads N]");
+        eprintln!("       ferx <model.ferx> --simulate          [--threads N]");
         eprintln!();
         eprintln!("Fits a NLME model and writes sdtab.csv with residuals.");
         eprintln!("Data must be in NONMEM format (ID, TIME, DV, EVID, AMT, CMT, ...)");
@@ -19,6 +19,26 @@ fn main() {
         .position(|a| a == "--data")
         .and_then(|i| args.get(i + 1));
     let simulate = args.iter().any(|a| a == "--simulate");
+    let threads = args
+        .iter()
+        .position(|a| a == "--threads")
+        .and_then(|i| args.get(i + 1))
+        .map(|s| {
+            s.parse::<usize>().unwrap_or_else(|_| {
+                eprintln!("Error: --threads expects a positive integer, got '{}'", s);
+                std::process::exit(1);
+            })
+        })
+        .filter(|&n| n > 0);
+
+    // Configure rayon's global pool before any parallel work starts. build_global()
+    // is once-per-process — correct for a CLI binary. Without a --threads flag we
+    // leave rayon's default (one worker per logical CPU) in place.
+    if let Some(n) = threads {
+        if let Err(e) = rayon::ThreadPoolBuilder::new().num_threads(n).build_global() {
+            eprintln!("Warning: failed to configure thread pool with {} threads: {}", n, e);
+        }
+    }
 
     let t_start = Instant::now();
     let result = if let Some(csv_path) = data_path {

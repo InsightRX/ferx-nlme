@@ -349,6 +349,14 @@ fn parse_fit_options(lines: &[String]) -> Result<FitOptions, String> {
                     }
                 };
             }
+            "threads" => {
+                let raw = parts[1].trim();
+                if raw.eq_ignore_ascii_case("auto") || raw == "0" {
+                    opts.threads = None;
+                } else {
+                    opts.threads = raw.parse::<usize>().ok().filter(|&n| n > 0);
+                }
+            }
             _ => {}
         }
     }
