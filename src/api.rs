@@ -147,6 +147,35 @@ fn build_init_params(parsed: &ParsedModel) -> ModelParameters {
     parsed.model.default_params.clone()
 }
 
+/// Fail early if the model references covariates that the data doesn't carry.
+/// Case-sensitive: `CRCL` and `crcl` are distinct names. Historically a missing
+/// covariate silently evaluated to zero, which left fits stuck at the initial
+/// estimates with no visible diagnostic (see commit introducing this check).
+fn validate_covariates(model: &CompiledModel, population: &Population) -> Result<(), String> {
+    let missing: Vec<&str> = model
+        .referenced_covariates
+        .iter()
+        .filter(|name| !population.covariate_names.iter().any(|n| n == *name))
+        .map(|s| s.as_str())
+        .collect();
+
+    if missing.is_empty() {
+        return Ok(());
+    }
+
+    let available = if population.covariate_names.is_empty() {
+        "(none)".to_string()
+    } else {
+        population.covariate_names.join(", ")
+    };
+    Err(format!(
+        "Model references covariate(s) not found in data (case-sensitive): {}. \
+         Available covariate columns: {}.",
+        missing.join(", "),
+        available
+    ))
+}
+
 /// High-level fit: model file path + data file path → FitResult
 pub fn fit_from_files(
     model_path: &str,
@@ -173,6 +202,7 @@ pub fn fit(
     init_params: &ModelParameters,
     options: &FitOptions,
 ) -> Result<FitResult, String> {
+    validate_covariates(model, population)?;
     match options.threads {
         Some(n) if n > 0 => {
             let pool = rayon::ThreadPoolBuilder::new()
