@@ -398,6 +398,13 @@ pub struct FitOptions {
     /// See [`BloqMethod`]. Defaults to `Drop` (backward-compatible: no effect
     /// when the data has no CENS column).
     pub bloq_method: BloqMethod,
+    /// Number of rayon worker threads used for the per-subject parallel loops
+    /// (inner EBE search, SAEM MH steps, SIR weighting, likelihood reductions).
+    /// `None` (default) leaves rayon's global pool alone, which means one
+    /// worker per logical CPU. `Some(n)` runs the fit inside a scoped local
+    /// pool of `n` threads — so the setting is per-call, not process-wide,
+    /// and different fits can use different thread counts.
+    pub threads: Option<usize>,
     /// Optional cooperative cancellation token. When present and flipped by
     /// another thread, the outer/inner/SAEM/GN loops exit at the next safe
     /// point and `fit()` returns `Err("cancelled by user")`. Default `None`.
@@ -431,6 +438,7 @@ impl Default for FitOptions {
             sir_resamples: 250,
             sir_seed: None,
             bloq_method: BloqMethod::Drop,
+            threads: None,
             cancel: None,
         }
     }
