@@ -35,8 +35,14 @@ fn main() {
     // is once-per-process — correct for a CLI binary. Without a --threads flag we
     // leave rayon's default (one worker per logical CPU) in place.
     if let Some(n) = threads {
-        if let Err(e) = rayon::ThreadPoolBuilder::new().num_threads(n).build_global() {
-            eprintln!("Warning: failed to configure thread pool with {} threads: {}", n, e);
+        if let Err(e) = rayon::ThreadPoolBuilder::new()
+            .num_threads(n)
+            .build_global()
+        {
+            eprintln!(
+                "Warning: failed to configure thread pool with {} threads: {}",
+                n, e
+            );
         }
     }
 
