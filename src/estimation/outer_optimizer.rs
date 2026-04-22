@@ -674,6 +674,11 @@ fn bfgs_update(
 }
 
 /// Central finite-difference gradient of FOCE OFV with EBEs held fixed.
+///
+/// Parameters with `bounds.lower[i] == bounds.upper[i]` (e.g. FIX parameters)
+/// are skipped: the perturbed point would be clamped back to `x[i]` so
+/// `actual_2h` is zero anyway, but skipping avoids two full OFV evaluations
+/// per fixed coordinate.
 fn gradient_cd(
     x: &[f64],
     bounds: &PackedBounds,
@@ -687,6 +692,9 @@ fn gradient_cd(
     let mut x_work = x.to_vec();
 
     for i in 0..n {
+        if (bounds.upper[i] - bounds.lower[i]).abs() < 1e-16 {
+            continue; // FIX parameter
+        }
         let h = eps * (1.0 + x[i].abs());
         let xi_plus = (x[i] + h).min(bounds.upper[i]);
         let xi_minus = (x[i] - h).max(bounds.lower[i]);
@@ -826,12 +834,18 @@ pub(crate) fn compute_covariance(
         return None;
     }
 
+    // FIX parameters contribute no information — skip their FD stencils and,
+    // after inverting the Hessian of the free block, leave their covariance
+    // rows/cols at zero (→ SE = 0 downstream).
+    let fixed_mask = packed_fixed_mask(template);
+    let free_idx: Vec<usize> = (0..n).filter(|&i| !fixed_mask[i]).collect();
+
     let mut hess = DMatrix::zeros(n, n);
     let mut x_ij = x_hat.to_vec();
 
     let f0 = base_ofv;
 
-    for i in 0..n {
+    for &i in &free_idx {
         let hi = eps * (1.0 + x_hat[i].abs());
 
         // Diagonal: 3-point formula  (f(x+h) - 2f(x) + f(x-h)) / h^2
@@ -846,8 +860,11 @@ pub(crate) fn compute_covariance(
             hess[(i, i)] = h_ii;
         }
 
-        // Off-diagonal: 4-point stencil
-        for j in (i + 1)..n {
+        // Off-diagonal: 4-point stencil (over free indices only)
+        for &j in &free_idx {
+            if j <= i {
+                continue;
+            }
             let hj = eps * (1.0 + x_hat[j].abs());
 
             x_ij[i] = x_hat[i] + hi;
@@ -874,14 +891,15 @@ pub(crate) fn compute_covariance(
         }
     }
 
-    // Check for non-finite or zero Hessian entries
+    // Check for non-finite or zero Hessian entries *in the free block*. Rows
+    // and columns of FIX parameters are intentionally zero.
     let mut n_nonfinite = 0;
     let mut n_zero = 0;
-    for i in 0..n {
+    for &i in &free_idx {
         if hess[(i, i)].abs() < 1e-30 {
             n_zero += 1;
         }
-        for j in 0..n {
+        for &j in &free_idx {
             if !hess[(i, j)].is_finite() {
                 n_nonfinite += 1;
             }
@@ -898,24 +916,43 @@ pub(crate) fn compute_covariance(
         return None;
     }
 
-    let hess_sym = (&hess + hess.transpose()) * 0.5;
-    match hess_sym.try_inverse() {
-        Some(cov) => {
-            let neg_diag: Vec<usize> = (0..n).filter(|&i| cov[(i, i)] <= 0.0).collect();
-            if neg_diag.is_empty() {
-                if options.verbose {
-                    eprintln!("  Covariance step successful");
-                }
-                Some(cov)
-            } else {
+    // Build the reduced Hessian over free indices, invert, then embed back
+    // into the full n×n covariance matrix (FIX rows/cols stay zero).
+    let n_free = free_idx.len();
+    if n_free == 0 {
+        // Nothing to estimate — return an all-zero covariance so downstream
+        // SE extraction reports zeros (all params FIX).
+        return Some(DMatrix::zeros(n, n));
+    }
+    let mut hess_free = DMatrix::zeros(n_free, n_free);
+    for (a, &i) in free_idx.iter().enumerate() {
+        for (b, &j) in free_idx.iter().enumerate() {
+            hess_free[(a, b)] = hess[(i, j)];
+        }
+    }
+    let hess_free_sym = (&hess_free + hess_free.transpose()) * 0.5;
+    match hess_free_sym.try_inverse() {
+        Some(cov_free) => {
+            let neg_diag: Vec<usize> = (0..n_free).filter(|&a| cov_free[(a, a)] <= 0.0).collect();
+            if !neg_diag.is_empty() {
                 if options.verbose {
                     eprintln!(
-                        "  Covariance failed: negative diagonal at indices {:?}",
+                        "  Covariance failed: negative diagonal in free-block at {:?}",
                         neg_diag
                     );
                 }
-                None
+                return None;
             }
+            let mut cov = DMatrix::zeros(n, n);
+            for (a, &i) in free_idx.iter().enumerate() {
+                for (b, &j) in free_idx.iter().enumerate() {
+                    cov[(i, j)] = cov_free[(a, b)];
+                }
+            }
+            if options.verbose {
+                eprintln!("  Covariance step successful");
+            }
+            Some(cov)
         }
         None => {
             if options.verbose {

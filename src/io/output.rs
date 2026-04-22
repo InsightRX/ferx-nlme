@@ -37,17 +37,22 @@ pub fn print_results(result: &FitResult) {
     eprintln!("{}", "-".repeat(52));
     for (i, name) in result.theta_names.iter().enumerate() {
         let est = result.theta[i];
-        let (se_str, rse_str) = match &result.se_theta {
-            Some(se) => {
-                let se_val = se[i];
-                let rse = if est.abs() > 1e-12 {
-                    (se_val / est.abs()) * 100.0
-                } else {
-                    f64::NAN
-                };
-                (format!("{:.6}", se_val), format!("{:.1}", rse))
+        let is_fixed = result.theta_fixed.get(i).copied().unwrap_or(false);
+        let (se_str, rse_str) = if is_fixed {
+            ("FIXED".to_string(), "FIXED".to_string())
+        } else {
+            match &result.se_theta {
+                Some(se) => {
+                    let se_val = se[i];
+                    let rse = if est.abs() > 1e-12 {
+                        (se_val / est.abs()) * 100.0
+                    } else {
+                        f64::NAN
+                    };
+                    (format!("{:.6}", se_val), format!("{:.1}", rse))
+                }
+                None => ("N/A".to_string(), "N/A".to_string()),
             }
-            None => ("N/A".to_string(), "N/A".to_string()),
         };
         eprintln!("{:<16} {:>12.6} {:>12} {:>10}", name, est, se_str, rse_str);
     }
@@ -60,9 +65,14 @@ pub fn print_results(result: &FitResult) {
     for i in 0..n_eta {
         let var = result.omega[(i, i)];
         let cv = if var > 0.0 { var.sqrt() * 100.0 } else { 0.0 };
-        let se_str = match &result.se_omega {
-            Some(se) if i < se.len() => format!("{:.6}", se[i]),
-            _ => "N/A".to_string(),
+        let is_fixed = result.omega_fixed.get(i).copied().unwrap_or(false);
+        let se_str = if is_fixed {
+            "FIXED".to_string()
+        } else {
+            match &result.se_omega {
+                Some(se) if i < se.len() => format!("{:.6}", se[i]),
+                _ => "N/A".to_string(),
+            }
         };
         eprintln!(
             "  OMEGA({},{}) = {:.6}  (CV% = {:.1})  SE = {}",
@@ -99,9 +109,14 @@ pub fn print_results(result: &FitResult) {
     // Sigma estimates
     eprintln!("\n--- SIGMA Estimates ---");
     for (i, &s) in result.sigma.iter().enumerate() {
-        let se_str = match &result.se_sigma {
-            Some(se) if i < se.len() => format!("{:.6}", se[i]),
-            _ => "N/A".to_string(),
+        let is_fixed = result.sigma_fixed.get(i).copied().unwrap_or(false);
+        let se_str = if is_fixed {
+            "FIXED".to_string()
+        } else {
+            match &result.se_sigma {
+                Some(se) if i < se.len() => format!("{:.6}", se[i]),
+                _ => "N/A".to_string(),
+            }
         };
         eprintln!("  SIGMA({}) = {:.6}  SE = {}", i + 1, s, se_str);
     }
@@ -278,6 +293,7 @@ pub fn write_estimates_yaml(result: &FitResult, path: &str) -> Result<(), String
     writeln!(f, "\ntheta:").map_err(|e| e.to_string())?;
     for (i, name) in result.theta_names.iter().enumerate() {
         let est = result.theta[i];
+        let is_fixed = result.theta_fixed.get(i).copied().unwrap_or(false);
         let se = result.se_theta.as_ref().map(|v| v[i]);
         let rse = se.map(|s| {
             if est.abs() > 1e-12 {
@@ -288,14 +304,20 @@ pub fn write_estimates_yaml(result: &FitResult, path: &str) -> Result<(), String
         });
         writeln!(f, "  {}:", name).map_err(|e| e.to_string())?;
         writeln!(f, "    estimate: {:.6}", est).map_err(|e| e.to_string())?;
-        match se {
-            Some(s) => {
-                writeln!(f, "    se: {:.6}", s).map_err(|e| e.to_string())?;
-                writeln!(f, "    rse_pct: {:.2}", rse.unwrap()).map_err(|e| e.to_string())?;
-            }
-            None => {
-                writeln!(f, "    se: ~").map_err(|e| e.to_string())?;
-                writeln!(f, "    rse_pct: ~").map_err(|e| e.to_string())?;
+        if is_fixed {
+            writeln!(f, "    fixed: true").map_err(|e| e.to_string())?;
+            writeln!(f, "    se: ~").map_err(|e| e.to_string())?;
+            writeln!(f, "    rse_pct: ~").map_err(|e| e.to_string())?;
+        } else {
+            match se {
+                Some(s) => {
+                    writeln!(f, "    se: {:.6}", s).map_err(|e| e.to_string())?;
+                    writeln!(f, "    rse_pct: {:.2}", rse.unwrap()).map_err(|e| e.to_string())?;
+                }
+                None => {
+                    writeln!(f, "    se: ~").map_err(|e| e.to_string())?;
+                    writeln!(f, "    rse_pct: ~").map_err(|e| e.to_string())?;
+                }
             }
         }
     }
@@ -305,13 +327,19 @@ pub fn write_estimates_yaml(result: &FitResult, path: &str) -> Result<(), String
     for i in 0..n_eta {
         let var = result.omega[(i, i)];
         let cv_pct = if var > 0.0 { var.sqrt() * 100.0 } else { 0.0 };
+        let is_fixed = result.omega_fixed.get(i).copied().unwrap_or(false);
         let se = result.se_omega.as_ref().and_then(|v| v.get(i).copied());
         writeln!(f, "  omega_{}_{}:", i + 1, i + 1).map_err(|e| e.to_string())?;
         writeln!(f, "    variance: {:.6}", var).map_err(|e| e.to_string())?;
         writeln!(f, "    cv_pct: {:.2}", cv_pct).map_err(|e| e.to_string())?;
-        match se {
-            Some(s) => writeln!(f, "    se: {:.6}", s).map_err(|e| e.to_string())?,
-            None => writeln!(f, "    se: ~").map_err(|e| e.to_string())?,
+        if is_fixed {
+            writeln!(f, "    fixed: true").map_err(|e| e.to_string())?;
+            writeln!(f, "    se: ~").map_err(|e| e.to_string())?;
+        } else {
+            match se {
+                Some(s) => writeln!(f, "    se: {:.6}", s).map_err(|e| e.to_string())?,
+                None => writeln!(f, "    se: ~").map_err(|e| e.to_string())?,
+            }
         }
     }
     // Off-diagonal covariances
@@ -335,12 +363,18 @@ pub fn write_estimates_yaml(result: &FitResult, path: &str) -> Result<(), String
 
     writeln!(f, "\nsigma:").map_err(|e| e.to_string())?;
     for (i, &s) in result.sigma.iter().enumerate() {
+        let is_fixed = result.sigma_fixed.get(i).copied().unwrap_or(false);
         let se = result.se_sigma.as_ref().and_then(|v| v.get(i).copied());
         writeln!(f, "  sigma_{}:", i + 1).map_err(|e| e.to_string())?;
         writeln!(f, "    estimate: {:.6}", s).map_err(|e| e.to_string())?;
-        match se {
-            Some(sv) => writeln!(f, "    se: {:.6}", sv).map_err(|e| e.to_string())?,
-            None => writeln!(f, "    se: ~").map_err(|e| e.to_string())?,
+        if is_fixed {
+            writeln!(f, "    fixed: true").map_err(|e| e.to_string())?;
+            writeln!(f, "    se: ~").map_err(|e| e.to_string())?;
+        } else {
+            match se {
+                Some(sv) => writeln!(f, "    se: {:.6}", sv).map_err(|e| e.to_string())?,
+                None => writeln!(f, "    se: ~").map_err(|e| e.to_string())?,
+            }
         }
     }
 

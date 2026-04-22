@@ -238,8 +238,28 @@ pub struct ModelParameters {
     pub theta_names: Vec<String>,
     pub theta_lower: Vec<f64>,
     pub theta_upper: Vec<f64>,
+    /// Per-theta FIX flags (NONMEM-style). Fixed thetas are not estimated;
+    /// they retain their initial value and receive SE = 0 in the cov step.
+    pub theta_fixed: Vec<bool>,
     pub omega: OmegaMatrix,
+    /// Per-eta FIX flags. For diagonal omegas: flag fixes the variance.
+    /// For block omegas: all etas within a fixed block share `true`, and
+    /// every Cholesky element whose row *or* column is flagged is held
+    /// constant during optimization. Parser rejects fixing an eta that
+    /// belongs to a block unless the whole block is fixed.
+    pub omega_fixed: Vec<bool>,
     pub sigma: SigmaVector,
+    /// Per-sigma FIX flags.
+    pub sigma_fixed: Vec<bool>,
+}
+
+impl ModelParameters {
+    /// Return `true` if any parameter is marked FIX.
+    pub fn has_any_fixed(&self) -> bool {
+        self.theta_fixed.iter().any(|&b| b)
+            || self.omega_fixed.iter().any(|&b| b)
+            || self.sigma_fixed.iter().any(|&b| b)
+    }
 }
 
 /// Supported PK structural models
@@ -347,6 +367,12 @@ pub struct FitResult {
     pub se_theta: Option<Vec<f64>>,
     pub se_omega: Option<Vec<f64>>,
     pub se_sigma: Option<Vec<f64>>,
+    /// FIX flags carried through from the model so the output layer can
+    /// render `FIXED` for SE columns rather than the (meaningless) zero
+    /// they acquire from the reduced-Hessian covariance step.
+    pub theta_fixed: Vec<bool>,
+    pub omega_fixed: Vec<bool>,
+    pub sigma_fixed: Vec<bool>,
     pub subjects: Vec<SubjectResult>,
     pub n_obs: usize,
     pub n_subjects: usize,

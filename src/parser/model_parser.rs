@@ -89,8 +89,11 @@ pub fn parse_full_model(content: &str) -> Result<ParsedModel, String> {
     let theta_values: Vec<f64> = thetas.iter().map(|t| t.init).collect();
     let theta_lower: Vec<f64> = thetas.iter().map(|t| t.lower).collect();
     let theta_upper: Vec<f64> = thetas.iter().map(|t| t.upper).collect();
+    let theta_fixed: Vec<bool> = thetas.iter().map(|t| t.fixed).collect();
     let omega = build_omega_matrix(&omegas, &block_omegas, &eta_names)?;
+    let omega_fixed = build_omega_fixed(&omegas, &block_omegas, &eta_names)?;
     let sigma_values: Vec<f64> = sigmas.iter().map(|s| s.value).collect();
+    let sigma_fixed: Vec<bool> = sigmas.iter().map(|s| s.fixed).collect();
     let sigma = SigmaVector {
         values: sigma_values,
         names: sigma_names,
@@ -101,8 +104,11 @@ pub fn parse_full_model(content: &str) -> Result<ParsedModel, String> {
         theta_names: theta_names.clone(),
         theta_lower,
         theta_upper,
+        theta_fixed,
         omega,
+        omega_fixed,
         sigma,
+        sigma_fixed,
     };
 
     // Auto-generate tv_fn: evaluate individual parameters with eta=0
@@ -502,11 +508,13 @@ struct ThetaSpec {
     init: f64,
     lower: f64,
     upper: f64,
+    fixed: bool,
 }
 
 struct OmegaSpec {
     name: String,
     variance: f64,
+    fixed: bool,
 }
 
 /// Specifies a block (correlated) group of omegas.
@@ -515,11 +523,13 @@ struct OmegaSpec {
 struct BlockOmegaSpec {
     names: Vec<String>,
     lower_triangle: Vec<f64>,
+    fixed: bool,
 }
 
 struct SigmaSpec {
     name: String,
     value: f64,
+    fixed: bool,
 }
 
 // --- Block extraction ---
@@ -584,20 +594,23 @@ fn parse_parameters(
     let mut sigmas = Vec::new();
     let mut eta_names_ordered = Vec::new();
 
-    // theta NAME(init, lower, upper)  or  theta NAME(init)
+    // theta NAME(init)  |  theta NAME(init, FIX)
+    // theta NAME(init, lower, upper)  |  theta NAME(init, lower, upper, FIX)
+    // The `FIX` keyword (case-insensitive) marks the theta as non-estimated.
     let theta_re = Regex::new(
-        r"theta\s+(\w+)\(\s*([0-9eE.+-]+)\s*(?:,\s*([0-9eE.+-]+)\s*,\s*([0-9eE.+-]+)\s*)?\)",
+        r"(?i)theta\s+(\w+)\(\s*([0-9eE.+-]+)\s*(?:,\s*([0-9eE.+-]+)\s*,\s*([0-9eE.+-]+))?\s*(?:,\s*(FIX))?\s*\)",
     )
     .unwrap();
 
-    // omega NAME ~ value
-    let omega_re = Regex::new(r"omega\s+(\w+)\s*~\s*([0-9eE.+-]+)").unwrap();
+    // omega NAME ~ value  |  omega NAME ~ value FIX
+    let omega_re = Regex::new(r"(?i)omega\s+(\w+)\s*~\s*([0-9eE.+-]+)\s*(FIX)?").unwrap();
 
-    // block_omega (NAME1, NAME2, ...) = [lower_triangle_values]
-    let block_omega_re = Regex::new(r"block_omega\s*\(([^)]+)\)\s*=\s*\[([^\]]+)\]").unwrap();
+    // block_omega (NAME1, NAME2, ...) = [lower_triangle_values]  |  ... FIX
+    let block_omega_re =
+        Regex::new(r"(?i)block_omega\s*\(([^)]+)\)\s*=\s*\[([^\]]+)\]\s*(FIX)?").unwrap();
 
-    // sigma NAME ~ value
-    let sigma_re = Regex::new(r"sigma\s+(\w+)\s*~\s*([0-9eE.+-]+)").unwrap();
+    // sigma NAME ~ value  |  sigma NAME ~ value FIX
+    let sigma_re = Regex::new(r"(?i)sigma\s+(\w+)\s*~\s*([0-9eE.+-]+)\s*(FIX)?").unwrap();
 
     for line in lines {
         if let Some(caps) = theta_re.captures(line) {
@@ -613,11 +626,13 @@ fn parse_parameters(
                 .get(4)
                 .map(|m| m.as_str().parse().unwrap_or(1e9))
                 .unwrap_or(1e9);
+            let fixed = caps.get(5).is_some();
             thetas.push(ThetaSpec {
                 name,
                 init,
                 lower,
                 upper,
+                fixed,
             });
         } else if let Some(caps) = block_omega_re.captures(line) {
             let names: Vec<String> = caps[1].split(',').map(|s| s.trim().to_string()).collect();
@@ -643,23 +658,35 @@ fn parse_parameters(
             for n in &names {
                 eta_names_ordered.push(n.clone());
             }
+            let fixed = caps.get(3).is_some();
             block_omegas.push(BlockOmegaSpec {
                 names,
                 lower_triangle: values,
+                fixed,
             });
         } else if let Some(caps) = omega_re.captures(line) {
             let name = caps[1].to_string();
             let variance: f64 = caps[2]
                 .parse()
                 .map_err(|_| format!("Bad omega: {}", line))?;
+            let fixed = caps.get(3).is_some();
             eta_names_ordered.push(name.clone());
-            omegas.push(OmegaSpec { name, variance });
+            omegas.push(OmegaSpec {
+                name,
+                variance,
+                fixed,
+            });
         } else if let Some(caps) = sigma_re.captures(line) {
             let name = caps[1].to_string();
             let value: f64 = caps[2]
                 .parse()
                 .map_err(|_| format!("Bad sigma: {}", line))?;
-            sigmas.push(SigmaSpec { name, value });
+            let fixed = caps.get(3).is_some();
+            sigmas.push(SigmaSpec {
+                name,
+                value,
+                fixed,
+            });
         }
     }
 
@@ -722,6 +749,57 @@ fn build_omega_matrix(
     }
 
     Ok(OmegaMatrix::from_matrix(matrix, eta_names.to_vec(), false))
+}
+
+/// Build the per-eta `omega_fixed` flags from parsed diagonal + block specs.
+///
+/// Rules:
+/// - `omega NAME ~ value FIX`: flag that eta as fixed.
+/// - `block_omega (...) = [...] FIX`: flag every eta in the block.
+/// - A diagonal omega FIX on an eta that is also listed in a (free) block is
+///   rejected — you must fix the whole block instead.
+fn build_omega_fixed(
+    diag_omegas: &[OmegaSpec],
+    block_omegas: &[BlockOmegaSpec],
+    eta_names: &[String],
+) -> Result<Vec<bool>, String> {
+    let name_to_idx: std::collections::HashMap<&str, usize> = eta_names
+        .iter()
+        .enumerate()
+        .map(|(i, n)| (n.as_str(), i))
+        .collect();
+
+    let mut fixed = vec![false; eta_names.len()];
+
+    for spec in diag_omegas {
+        if spec.fixed {
+            if let Some(&idx) = name_to_idx.get(spec.name.as_str()) {
+                fixed[idx] = true;
+            }
+        }
+    }
+
+    for block in block_omegas {
+        for name in &block.names {
+            let idx = *name_to_idx
+                .get(name.as_str())
+                .ok_or_else(|| format!("block_omega references unknown eta '{}'", name))?;
+            // If the eta was already marked FIX via a diagonal spec but the
+            // block is not fully fixed, that's ambiguous.
+            if fixed[idx] && !block.fixed {
+                return Err(format!(
+                    "'{}' is marked FIX but belongs to a non-FIX block_omega; \
+                     fix the whole block instead",
+                    name
+                ));
+            }
+            if block.fixed {
+                fixed[idx] = true;
+            }
+        }
+    }
+
+    Ok(fixed)
 }
 
 // --- Structural model parsing ---
@@ -1431,10 +1509,12 @@ mod tests {
             OmegaSpec {
                 name: "ETA_CL".into(),
                 variance: 0.09,
+                fixed: false,
             },
             OmegaSpec {
                 name: "ETA_V".into(),
                 variance: 0.04,
+                fixed: false,
             },
         ];
         let names = vec!["ETA_CL".into(), "ETA_V".into()];
@@ -1450,6 +1530,7 @@ mod tests {
         let block = vec![BlockOmegaSpec {
             names: vec!["ETA_CL".into(), "ETA_V".into()],
             lower_triangle: vec![0.09, 0.02, 0.04],
+            fixed: false,
         }];
         let names = vec!["ETA_CL".into(), "ETA_V".into()];
         let omega = build_omega_matrix(&[], &block, &names).unwrap();
@@ -1465,10 +1546,12 @@ mod tests {
         let diag = vec![OmegaSpec {
             name: "ETA_KA".into(),
             variance: 0.16,
+            fixed: false,
         }];
         let block = vec![BlockOmegaSpec {
             names: vec!["ETA_CL".into(), "ETA_V".into()],
             lower_triangle: vec![0.09, 0.02, 0.04],
+            fixed: false,
         }];
         let names = vec!["ETA_KA".into(), "ETA_CL".into(), "ETA_V".into()];
         let omega = build_omega_matrix(&diag, &block, &names).unwrap();
@@ -1478,6 +1561,150 @@ mod tests {
         assert!((omega.matrix[(2, 2)] - 0.04).abs() < 1e-10); // ETA_V
         assert!((omega.matrix[(1, 2)] - 0.02).abs() < 1e-10); // cov(CL, V)
         assert!((omega.matrix[(0, 1)]).abs() < 1e-10); // no cov(KA, CL)
+    }
+
+    // ── FIX keyword ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_parse_theta_fix_without_bounds() {
+        let lines = vec!["theta TVCL(0.1, FIX)".to_string()];
+        let (thetas, _, _, _, _) = parse_parameters(&lines).unwrap();
+        assert_eq!(thetas.len(), 1);
+        assert!(thetas[0].fixed);
+        assert!((thetas[0].init - 0.1).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_parse_theta_fix_with_bounds() {
+        let lines = vec!["theta TVCL(0.1, 0.01, 1.0, FIX)".to_string()];
+        let (thetas, _, _, _, _) = parse_parameters(&lines).unwrap();
+        assert!(thetas[0].fixed);
+        assert!((thetas[0].lower - 0.01).abs() < 1e-12);
+        assert!((thetas[0].upper - 1.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_parse_theta_unfixed_by_default() {
+        let lines = vec!["theta TVCL(0.1, 0.01, 1.0)".to_string()];
+        let (thetas, _, _, _, _) = parse_parameters(&lines).unwrap();
+        assert!(!thetas[0].fixed);
+    }
+
+    #[test]
+    fn test_parse_omega_fix() {
+        let lines = vec!["omega ETA_CL ~ 0.09 FIX".to_string()];
+        let (_, omegas, _, _, _) = parse_parameters(&lines).unwrap();
+        assert!(omegas[0].fixed);
+    }
+
+    #[test]
+    fn test_parse_sigma_fix() {
+        let lines = vec!["sigma PROP ~ 0.05 FIX".to_string()];
+        let (_, _, _, sigmas, _) = parse_parameters(&lines).unwrap();
+        assert!(sigmas[0].fixed);
+    }
+
+    #[test]
+    fn test_parse_block_omega_fix() {
+        let lines = vec!["block_omega (ETA_CL, ETA_V) = [0.09, 0.02, 0.04] FIX".to_string()];
+        let (_, _, blocks, _, _) = parse_parameters(&lines).unwrap();
+        assert!(blocks[0].fixed);
+    }
+
+    #[test]
+    fn test_fix_keyword_case_insensitive() {
+        let lines = vec![
+            "theta TVCL(0.1, fix)".to_string(),
+            "omega ETA ~ 0.05 Fix".to_string(),
+            "sigma S ~ 0.02 FIX".to_string(),
+        ];
+        let (thetas, omegas, _, sigmas, _) = parse_parameters(&lines).unwrap();
+        assert!(thetas[0].fixed);
+        assert!(omegas[0].fixed);
+        assert!(sigmas[0].fixed);
+    }
+
+    #[test]
+    fn test_build_omega_fixed_diagonal() {
+        let diag = vec![
+            OmegaSpec {
+                name: "ETA_CL".into(),
+                variance: 0.09,
+                fixed: true,
+            },
+            OmegaSpec {
+                name: "ETA_V".into(),
+                variance: 0.04,
+                fixed: false,
+            },
+        ];
+        let names = vec!["ETA_CL".into(), "ETA_V".into()];
+        let flags = build_omega_fixed(&diag, &[], &names).unwrap();
+        assert_eq!(flags, vec![true, false]);
+    }
+
+    #[test]
+    fn test_build_omega_fixed_block() {
+        let block = vec![BlockOmegaSpec {
+            names: vec!["ETA_CL".into(), "ETA_V".into()],
+            lower_triangle: vec![0.09, 0.02, 0.04],
+            fixed: true,
+        }];
+        let names = vec!["ETA_CL".into(), "ETA_V".into()];
+        let flags = build_omega_fixed(&[], &block, &names).unwrap();
+        assert_eq!(flags, vec![true, true]);
+    }
+
+    #[test]
+    fn test_build_omega_fixed_rejects_diag_fix_inside_free_block() {
+        // ETA_CL is in a non-FIX block but also declared FIX as a diagonal —
+        // the parser must reject this as ambiguous.
+        let diag = vec![OmegaSpec {
+            name: "ETA_CL".into(),
+            variance: 0.09,
+            fixed: true,
+        }];
+        let block = vec![BlockOmegaSpec {
+            names: vec!["ETA_CL".into(), "ETA_V".into()],
+            lower_triangle: vec![0.09, 0.02, 0.04],
+            fixed: false,
+        }];
+        let names = vec!["ETA_CL".into(), "ETA_V".into()];
+        let res = build_omega_fixed(&diag, &block, &names);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_parse_full_model_with_fix() {
+        let content = r#"
+[parameters]
+  theta TVCL(0.2, 0.001, 10.0)
+  theta TVV(10.0, FIX)
+  theta TVKA(1.5, 0.01, 50.0)
+
+  omega ETA_CL ~ 0.09
+  omega ETA_V  ~ 0.04 FIX
+  omega ETA_KA ~ 0.30
+
+  sigma PROP_ERR ~ 0.02 FIX
+
+[individual_parameters]
+  CL = TVCL * exp(ETA_CL)
+  V  = TVV  * exp(ETA_V)
+  KA = TVKA * exp(ETA_KA)
+
+[structural_model]
+  pk one_cpt_oral(cl=CL, v=V, ka=KA)
+
+[error_model]
+  DV ~ proportional(PROP_ERR)
+"#;
+        let parsed = parse_full_model(content).unwrap();
+        let p = &parsed.model.default_params;
+        assert_eq!(p.theta_fixed, vec![false, true, false]);
+        assert_eq!(p.omega_fixed, vec![false, true, false]);
+        assert_eq!(p.sigma_fixed, vec![true]);
+        assert!(p.has_any_fixed());
     }
 
     #[test]
