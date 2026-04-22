@@ -1,5 +1,5 @@
 use crate::estimation::inner_optimizer::run_inner_loop_warm;
-use crate::estimation::parameterization::*;
+use crate::estimation::parameterization::{compute_mu_k, *};
 use crate::stats::likelihood::foce_population_nll;
 use crate::types::*;
 use nalgebra::{DMatrix, DVector};
@@ -97,6 +97,7 @@ fn optimize_nlopt(
     // NLopt objective: runs inner loop, computes gradient with fixed EBEs
     let objective = |x: &[f64], grad: Option<&mut [f64]>, state: &mut NloptState| -> f64 {
         let params = unpack_params(x, init_params);
+        let mu_k = compute_mu_k(model, &params.theta, options.mu_referencing);
 
         // Run inner loop (warm-started)
         let (ehs, hms, _) = run_inner_loop_warm(
@@ -106,6 +107,7 @@ fn optimize_nlopt(
             options.inner_maxiter,
             options.inner_tol,
             Some(&state.cached_etas),
+            Some(&mu_k),
         );
 
         // Compute OFV with fixed EBEs
@@ -234,6 +236,7 @@ fn optimize_nlopt(
 
         let objective2 = |x: &[f64], grad: Option<&mut [f64]>, state: &mut NloptState| -> f64 {
             let params = unpack_params(x, init_params);
+            let mu_k = compute_mu_k(model, &params.theta, options.mu_referencing);
             let (ehs, hms, _) = run_inner_loop_warm(
                 model,
                 population,
@@ -241,6 +244,7 @@ fn optimize_nlopt(
                 options.inner_maxiter,
                 options.inner_tol,
                 Some(&state.cached_etas),
+                Some(&mu_k),
             );
             let nll = foce_population_nll(
                 model,
@@ -338,8 +342,9 @@ fn optimize_nlopt(
     }
 
     let final_params = unpack_params(&x0, init_params);
+    let final_mu_k = compute_mu_k(model, &final_params.theta, options.mu_referencing);
 
-    // Final inner loop at converged parameters (cold start is fine here)
+    // Final inner loop at converged parameters
     let (final_ehs, final_hms, _) = run_inner_loop_warm(
         model,
         population,
@@ -347,6 +352,7 @@ fn optimize_nlopt(
         options.inner_maxiter,
         options.inner_tol,
         None,
+        Some(&final_mu_k),
     );
 
     let final_nll = foce_population_nll(
@@ -438,6 +444,7 @@ fn optimize_bfgs(
 
     let f_only = |x: &[f64], prev_etas: &[DVector<f64>]| -> f64 {
         let params = unpack_params(x, init_params);
+        let mu_k = compute_mu_k(model, &params.theta, options.mu_referencing);
         let (ehs, hms, _) = run_inner_loop_warm(
             model,
             population,
@@ -445,6 +452,7 @@ fn optimize_bfgs(
             options.inner_maxiter,
             options.inner_tol,
             Some(prev_etas),
+            Some(&mu_k),
         );
         let ofv = 2.0
             * foce_population_nll(
@@ -468,6 +476,7 @@ fn optimize_bfgs(
                 prev_etas: &[DVector<f64>]|
      -> (f64, Vec<f64>, Vec<DVector<f64>>, Vec<DMatrix<f64>>) {
         let params = unpack_params(x, init_params);
+        let mu_k = compute_mu_k(model, &params.theta, options.mu_referencing);
         let (ehs, hms, _) = run_inner_loop_warm(
             model,
             population,
@@ -475,6 +484,7 @@ fn optimize_bfgs(
             options.inner_maxiter,
             options.inner_tol,
             Some(prev_etas),
+            Some(&mu_k),
         );
         let ofv = ofv_at_fixed(x, &ehs, &hms);
         let g = gradient_cd(x, &bounds, &ehs, &hms, &ofv_at_fixed);
@@ -567,6 +577,7 @@ fn optimize_bfgs(
     }
 
     let final_params = unpack_params(&x, init_params);
+    let bfgs_final_mu_k = compute_mu_k(model, &final_params.theta, options.mu_referencing);
     let (final_ehs, final_hms, _) = run_inner_loop_warm(
         model,
         population,
@@ -574,6 +585,7 @@ fn optimize_bfgs(
         options.inner_maxiter,
         options.inner_tol,
         Some(&cached_etas),
+        Some(&bfgs_final_mu_k),
     );
     let final_ofv = ofv_at_fixed(&x, &final_ehs, &final_hms);
 

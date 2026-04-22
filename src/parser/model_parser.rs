@@ -3,6 +3,118 @@ use regex::Regex;
 use std::collections::HashMap;
 use std::path::Path;
 
+// ── Mu-referencing pattern detection ────────────────────────────────────────
+
+/// Walk a Mul-chain and collect direct Theta indices (not inside any function).
+fn collect_mul_thetas(expr: &Expression, out: &mut Vec<usize>) {
+    match expr {
+        Expression::Theta(i) => out.push(*i),
+        Expression::BinOp(l, BinOp::Mul, r) => {
+            collect_mul_thetas(l, out);
+            collect_mul_thetas(r, out);
+        }
+        _ => {}
+    }
+}
+
+/// Walk a Mul-chain and find the first `exp(Eta(j))`, returning the eta index.
+fn find_exp_eta_in_mul(expr: &Expression) -> Option<usize> {
+    match expr {
+        Expression::UnaryFn(name, arg) if name == "exp" => {
+            if let Expression::Eta(j) = arg.as_ref() {
+                return Some(*j);
+            }
+            None
+        }
+        Expression::BinOp(l, BinOp::Mul, r) => {
+            find_exp_eta_in_mul(l).or_else(|| find_exp_eta_in_mul(r))
+        }
+        _ => None,
+    }
+}
+
+/// Detect mu-referencing patterns in one assignment expression.
+/// Returns `Some((eta_idx, theta_idx, log_transformed))` or `None`.
+fn detect_pattern(expr: &Expression) -> Option<(usize, usize, bool)> {
+    match expr {
+        // Pattern 2: exp(log(THETA) + ETA)
+        Expression::UnaryFn(name, inner) if name == "exp" => {
+            // inner must be Add with log(Theta) and Eta in either order
+            if let Expression::BinOp(lhs, BinOp::Add, rhs) = inner.as_ref() {
+                let try_log_theta_eta = |a: &Expression, b: &Expression| -> Option<(usize, usize)> {
+                    if let Expression::UnaryFn(fn_name, fn_arg) = a {
+                        if fn_name == "log" || fn_name == "ln" {
+                            if let Expression::Theta(ti) = fn_arg.as_ref() {
+                                if let Expression::Eta(ei) = b {
+                                    return Some((*ei, *ti));
+                                }
+                            }
+                        }
+                    }
+                    None
+                };
+                if let Some((ei, ti)) = try_log_theta_eta(lhs, rhs)
+                    .or_else(|| try_log_theta_eta(rhs, lhs))
+                {
+                    return Some((ei, ti, true));
+                }
+            }
+            None
+        }
+        // Pattern 3: THETA + ETA or ETA + THETA
+        Expression::BinOp(lhs, BinOp::Add, rhs) => {
+            match (lhs.as_ref(), rhs.as_ref()) {
+                (Expression::Theta(ti), Expression::Eta(ei)) => Some((*ei, *ti, false)),
+                (Expression::Eta(ei), Expression::Theta(ti)) => Some((*ei, *ti, false)),
+                _ => None,
+            }
+        }
+        // Pattern 1 / 4: product containing Theta and exp(Eta)
+        _ => {
+            let mut thetas = Vec::new();
+            collect_mul_thetas(expr, &mut thetas);
+            if thetas.len() == 1 {
+                if let Some(ei) = find_exp_eta_in_mul(expr) {
+                    return Some((ei, thetas[0], true));
+                }
+            }
+            None
+        }
+    }
+}
+
+/// Analyse [individual_parameters] lines and detect mu-referencing relationships.
+fn detect_mu_refs(
+    indiv_lines: &[String],
+    theta_names: &[String],
+    eta_names: &[String],
+) -> HashMap<String, MuRef> {
+    let mut result = HashMap::new();
+    for line in indiv_lines {
+        let parts: Vec<&str> = line.splitn(2, '=').collect();
+        if parts.len() != 2 {
+            continue;
+        }
+        let expr_str = parts[1].trim();
+        let expr = match parse_expression(expr_str, theta_names, eta_names) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        if let Some((eta_idx, theta_idx, log_transformed)) = detect_pattern(&expr) {
+            if eta_idx < eta_names.len() && theta_idx < theta_names.len() {
+                result.insert(
+                    eta_names[eta_idx].clone(),
+                    MuRef {
+                        theta_name: theta_names[theta_idx].clone(),
+                        log_transformed,
+                    },
+                );
+            }
+        }
+    }
+    result
+}
+
 /// Parse a model file (.ferx) and return a CompiledModel.
 pub fn parse_model_file(path: &Path) -> Result<CompiledModel, String> {
     let content =
@@ -146,6 +258,9 @@ pub fn parse_full_model(content: &str) -> Result<ParsedModel, String> {
             None
         };
 
+    // Detect mu-referencing relationships from [individual_parameters]
+    let mu_refs = detect_mu_refs(indiv_lines, &theta_names, &eta_names);
+
     // Build pk_indices: maps each individual parameter (by declaration order)
     // to its PK parameter index. Needed for AD to place values in correct slots.
     let pk_indices: Vec<usize> = if !pk_param_map.is_empty() {
@@ -184,6 +299,7 @@ pub fn parse_full_model(content: &str) -> Result<ParsedModel, String> {
         pk_indices,
         ode_spec,
         bloq_method: BloqMethod::Drop,
+        mu_refs,
     };
 
     // ── Optional blocks ──

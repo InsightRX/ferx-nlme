@@ -1,4 +1,4 @@
-use crate::types::{ModelParameters, OmegaMatrix, SigmaVector};
+use crate::types::{CompiledModel, ModelParameters, OmegaMatrix, SigmaVector};
 use nalgebra::DMatrix;
 
 /// Bounds for the packed parameter vector
@@ -168,6 +168,51 @@ pub fn compute_bounds(template: &ModelParameters) -> PackedBounds {
     }
 
     PackedBounds { lower, upper }
+}
+
+/// Return initial ETA vector: warm-start if available, else mu_refs, else zeros.
+pub fn get_eta_init(
+    n_eta: usize,
+    warm_start: Option<&[f64]>,
+    mu_refs: Option<&[f64]>,
+) -> Vec<f64> {
+    if let Some(ws) = warm_start {
+        ws.to_vec()
+    } else if let Some(mu) = mu_refs {
+        mu.to_vec()
+    } else {
+        vec![0.0; n_eta]
+    }
+}
+
+/// Compute the mu_k shift vector from current theta for mu-referenced ETAs.
+///
+/// For each ETA that has a detected mu-reference, mu[i] = log(theta) or theta
+/// depending on whether the relationship is log-transformed.  ETAs without a
+/// mu-reference get mu[i] = 0 (no shift), preserving the standard behaviour.
+/// When `enabled` is false, returns a zero vector (disables mu-referencing).
+pub fn compute_mu_k(model: &CompiledModel, theta: &[f64], enabled: bool) -> Vec<f64> {
+    if !enabled {
+        return vec![0.0; model.n_eta];
+    }
+    let mut mu = vec![0.0; model.n_eta];
+    for (eta_idx, eta_name) in model.eta_names.iter().enumerate() {
+        if let Some(mu_ref) = model.mu_refs.get(eta_name) {
+            if let Some(theta_idx) = model
+                .theta_names
+                .iter()
+                .position(|n| n == &mu_ref.theta_name)
+            {
+                let theta_val = theta[theta_idx];
+                mu[eta_idx] = if mu_ref.log_transformed {
+                    theta_val.max(1e-10).ln()
+                } else {
+                    theta_val
+                };
+            }
+        }
+    }
+    mu
 }
 
 /// Clamp a vector to box constraints
