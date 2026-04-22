@@ -315,6 +315,9 @@ fn parse_fit_options(lines: &[String]) -> Result<FitOptions, String> {
             "sir_samples" => opts.sir_samples = parts[1].trim().parse().unwrap_or(1000),
             "sir_resamples" => opts.sir_resamples = parts[1].trim().parse().unwrap_or(250),
             "sir_seed" => opts.sir_seed = parts[1].trim().parse().ok(),
+            "steihaug_max_iters" => {
+                opts.steihaug_max_iters = parts[1].trim().parse().unwrap_or(50)
+            }
             "bloq_method" | "bloq" => {
                 opts.bloq_method = match parts[1].trim().to_lowercase().as_str() {
                     "m3" => BloqMethod::M3,

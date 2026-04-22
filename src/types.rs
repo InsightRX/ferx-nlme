@@ -387,6 +387,9 @@ pub struct FitOptions {
     /// See [`BloqMethod`]. Defaults to `Drop` (backward-compatible: no effect
     /// when the data has no CENS column).
     pub bloq_method: BloqMethod,
+    /// Maximum CG iterations for the Steihaug subproblem solver (trust-region only).
+    /// Should be at least n_params; default 50 covers most population PK models.
+    pub steihaug_max_iters: usize,
 }
 
 impl Default for FitOptions {
@@ -415,6 +418,7 @@ impl Default for FitOptions {
             sir_resamples: 250,
             sir_seed: None,
             bloq_method: BloqMethod::Drop,
+            steihaug_max_iters: 50,
         }
     }
 }
