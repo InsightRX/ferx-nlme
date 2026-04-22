@@ -83,7 +83,8 @@ pub fn parse_full_model(content: &str) -> Result<ParsedModel, String> {
         (pk_model, pk_param_map, None)
     };
 
-    let pk_param_fn = build_pk_param_fn(indiv_lines, &theta_names, &eta_names, &pk_param_map)?;
+    let (pk_param_fn, referenced_covariates) =
+        build_pk_param_fn(indiv_lines, &theta_names, &eta_names, &pk_param_map)?;
 
     let theta_values: Vec<f64> = thetas.iter().map(|t| t.init).collect();
     let theta_lower: Vec<f64> = thetas.iter().map(|t| t.lower).collect();
@@ -111,21 +112,21 @@ pub fn parse_full_model(content: &str) -> Result<ParsedModel, String> {
     let tv_eta_names = eta_names.clone();
     let tv_fn: Option<Box<dyn Fn(&[f64], &HashMap<String, f64>) -> Vec<f64> + Send + Sync>> =
         if !is_ode {
-            let assignments: Vec<(String, Expression)> = tv_assignments
-                .iter()
-                .filter_map(|line| {
-                    let parts: Vec<&str> = line.splitn(2, '=').collect();
-                    if parts.len() == 2 {
-                        let var_name = parts[0].trim().to_string();
-                        let expr_str = parts[1].trim();
-                        parse_expression(expr_str, &tv_theta_names, &tv_eta_names)
-                            .ok()
-                            .map(|expr| (var_name, expr))
-                    } else {
-                        None
-                    }
-                })
-                .collect();
+            let mut assignments: Vec<(String, Expression)> = Vec::new();
+            let mut tv_defined: Vec<String> = Vec::new();
+            for line in tv_assignments.iter() {
+                let parts: Vec<&str> = line.splitn(2, '=').collect();
+                if parts.len() != 2 {
+                    continue;
+                }
+                let var_name = parts[0].trim().to_string();
+                let expr_str = parts[1].trim();
+                let ctx = ParseCtx::new(&tv_theta_names, &tv_eta_names, &tv_defined);
+                if let Ok(expr) = parse_expression(expr_str, ctx) {
+                    assignments.push((var_name.clone(), expr));
+                    tv_defined.push(var_name);
+                }
+            }
 
             Some(Box::new(
                 move |theta: &[f64], covariates: &HashMap<String, f64>| {
@@ -184,6 +185,7 @@ pub fn parse_full_model(content: &str) -> Result<ParsedModel, String> {
         pk_indices,
         ode_spec,
         bloq_method: BloqMethod::Drop,
+        referenced_covariates,
     };
 
     // ── Optional blocks ──
@@ -473,15 +475,21 @@ fn build_ode_spec(
     let ddt_re = Regex::new(r"d/dt\((\w+)\)\s*=\s*(.+)").unwrap();
     let mut ode_exprs: Vec<(String, Expression)> = Vec::new();
 
-    // For ODE expressions, pass empty theta/eta names so all identifiers
-    // (states + individual params) are treated as Variables, not Theta/Eta/Covariate
-    let empty: Vec<String> = vec![];
+    // For ODE RHS expressions, states + individual params get injected into the
+    // `vars` map at eval time, so every bare identifier should resolve to a
+    // Variable (not a Covariate). ParseCtx::ode() flips the fallback accordingly.
+    let ode_defined: Vec<String> = state_names
+        .iter()
+        .cloned()
+        .chain(indiv_param_names.iter().cloned())
+        .collect();
+    let ode_ctx = ParseCtx::ode(&ode_defined);
 
     for line in lines {
         if let Some(caps) = ddt_re.captures(line) {
             let state = caps[1].to_string();
             let expr_str = caps[2].trim();
-            let expr = parse_expression(expr_str, &empty, &empty)?;
+            let expr = parse_expression(expr_str, ode_ctx)?;
             ode_exprs.push((state, expr));
         }
     }
@@ -863,9 +871,10 @@ fn build_pk_param_fn(
     theta_names: &[String],
     eta_names: &[String],
     pk_param_map: &HashMap<String, String>,
-) -> Result<PkParamFn, String> {
+) -> Result<(PkParamFn, Vec<String>), String> {
     let mut assignments: Vec<(String, Expression)> = Vec::new();
 
+    let mut defined_vars: Vec<String> = Vec::new();
     for line in lines {
         let parts: Vec<&str> = line.splitn(2, '=').collect();
         if parts.len() != 2 {
@@ -873,14 +882,25 @@ fn build_pk_param_fn(
         }
         let var_name = parts[0].trim().to_string();
         let expr_str = parts[1].trim();
-        let expr = parse_expression(expr_str, theta_names, eta_names)?;
-        assignments.push((var_name, expr));
+        let ctx = ParseCtx::new(theta_names, eta_names, &defined_vars);
+        let expr = parse_expression(expr_str, ctx)?;
+        assignments.push((var_name.clone(), expr));
+        defined_vars.push(var_name);
     }
+
+    // Covariate names referenced by any individual_parameters expression.
+    // Sorted for deterministic error messages downstream.
+    let mut cov_set: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for (_, expr) in &assignments {
+        collect_covariates(expr, &mut cov_set);
+    }
+    let mut referenced_covariates: Vec<String> = cov_set.into_iter().collect();
+    referenced_covariates.sort();
 
     let pk_map: HashMap<String, String> = pk_param_map.clone();
     let assignments_owned = assignments;
 
-    Ok(Box::new(
+    let pk_param_fn: PkParamFn = Box::new(
         move |theta: &[f64], eta: &[f64], covariates: &HashMap<String, f64>| {
             let mut vars: HashMap<String, f64> = HashMap::new();
 
@@ -915,7 +935,8 @@ fn build_pk_param_fn(
 
             p
         },
-    ))
+    );
+    Ok((pk_param_fn, referenced_covariates))
 }
 
 // --- Simple expression AST and evaluator ---
@@ -940,14 +961,66 @@ enum BinOp {
     Div,
 }
 
-fn parse_expression(
-    s: &str,
-    theta_names: &[String],
-    eta_names: &[String],
-) -> Result<Expression, String> {
+/// Context threaded through the recursive-descent parser so that every bare
+/// identifier can be classified as Theta / Eta / Variable / Covariate without
+/// relying on casing heuristics.
+#[derive(Clone, Copy)]
+struct ParseCtx<'a> {
+    theta_names: &'a [String],
+    eta_names: &'a [String],
+    /// Names previously assigned in the surrounding block (e.g. earlier lines
+    /// of [individual_parameters]). These resolve to `Variable`.
+    defined_vars: &'a [String],
+    /// When `true` (the usual case), an unknown identifier is a covariate.
+    /// Set to `false` for the ODE RHS parser, where state names and individual
+    /// parameters are injected into the `vars` map at eval time instead.
+    fallback_covariate: bool,
+}
+
+impl<'a> ParseCtx<'a> {
+    fn new(theta_names: &'a [String], eta_names: &'a [String], defined_vars: &'a [String]) -> Self {
+        Self {
+            theta_names,
+            eta_names,
+            defined_vars,
+            fallback_covariate: true,
+        }
+    }
+
+    fn ode(defined_vars: &'a [String]) -> Self {
+        const EMPTY: &[String] = &[];
+        Self {
+            theta_names: EMPTY,
+            eta_names: EMPTY,
+            defined_vars,
+            fallback_covariate: false,
+        }
+    }
+}
+
+fn parse_expression(s: &str, ctx: ParseCtx<'_>) -> Result<Expression, String> {
     let tokens = tokenize(s)?;
-    let (expr, _) = parse_add_sub(&tokens, 0, theta_names, eta_names)?;
+    let (expr, _) = parse_add_sub(&tokens, 0, ctx)?;
     Ok(expr)
+}
+
+/// Walk an expression tree and accumulate every covariate name it references.
+fn collect_covariates(expr: &Expression, out: &mut std::collections::HashSet<String>) {
+    match expr {
+        Expression::Covariate(name) => {
+            out.insert(name.clone());
+        }
+        Expression::BinOp(lhs, _, rhs) => {
+            collect_covariates(lhs, out);
+            collect_covariates(rhs, out);
+        }
+        Expression::UnaryFn(_, arg) => collect_covariates(arg, out),
+        Expression::Power(base, exp) => {
+            collect_covariates(base, out);
+            collect_covariates(exp, out);
+        }
+        _ => {}
+    }
 }
 
 fn eval_expression(
@@ -961,7 +1034,7 @@ fn eval_expression(
         Expression::Literal(v) => *v,
         Expression::Theta(i) => theta[*i],
         Expression::Eta(i) => eta[*i],
-        Expression::Covariate(name) => covariates.get(&name.to_lowercase()).copied().unwrap_or(0.0),
+        Expression::Covariate(name) => covariates.get(name).copied().unwrap_or(0.0),
         Expression::Variable(name) => vars.get(name).copied().unwrap_or(0.0),
         Expression::BinOp(lhs, op, rhs) => {
             let l = eval_expression(lhs, theta, eta, covariates, vars);
@@ -1118,20 +1191,19 @@ fn tokenize(s: &str) -> Result<Vec<Token>, String> {
 fn parse_add_sub(
     tokens: &[Token],
     pos: usize,
-    theta_names: &[String],
-    eta_names: &[String],
+    ctx: ParseCtx<'_>,
 ) -> Result<(Expression, usize), String> {
-    let (mut left, mut pos) = parse_mul_div(tokens, pos, theta_names, eta_names)?;
+    let (mut left, mut pos) = parse_mul_div(tokens, pos, ctx)?;
 
     while pos < tokens.len() {
         match &tokens[pos] {
             Token::Plus => {
-                let (right, p) = parse_mul_div(tokens, pos + 1, theta_names, eta_names)?;
+                let (right, p) = parse_mul_div(tokens, pos + 1, ctx)?;
                 left = Expression::BinOp(Box::new(left), BinOp::Add, Box::new(right));
                 pos = p;
             }
             Token::Minus => {
-                let (right, p) = parse_mul_div(tokens, pos + 1, theta_names, eta_names)?;
+                let (right, p) = parse_mul_div(tokens, pos + 1, ctx)?;
                 left = Expression::BinOp(Box::new(left), BinOp::Sub, Box::new(right));
                 pos = p;
             }
@@ -1145,20 +1217,19 @@ fn parse_add_sub(
 fn parse_mul_div(
     tokens: &[Token],
     pos: usize,
-    theta_names: &[String],
-    eta_names: &[String],
+    ctx: ParseCtx<'_>,
 ) -> Result<(Expression, usize), String> {
-    let (mut left, mut pos) = parse_power(tokens, pos, theta_names, eta_names)?;
+    let (mut left, mut pos) = parse_power(tokens, pos, ctx)?;
 
     while pos < tokens.len() {
         match &tokens[pos] {
             Token::Star => {
-                let (right, p) = parse_power(tokens, pos + 1, theta_names, eta_names)?;
+                let (right, p) = parse_power(tokens, pos + 1, ctx)?;
                 left = Expression::BinOp(Box::new(left), BinOp::Mul, Box::new(right));
                 pos = p;
             }
             Token::Slash => {
-                let (right, p) = parse_power(tokens, pos + 1, theta_names, eta_names)?;
+                let (right, p) = parse_power(tokens, pos + 1, ctx)?;
                 left = Expression::BinOp(Box::new(left), BinOp::Div, Box::new(right));
                 pos = p;
             }
@@ -1172,13 +1243,12 @@ fn parse_mul_div(
 fn parse_power(
     tokens: &[Token],
     pos: usize,
-    theta_names: &[String],
-    eta_names: &[String],
+    ctx: ParseCtx<'_>,
 ) -> Result<(Expression, usize), String> {
-    let (base, mut pos) = parse_atom(tokens, pos, theta_names, eta_names)?;
+    let (base, mut pos) = parse_atom(tokens, pos, ctx)?;
 
     if pos < tokens.len() && tokens[pos] == Token::Caret {
-        let (exp, p) = parse_atom(tokens, pos + 1, theta_names, eta_names)?;
+        let (exp, p) = parse_atom(tokens, pos + 1, ctx)?;
         pos = p;
         return Ok((Expression::Power(Box::new(base), Box::new(exp)), pos));
     }
@@ -1189,8 +1259,7 @@ fn parse_power(
 fn parse_atom(
     tokens: &[Token],
     pos: usize,
-    theta_names: &[String],
-    eta_names: &[String],
+    ctx: ParseCtx<'_>,
 ) -> Result<(Expression, usize), String> {
     if pos >= tokens.len() {
         return Err("Unexpected end of expression".to_string());
@@ -1199,7 +1268,7 @@ fn parse_atom(
     match &tokens[pos] {
         Token::Minus => {
             // Unary minus: -expr → 0 - expr
-            let (expr, p) = parse_atom(tokens, pos + 1, theta_names, eta_names)?;
+            let (expr, p) = parse_atom(tokens, pos + 1, ctx)?;
             Ok((
                 Expression::BinOp(
                     Box::new(Expression::Literal(0.0)),
@@ -1211,7 +1280,7 @@ fn parse_atom(
         }
         Token::Number(n) => Ok((Expression::Literal(*n), pos + 1)),
         Token::LParen => {
-            let (expr, p) = parse_add_sub(tokens, pos + 1, theta_names, eta_names)?;
+            let (expr, p) = parse_add_sub(tokens, pos + 1, ctx)?;
             if p >= tokens.len() || tokens[p] != Token::RParen {
                 return Err("Missing closing parenthesis".to_string());
             }
@@ -1221,7 +1290,7 @@ fn parse_atom(
             // Check if it's a function call: name(expr)
             if pos + 1 < tokens.len() && tokens[pos + 1] == Token::LParen {
                 let func_name = name.to_lowercase();
-                let (arg, p) = parse_add_sub(tokens, pos + 2, theta_names, eta_names)?;
+                let (arg, p) = parse_add_sub(tokens, pos + 2, ctx)?;
                 if p >= tokens.len() || tokens[p] != Token::RParen {
                     return Err(format!("Missing closing parenthesis for function {}", name));
                 }
@@ -1229,23 +1298,27 @@ fn parse_atom(
             }
 
             // Check if it's a theta
-            if let Some(idx) = theta_names.iter().position(|n| n == name) {
+            if let Some(idx) = ctx.theta_names.iter().position(|n| n == name) {
                 return Ok((Expression::Theta(idx), pos + 1));
             }
 
             // Check if it's an eta
-            if let Some(idx) = eta_names.iter().position(|n| n == name) {
+            if let Some(idx) = ctx.eta_names.iter().position(|n| n == name) {
                 return Ok((Expression::Eta(idx), pos + 1));
             }
 
-            // Must be a covariate or previously assigned variable
-            // Heuristic: UPPERCASE names with no matching theta/eta are covariates
-            // (when theta_names is empty, e.g. ODE context, treat all as Variable)
-            if !theta_names.is_empty()
-                && name
-                    .chars()
-                    .all(|c| c.is_uppercase() || c.is_ascii_digit() || c == '_')
-            {
+            // Previously-assigned local variable (e.g. earlier lines of
+            // [individual_parameters], or a state/param name injected by the
+            // ODE RHS harness).
+            if ctx.defined_vars.iter().any(|n| n == name) {
+                return Ok((Expression::Variable(name.clone()), pos + 1));
+            }
+
+            // Anything else is a covariate reference in the regular model
+            // context. The ODE RHS context keeps it as a Variable so that the
+            // eval-time `vars` map (which carries state + individual params)
+            // can resolve it case-sensitively.
+            if ctx.fallback_covariate {
                 Ok((Expression::Covariate(name.clone()), pos + 1))
             } else {
                 Ok((Expression::Variable(name.clone()), pos + 1))
