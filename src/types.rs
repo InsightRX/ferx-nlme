@@ -296,6 +296,11 @@ pub struct CompiledModel {
     /// Set by `fit()` from [`FitOptions::bloq_method`] so likelihood/AD paths can
     /// read it without threading it through every call site.
     pub bloq_method: BloqMethod,
+    /// Covariate names referenced by any expression in the model (preserved
+    /// in the case the modeller wrote). Validated against the data's covariate
+    /// columns before a fit so that a missing/misspelt covariate fails loudly
+    /// instead of silently evaluating to zero.
+    pub referenced_covariates: Vec<String>,
 }
 
 impl std::fmt::Debug for CompiledModel {
