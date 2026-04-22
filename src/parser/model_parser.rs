@@ -317,10 +317,23 @@ fn parse_fit_options(lines: &[String]) -> Result<FitOptions, String> {
             }
             continue;
         }
-        // All other keys flow through the shared dispatch. Swallow errors and
-        // unknown keys to preserve the historically-loose behavior of `.ferx`
-        // parsing (silent fallback on malformed values and unknown keys).
-        let _ = apply_fit_option(&mut opts, parts[0], parts[1]);
+        // All other keys flow through the shared dispatch. Both `.ferx`
+        // parsing and the R `settings` path are strict: unknown keys and
+        // malformed values raise an error rather than silently defaulting.
+        // A previous iteration of this parser used `.unwrap_or(default)` /
+        // `== "true"` coercions that could silently flip behavior (e.g.
+        // `covariance = TRUE` set `false`; `bloq_method = foo` landed on
+        // the default `Drop`). Those traps are gone.
+        match apply_fit_option(&mut opts, parts[0], parts[1]) {
+            Ok(true) => {}
+            Ok(false) => {
+                return Err(format!(
+                    "[fit_options]: unknown key `{}`",
+                    parts[0]
+                ));
+            }
+            Err(e) => return Err(format!("[fit_options]: {}", e)),
+        }
     }
     Ok(opts)
 }
@@ -1408,13 +1421,12 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_threads_invalid_falls_back_to_none() {
-        // Consistent with how other numeric fit_options (maxiter, sir_samples)
-        // silently fall back on parse failure rather than erroring out.
-        let opts = parse_fit_options(&["threads = -1".to_string()]).unwrap();
-        assert_eq!(opts.threads, None);
-        let opts = parse_fit_options(&["threads = wibble".to_string()]).unwrap();
-        assert_eq!(opts.threads, None);
+    fn test_parse_threads_invalid_errors() {
+        // Strict parsing: malformed threads values raise a parse error
+        // rather than silently falling back to `None` (the pre-refactor
+        // `.parse().ok().filter(...)` behavior was a typo trap).
+        assert!(parse_fit_options(&["threads = -1".to_string()]).is_err());
+        assert!(parse_fit_options(&["threads = wibble".to_string()]).is_err());
     }
 
     #[test]
@@ -1527,26 +1539,66 @@ mod tests {
         assert_eq!(opts.bloq_method, BloqMethod::M3);
     }
 
-    // ── parse_fit_options back-compat: unknown keys and malformed values
-    //    at the .ferx layer must NOT error (strict validation is the
-    //    R-settings path's job). ──────────────────────────────────────────
+    // ── parse_fit_options: strict parsing at the .ferx layer. Unknown
+    //    keys and malformed values both raise an error — a typo like
+    //    `covariance = maybe` or `bloq_method = nope` now fails loudly
+    //    instead of silently landing on an unexpected default. ───────────
 
     #[test]
-    fn test_parse_fit_options_unknown_key_is_silent() {
-        // Preserve pre-refactor behavior: a stray/unknown key in a .ferx
-        // file parses without error and does not disturb defaults.
-        let opts =
-            parse_fit_options(&["n_exploraton = 200".to_string()]).unwrap();
-        assert_eq!(opts.saem_n_exploration, 150); // default, not 200
+    fn test_parse_fit_options_unknown_key_errors() {
+        let err =
+            parse_fit_options(&["n_exploraton = 200".to_string()]).unwrap_err();
+        assert!(err.contains("unknown key"), "got: {err}");
+        assert!(err.contains("n_exploraton"), "got: {err}");
     }
 
     #[test]
-    fn test_parse_fit_options_malformed_value_is_silent() {
-        // Historical `.unwrap_or(default)` behavior is preserved via
-        // `let _ = apply_fit_option(...)`: garbage values silently fall back.
-        let opts =
-            parse_fit_options(&["n_exploration = oops".to_string()]).unwrap();
-        assert_eq!(opts.saem_n_exploration, 150);
+    fn test_parse_fit_options_malformed_numeric_errors() {
+        assert!(parse_fit_options(&["n_exploration = oops".to_string()]).is_err());
+    }
+
+    #[test]
+    fn test_parse_fit_options_malformed_bool_errors() {
+        // Pre-refactor, `covariance = maybe` silently coerced to `false`
+        // via `== "true"`, flipping the default. Now it errors.
+        assert!(parse_fit_options(&["covariance = maybe".to_string()]).is_err());
+    }
+
+    #[test]
+    fn test_parse_fit_options_uppercase_bool_accepted() {
+        // Pre-refactor, `covariance = TRUE` silently became `false`
+        // because the inline check only matched lowercase "true". The
+        // strict parser accepts common casing variants.
+        let opts = parse_fit_options(&["covariance = TRUE".to_string()]).unwrap();
+        assert!(opts.run_covariance_step);
+    }
+
+    #[test]
+    fn test_parse_fit_options_bloq_method_typo_errors() {
+        // `bloq_method` was already strict in the old inline parser; the
+        // new strict dispatch must preserve that (not silently default).
+        assert!(parse_fit_options(&["bloq_method = nope".to_string()]).is_err());
+    }
+
+    #[test]
+    fn test_parse_all_example_ferx_files() {
+        // Smoke test: every checked-in example must parse under the strict
+        // [fit_options] rules. Guards against accidentally tightening a key
+        // in apply_fit_option in a way that breaks a shipped example.
+        let examples_dir =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
+        let mut seen = 0;
+        for entry in std::fs::read_dir(&examples_dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.extension().and_then(|s| s.to_str()) != Some("ferx") {
+                continue;
+            }
+            seen += 1;
+            if let Err(e) = parse_full_model_file(&path) {
+                panic!("failed to parse {}: {}", path.display(), e);
+            }
+        }
+        assert!(seen > 0, "no .ferx files found in {}", examples_dir.display());
     }
 
     #[test]
