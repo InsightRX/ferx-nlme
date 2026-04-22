@@ -289,80 +289,159 @@ fn parse_fit_options(lines: &[String]) -> Result<FitOptions, String> {
         if parts.len() != 2 {
             continue;
         }
-        match parts[0] {
-            "method" => {
-                let raw = parts[1].trim();
-                // List form: `method = [a, b, c]` — chain of stages.
-                if raw.starts_with('[') {
-                    let inner = raw.trim_start_matches('[').trim_end_matches(']');
-                    let chain: Vec<EstimationMethod> = inner
-                        .split(',')
-                        .map(|s| s.trim())
-                        .filter(|s| !s.is_empty())
-                        .map(parse_method_token)
-                        .collect::<Result<_, _>>()?;
-                    if chain.is_empty() {
-                        return Err("method = [] is empty; provide at least one method".into());
-                    }
-                    // Interaction flag follows the final stage of the chain.
-                    opts.interaction = *chain.last().unwrap() == EstimationMethod::FoceI;
-                    opts.method = *chain.last().unwrap();
-                    opts.methods = chain;
-                } else {
-                    let m = parse_method_token(raw)?;
-                    opts.method = m;
-                    opts.methods.clear();
-                    if m == EstimationMethod::FoceI {
-                        opts.interaction = true;
-                    }
+        if parts[0] == "method" {
+            let raw = parts[1].trim();
+            // List form: `method = [a, b, c]` — chain of stages.
+            if raw.starts_with('[') {
+                let inner = raw.trim_start_matches('[').trim_end_matches(']');
+                let chain: Vec<EstimationMethod> = inner
+                    .split(',')
+                    .map(|s| s.trim())
+                    .filter(|s| !s.is_empty())
+                    .map(parse_method_token)
+                    .collect::<Result<_, _>>()?;
+                if chain.is_empty() {
+                    return Err("method = [] is empty; provide at least one method".into());
+                }
+                // Interaction flag follows the final stage of the chain.
+                opts.interaction = *chain.last().unwrap() == EstimationMethod::FoceI;
+                opts.method = *chain.last().unwrap();
+                opts.methods = chain;
+            } else {
+                let m = parse_method_token(raw)?;
+                opts.method = m;
+                opts.methods.clear();
+                if m == EstimationMethod::FoceI {
+                    opts.interaction = true;
                 }
             }
-            "maxiter" => opts.outer_maxiter = parts[1].parse().unwrap_or(500),
-            "covariance" => opts.run_covariance_step = parts[1].trim() == "true",
-            "optimizer" => {
-                opts.optimizer = match parts[1].to_lowercase().as_str() {
-                    "slsqp" => Optimizer::Slsqp,
-                    "lbfgs" | "nlopt_lbfgs" => Optimizer::NloptLbfgs,
-                    "mma" => Optimizer::Mma,
-                    "bfgs" => Optimizer::Bfgs,
-                    _ => Optimizer::Slsqp,
-                };
+            continue;
+        }
+        // All other keys flow through the shared dispatch. Both `.ferx`
+        // parsing and the R `settings` path are strict: unknown keys and
+        // malformed values raise an error rather than silently defaulting.
+        // A previous iteration of this parser used `.unwrap_or(default)` /
+        // `== "true"` coercions that could silently flip behavior (e.g.
+        // `covariance = TRUE` set `false`; `bloq_method = foo` landed on
+        // the default `Drop`). Those traps are gone.
+        match apply_fit_option(&mut opts, parts[0], parts[1]) {
+            Ok(true) => {}
+            Ok(false) => {
+                return Err(format!(
+                    "[fit_options]: unknown key `{}`",
+                    parts[0]
+                ));
             }
-            "global_search" => opts.global_search = parts[1].trim() == "true",
-            "global_maxeval" => opts.global_maxeval = parts[1].parse().unwrap_or(0),
-            "n_exploration" => opts.saem_n_exploration = parts[1].trim().parse().unwrap_or(150),
-            "n_convergence" => opts.saem_n_convergence = parts[1].trim().parse().unwrap_or(250),
-            "n_mh_steps" => opts.saem_n_mh_steps = parts[1].trim().parse().unwrap_or(3),
-            "adapt_interval" => opts.saem_adapt_interval = parts[1].trim().parse().unwrap_or(50),
-            "seed" => opts.saem_seed = parts[1].trim().parse().ok(),
-            "sir" => opts.sir = parts[1].trim() == "true",
-            "sir_samples" => opts.sir_samples = parts[1].trim().parse().unwrap_or(1000),
-            "sir_resamples" => opts.sir_resamples = parts[1].trim().parse().unwrap_or(250),
-            "sir_seed" => opts.sir_seed = parts[1].trim().parse().ok(),
-            "bloq_method" | "bloq" => {
-                opts.bloq_method = match parts[1].trim().to_lowercase().as_str() {
-                    "m3" => BloqMethod::M3,
-                    "drop" | "none" | "ignore" => BloqMethod::Drop,
-                    other => {
-                        return Err(format!(
-                            "Unknown bloq_method '{}' — expected 'm3' or 'drop'",
-                            other
-                        ));
-                    }
-                };
-            }
-            "threads" => {
-                let raw = parts[1].trim();
-                if raw.eq_ignore_ascii_case("auto") || raw == "0" {
-                    opts.threads = None;
-                } else {
-                    opts.threads = raw.parse::<usize>().ok().filter(|&n| n > 0);
-                }
-            }
-            _ => {}
+            Err(e) => return Err(format!("[fit_options]: {}", e)),
         }
     }
     Ok(opts)
+}
+
+/// Apply a single `key = value` pair to `FitOptions`.
+///
+/// Returns:
+/// - `Ok(true)`  — key was recognized and applied.
+/// - `Ok(false)` — key is not a known fit option.
+/// - `Err(msg)`  — key is recognized but the value is malformed.
+///
+/// Does NOT handle `method` (which has list-chain syntax) — that stays in the
+/// block parser. Callers that want strict validation (e.g. the R wrapper's
+/// `settings` argument) should propagate `Err` and treat `Ok(false)` as an
+/// "unknown setting" user error. The `.ferx` file parser intentionally
+/// ignores both cases to stay backward compatible.
+pub fn apply_fit_option(
+    opts: &mut FitOptions,
+    key: &str,
+    value: &str,
+) -> Result<bool, String> {
+    let value = value.trim();
+
+    let parse_usize = |name: &str| -> Result<usize, String> {
+        value
+            .parse::<usize>()
+            .map_err(|_| format!("fit option `{name}`: expected non-negative integer, got `{value}`"))
+    };
+    let parse_bool = |name: &str| -> Result<bool, String> {
+        match value.to_lowercase().as_str() {
+            "true" | "t" | "yes" | "1" => Ok(true),
+            "false" | "f" | "no" | "0" => Ok(false),
+            _ => Err(format!("fit option `{name}`: expected true/false, got `{value}`")),
+        }
+    };
+    let parse_u64_opt = |name: &str| -> Result<Option<u64>, String> {
+        if value.is_empty() || value.eq_ignore_ascii_case("null") || value.eq_ignore_ascii_case("na") {
+            Ok(None)
+        } else {
+            value
+                .parse::<u64>()
+                .map(Some)
+                .map_err(|_| format!("fit option `{name}`: expected non-negative integer, got `{value}`"))
+        }
+    };
+    let parse_f64 = |name: &str| -> Result<f64, String> {
+        value
+            .parse::<f64>()
+            .map_err(|_| format!("fit option `{name}`: expected number, got `{value}`"))
+    };
+
+    match key {
+        "maxiter" => opts.outer_maxiter = parse_usize("maxiter")?,
+        "covariance" => opts.run_covariance_step = parse_bool("covariance")?,
+        "verbose" => opts.verbose = parse_bool("verbose")?,
+        "optimizer" => {
+            opts.optimizer = match value.to_lowercase().as_str() {
+                "slsqp" => Optimizer::Slsqp,
+                "lbfgs" | "nlopt_lbfgs" => Optimizer::NloptLbfgs,
+                "mma" => Optimizer::Mma,
+                "bfgs" => Optimizer::Bfgs,
+                other => {
+                    return Err(format!(
+                        "fit option `optimizer`: unknown value `{other}` — expected slsqp/lbfgs/mma/bfgs"
+                    ));
+                }
+            };
+        }
+        "global_search" => opts.global_search = parse_bool("global_search")?,
+        "global_maxeval" => opts.global_maxeval = parse_usize("global_maxeval")?,
+        "n_exploration" => opts.saem_n_exploration = parse_usize("n_exploration")?,
+        "n_convergence" => opts.saem_n_convergence = parse_usize("n_convergence")?,
+        "n_mh_steps" => opts.saem_n_mh_steps = parse_usize("n_mh_steps")?,
+        "adapt_interval" => opts.saem_adapt_interval = parse_usize("adapt_interval")?,
+        "seed" | "saem_seed" => opts.saem_seed = parse_u64_opt("seed")?,
+        "gn_lambda" => opts.gn_lambda = parse_f64("gn_lambda")?,
+        "sir" => opts.sir = parse_bool("sir")?,
+        "sir_samples" => opts.sir_samples = parse_usize("sir_samples")?,
+        "sir_resamples" => opts.sir_resamples = parse_usize("sir_resamples")?,
+        "sir_seed" => opts.sir_seed = parse_u64_opt("sir_seed")?,
+        "bloq_method" | "bloq" => {
+            opts.bloq_method = match value.to_lowercase().as_str() {
+                "m3" => BloqMethod::M3,
+                "drop" | "none" | "ignore" => BloqMethod::Drop,
+                other => {
+                    return Err(format!(
+                        "fit option `bloq_method`: unknown value `{other}` — expected 'm3' or 'drop'"
+                    ));
+                }
+            };
+        }
+        "threads" => {
+            if value.eq_ignore_ascii_case("auto") || value == "0" {
+                opts.threads = None;
+            } else {
+                match value.parse::<usize>() {
+                    Ok(n) if n > 0 => opts.threads = Some(n),
+                    _ => {
+                        return Err(format!(
+                            "fit option `threads`: expected 'auto', 0, or a positive integer, got `{value}`"
+                        ));
+                    }
+                }
+            }
+        }
+        _ => return Ok(false),
+    }
+    Ok(true)
 }
 
 // ── [structural_model] ODE variant parser ───────────────────────────────────
@@ -1342,13 +1421,12 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_threads_invalid_falls_back_to_none() {
-        // Consistent with how other numeric fit_options (maxiter, sir_samples)
-        // silently fall back on parse failure rather than erroring out.
-        let opts = parse_fit_options(&["threads = -1".to_string()]).unwrap();
-        assert_eq!(opts.threads, None);
-        let opts = parse_fit_options(&["threads = wibble".to_string()]).unwrap();
-        assert_eq!(opts.threads, None);
+    fn test_parse_threads_invalid_errors() {
+        // Strict parsing: malformed threads values raise a parse error
+        // rather than silently falling back to `None` (the pre-refactor
+        // `.parse().ok().filter(...)` behavior was a typo trap).
+        assert!(parse_fit_options(&["threads = -1".to_string()]).is_err());
+        assert!(parse_fit_options(&["threads = wibble".to_string()]).is_err());
     }
 
     #[test]
@@ -1356,6 +1434,188 @@ mod tests {
         // No `threads` line → None (rayon global pool, one worker per logical CPU).
         let opts = parse_fit_options(&["method = focei".to_string()]).unwrap();
         assert_eq!(opts.threads, None);
+    }
+
+    // ── apply_fit_option (shared dispatch used by the R wrapper's `settings`
+    //    argument and by parse_fit_options) ────────────────────────────────
+
+    #[test]
+    fn test_apply_fit_option_known_applies() {
+        let mut opts = FitOptions::default();
+        assert_eq!(
+            apply_fit_option(&mut opts, "n_exploration", "200"),
+            Ok(true)
+        );
+        assert_eq!(opts.saem_n_exploration, 200);
+
+        assert_eq!(
+            apply_fit_option(&mut opts, "n_convergence", "400"),
+            Ok(true)
+        );
+        assert_eq!(opts.saem_n_convergence, 400);
+    }
+
+    #[test]
+    fn test_apply_fit_option_unknown_key_returns_false() {
+        let mut opts = FitOptions::default();
+        // Typo / unknown → Ok(false). Caller decides whether to error out.
+        assert_eq!(
+            apply_fit_option(&mut opts, "n_exploraton", "200"),
+            Ok(false)
+        );
+        // `method` is deliberately excluded (list-chain syntax is handled
+        // in the block parser); treat it as unknown here.
+        assert_eq!(apply_fit_option(&mut opts, "method", "focei"), Ok(false));
+    }
+
+    #[test]
+    fn test_apply_fit_option_malformed_value_errors() {
+        let mut opts = FitOptions::default();
+        assert!(apply_fit_option(&mut opts, "n_exploration", "oops").is_err());
+        assert!(apply_fit_option(&mut opts, "covariance", "maybe").is_err());
+        assert!(apply_fit_option(&mut opts, "gn_lambda", "x").is_err());
+        assert!(apply_fit_option(&mut opts, "optimizer", "does_not_exist").is_err());
+        assert!(apply_fit_option(&mut opts, "bloq_method", "nope").is_err());
+        assert!(apply_fit_option(&mut opts, "threads", "-1").is_err());
+        // Failed apply must not mutate — default preserved.
+        assert_eq!(opts.saem_n_exploration, 150);
+    }
+
+    #[test]
+    fn test_apply_fit_option_bool_variants() {
+        let mut opts = FitOptions::default();
+        for v in ["true", "True", "TRUE", "yes", "1", "t"] {
+            opts.sir = false;
+            assert_eq!(apply_fit_option(&mut opts, "sir", v), Ok(true));
+            assert!(opts.sir, "value `{v}` should parse as true");
+        }
+        for v in ["false", "False", "no", "0", "f"] {
+            opts.sir = true;
+            assert_eq!(apply_fit_option(&mut opts, "sir", v), Ok(true));
+            assert!(!opts.sir, "value `{v}` should parse as false");
+        }
+    }
+
+    #[test]
+    fn test_apply_fit_option_seed_null_clears() {
+        let mut opts = FitOptions::default();
+        opts.saem_seed = Some(7);
+        // R sends NULL/NA through as the literal "null" / "na".
+        assert_eq!(apply_fit_option(&mut opts, "seed", "null"), Ok(true));
+        assert_eq!(opts.saem_seed, None);
+
+        assert_eq!(apply_fit_option(&mut opts, "seed", "42"), Ok(true));
+        assert_eq!(opts.saem_seed, Some(42));
+
+        // `saem_seed` is accepted as an alias so R users can use either spelling.
+        assert_eq!(apply_fit_option(&mut opts, "saem_seed", "99"), Ok(true));
+        assert_eq!(opts.saem_seed, Some(99));
+    }
+
+    #[test]
+    fn test_apply_fit_option_threads_variants() {
+        let mut opts = FitOptions::default();
+        assert_eq!(apply_fit_option(&mut opts, "threads", "4"), Ok(true));
+        assert_eq!(opts.threads, Some(4));
+
+        assert_eq!(apply_fit_option(&mut opts, "threads", "auto"), Ok(true));
+        assert_eq!(opts.threads, None);
+
+        opts.threads = Some(4);
+        assert_eq!(apply_fit_option(&mut opts, "threads", "0"), Ok(true));
+        assert_eq!(opts.threads, None);
+    }
+
+    #[test]
+    fn test_apply_fit_option_optimizer_and_bloq() {
+        let mut opts = FitOptions::default();
+        assert_eq!(
+            apply_fit_option(&mut opts, "optimizer", "lbfgs"),
+            Ok(true)
+        );
+        assert_eq!(opts.optimizer, Optimizer::NloptLbfgs);
+
+        assert_eq!(apply_fit_option(&mut opts, "bloq", "m3"), Ok(true));
+        assert_eq!(opts.bloq_method, BloqMethod::M3);
+    }
+
+    // ── parse_fit_options: strict parsing at the .ferx layer. Unknown
+    //    keys and malformed values both raise an error — a typo like
+    //    `covariance = maybe` or `bloq_method = nope` now fails loudly
+    //    instead of silently landing on an unexpected default. ───────────
+
+    #[test]
+    fn test_parse_fit_options_unknown_key_errors() {
+        let err =
+            parse_fit_options(&["n_exploraton = 200".to_string()]).unwrap_err();
+        assert!(err.contains("unknown key"), "got: {err}");
+        assert!(err.contains("n_exploraton"), "got: {err}");
+    }
+
+    #[test]
+    fn test_parse_fit_options_malformed_numeric_errors() {
+        assert!(parse_fit_options(&["n_exploration = oops".to_string()]).is_err());
+    }
+
+    #[test]
+    fn test_parse_fit_options_malformed_bool_errors() {
+        // Pre-refactor, `covariance = maybe` silently coerced to `false`
+        // via `== "true"`, flipping the default. Now it errors.
+        assert!(parse_fit_options(&["covariance = maybe".to_string()]).is_err());
+    }
+
+    #[test]
+    fn test_parse_fit_options_uppercase_bool_accepted() {
+        // Pre-refactor, `covariance = TRUE` silently became `false`
+        // because the inline check only matched lowercase "true". The
+        // strict parser accepts common casing variants.
+        let opts = parse_fit_options(&["covariance = TRUE".to_string()]).unwrap();
+        assert!(opts.run_covariance_step);
+    }
+
+    #[test]
+    fn test_parse_fit_options_bloq_method_typo_errors() {
+        // `bloq_method` was already strict in the old inline parser; the
+        // new strict dispatch must preserve that (not silently default).
+        assert!(parse_fit_options(&["bloq_method = nope".to_string()]).is_err());
+    }
+
+    #[test]
+    fn test_parse_all_example_ferx_files() {
+        // Smoke test: every checked-in example must parse under the strict
+        // [fit_options] rules. Guards against accidentally tightening a key
+        // in apply_fit_option in a way that breaks a shipped example.
+        let examples_dir =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
+        let mut seen = 0;
+        for entry in std::fs::read_dir(&examples_dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.extension().and_then(|s| s.to_str()) != Some("ferx") {
+                continue;
+            }
+            seen += 1;
+            if let Err(e) = parse_full_model_file(&path) {
+                panic!("failed to parse {}: {}", path.display(), e);
+            }
+        }
+        assert!(seen > 0, "no .ferx files found in {}", examples_dir.display());
+    }
+
+    #[test]
+    fn test_parse_fit_options_applies_known_keys() {
+        let lines = vec![
+            "method = saem".to_string(),
+            "n_exploration = 200".to_string(),
+            "n_convergence = 400".to_string(),
+            "sir = true".to_string(),
+            "sir_samples = 2000".to_string(),
+        ];
+        let opts = parse_fit_options(&lines).unwrap();
+        assert_eq!(opts.method, EstimationMethod::Saem);
+        assert_eq!(opts.saem_n_exploration, 200);
+        assert_eq!(opts.saem_n_convergence, 400);
+        assert!(opts.sir);
+        assert_eq!(opts.sir_samples, 2000);
     }
 
     #[test]
