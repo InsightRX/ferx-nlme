@@ -1351,6 +1351,148 @@ mod tests {
         assert_eq!(opts.threads, None);
     }
 
+    // ── apply_fit_option (shared dispatch used by the R wrapper's `settings`
+    //    argument and by parse_fit_options) ────────────────────────────────
+
+    #[test]
+    fn test_apply_fit_option_known_applies() {
+        let mut opts = FitOptions::default();
+        assert_eq!(
+            apply_fit_option(&mut opts, "n_exploration", "200"),
+            Ok(true)
+        );
+        assert_eq!(opts.saem_n_exploration, 200);
+
+        assert_eq!(
+            apply_fit_option(&mut opts, "n_convergence", "400"),
+            Ok(true)
+        );
+        assert_eq!(opts.saem_n_convergence, 400);
+    }
+
+    #[test]
+    fn test_apply_fit_option_unknown_key_returns_false() {
+        let mut opts = FitOptions::default();
+        // Typo / unknown → Ok(false). Caller decides whether to error out.
+        assert_eq!(
+            apply_fit_option(&mut opts, "n_exploraton", "200"),
+            Ok(false)
+        );
+        // `method` is deliberately excluded (list-chain syntax is handled
+        // in the block parser); treat it as unknown here.
+        assert_eq!(apply_fit_option(&mut opts, "method", "focei"), Ok(false));
+    }
+
+    #[test]
+    fn test_apply_fit_option_malformed_value_errors() {
+        let mut opts = FitOptions::default();
+        assert!(apply_fit_option(&mut opts, "n_exploration", "oops").is_err());
+        assert!(apply_fit_option(&mut opts, "covariance", "maybe").is_err());
+        assert!(apply_fit_option(&mut opts, "gn_lambda", "x").is_err());
+        assert!(apply_fit_option(&mut opts, "optimizer", "does_not_exist").is_err());
+        assert!(apply_fit_option(&mut opts, "bloq_method", "nope").is_err());
+        assert!(apply_fit_option(&mut opts, "threads", "-1").is_err());
+        // Failed apply must not mutate — default preserved.
+        assert_eq!(opts.saem_n_exploration, 150);
+    }
+
+    #[test]
+    fn test_apply_fit_option_bool_variants() {
+        let mut opts = FitOptions::default();
+        for v in ["true", "True", "TRUE", "yes", "1", "t"] {
+            opts.sir = false;
+            assert_eq!(apply_fit_option(&mut opts, "sir", v), Ok(true));
+            assert!(opts.sir, "value `{v}` should parse as true");
+        }
+        for v in ["false", "False", "no", "0", "f"] {
+            opts.sir = true;
+            assert_eq!(apply_fit_option(&mut opts, "sir", v), Ok(true));
+            assert!(!opts.sir, "value `{v}` should parse as false");
+        }
+    }
+
+    #[test]
+    fn test_apply_fit_option_seed_null_clears() {
+        let mut opts = FitOptions::default();
+        opts.saem_seed = Some(7);
+        // R sends NULL/NA through as the literal "null" / "na".
+        assert_eq!(apply_fit_option(&mut opts, "seed", "null"), Ok(true));
+        assert_eq!(opts.saem_seed, None);
+
+        assert_eq!(apply_fit_option(&mut opts, "seed", "42"), Ok(true));
+        assert_eq!(opts.saem_seed, Some(42));
+
+        // `saem_seed` is accepted as an alias so R users can use either spelling.
+        assert_eq!(apply_fit_option(&mut opts, "saem_seed", "99"), Ok(true));
+        assert_eq!(opts.saem_seed, Some(99));
+    }
+
+    #[test]
+    fn test_apply_fit_option_threads_variants() {
+        let mut opts = FitOptions::default();
+        assert_eq!(apply_fit_option(&mut opts, "threads", "4"), Ok(true));
+        assert_eq!(opts.threads, Some(4));
+
+        assert_eq!(apply_fit_option(&mut opts, "threads", "auto"), Ok(true));
+        assert_eq!(opts.threads, None);
+
+        opts.threads = Some(4);
+        assert_eq!(apply_fit_option(&mut opts, "threads", "0"), Ok(true));
+        assert_eq!(opts.threads, None);
+    }
+
+    #[test]
+    fn test_apply_fit_option_optimizer_and_bloq() {
+        let mut opts = FitOptions::default();
+        assert_eq!(
+            apply_fit_option(&mut opts, "optimizer", "lbfgs"),
+            Ok(true)
+        );
+        assert_eq!(opts.optimizer, Optimizer::NloptLbfgs);
+
+        assert_eq!(apply_fit_option(&mut opts, "bloq", "m3"), Ok(true));
+        assert_eq!(opts.bloq_method, BloqMethod::M3);
+    }
+
+    // ── parse_fit_options back-compat: unknown keys and malformed values
+    //    at the .ferx layer must NOT error (strict validation is the
+    //    R-settings path's job). ──────────────────────────────────────────
+
+    #[test]
+    fn test_parse_fit_options_unknown_key_is_silent() {
+        // Preserve pre-refactor behavior: a stray/unknown key in a .ferx
+        // file parses without error and does not disturb defaults.
+        let opts =
+            parse_fit_options(&["n_exploraton = 200".to_string()]).unwrap();
+        assert_eq!(opts.saem_n_exploration, 150); // default, not 200
+    }
+
+    #[test]
+    fn test_parse_fit_options_malformed_value_is_silent() {
+        // Historical `.unwrap_or(default)` behavior is preserved via
+        // `let _ = apply_fit_option(...)`: garbage values silently fall back.
+        let opts =
+            parse_fit_options(&["n_exploration = oops".to_string()]).unwrap();
+        assert_eq!(opts.saem_n_exploration, 150);
+    }
+
+    #[test]
+    fn test_parse_fit_options_applies_known_keys() {
+        let lines = vec![
+            "method = saem".to_string(),
+            "n_exploration = 200".to_string(),
+            "n_convergence = 400".to_string(),
+            "sir = true".to_string(),
+            "sir_samples = 2000".to_string(),
+        ];
+        let opts = parse_fit_options(&lines).unwrap();
+        assert_eq!(opts.method, EstimationMethod::Saem);
+        assert_eq!(opts.saem_n_exploration, 200);
+        assert_eq!(opts.saem_n_convergence, 400);
+        assert!(opts.sir);
+        assert_eq!(opts.sir_samples, 2000);
+    }
+
     #[test]
     fn test_parse_diagonal_omega() {
         let lines = vec![
