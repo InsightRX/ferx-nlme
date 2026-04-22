@@ -287,80 +287,146 @@ fn parse_fit_options(lines: &[String]) -> Result<FitOptions, String> {
         if parts.len() != 2 {
             continue;
         }
-        match parts[0] {
-            "method" => {
-                let raw = parts[1].trim();
-                // List form: `method = [a, b, c]` — chain of stages.
-                if raw.starts_with('[') {
-                    let inner = raw.trim_start_matches('[').trim_end_matches(']');
-                    let chain: Vec<EstimationMethod> = inner
-                        .split(',')
-                        .map(|s| s.trim())
-                        .filter(|s| !s.is_empty())
-                        .map(parse_method_token)
-                        .collect::<Result<_, _>>()?;
-                    if chain.is_empty() {
-                        return Err("method = [] is empty; provide at least one method".into());
-                    }
-                    // Interaction flag follows the final stage of the chain.
-                    opts.interaction = *chain.last().unwrap() == EstimationMethod::FoceI;
-                    opts.method = *chain.last().unwrap();
-                    opts.methods = chain;
-                } else {
-                    let m = parse_method_token(raw)?;
-                    opts.method = m;
-                    opts.methods.clear();
-                    if m == EstimationMethod::FoceI {
-                        opts.interaction = true;
-                    }
+        if parts[0] == "method" {
+            let raw = parts[1].trim();
+            // List form: `method = [a, b, c]` — chain of stages.
+            if raw.starts_with('[') {
+                let inner = raw.trim_start_matches('[').trim_end_matches(']');
+                let chain: Vec<EstimationMethod> = inner
+                    .split(',')
+                    .map(|s| s.trim())
+                    .filter(|s| !s.is_empty())
+                    .map(parse_method_token)
+                    .collect::<Result<_, _>>()?;
+                if chain.is_empty() {
+                    return Err("method = [] is empty; provide at least one method".into());
+                }
+                // Interaction flag follows the final stage of the chain.
+                opts.interaction = *chain.last().unwrap() == EstimationMethod::FoceI;
+                opts.method = *chain.last().unwrap();
+                opts.methods = chain;
+            } else {
+                let m = parse_method_token(raw)?;
+                opts.method = m;
+                opts.methods.clear();
+                if m == EstimationMethod::FoceI {
+                    opts.interaction = true;
                 }
             }
-            "maxiter" => opts.outer_maxiter = parts[1].parse().unwrap_or(500),
-            "covariance" => opts.run_covariance_step = parts[1].trim() == "true",
-            "optimizer" => {
-                opts.optimizer = match parts[1].to_lowercase().as_str() {
-                    "slsqp" => Optimizer::Slsqp,
-                    "lbfgs" | "nlopt_lbfgs" => Optimizer::NloptLbfgs,
-                    "mma" => Optimizer::Mma,
-                    "bfgs" => Optimizer::Bfgs,
-                    _ => Optimizer::Slsqp,
-                };
-            }
-            "global_search" => opts.global_search = parts[1].trim() == "true",
-            "global_maxeval" => opts.global_maxeval = parts[1].parse().unwrap_or(0),
-            "n_exploration" => opts.saem_n_exploration = parts[1].trim().parse().unwrap_or(150),
-            "n_convergence" => opts.saem_n_convergence = parts[1].trim().parse().unwrap_or(250),
-            "n_mh_steps" => opts.saem_n_mh_steps = parts[1].trim().parse().unwrap_or(3),
-            "adapt_interval" => opts.saem_adapt_interval = parts[1].trim().parse().unwrap_or(50),
-            "seed" => opts.saem_seed = parts[1].trim().parse().ok(),
-            "sir" => opts.sir = parts[1].trim() == "true",
-            "sir_samples" => opts.sir_samples = parts[1].trim().parse().unwrap_or(1000),
-            "sir_resamples" => opts.sir_resamples = parts[1].trim().parse().unwrap_or(250),
-            "sir_seed" => opts.sir_seed = parts[1].trim().parse().ok(),
-            "bloq_method" | "bloq" => {
-                opts.bloq_method = match parts[1].trim().to_lowercase().as_str() {
-                    "m3" => BloqMethod::M3,
-                    "drop" | "none" | "ignore" => BloqMethod::Drop,
-                    other => {
-                        return Err(format!(
-                            "Unknown bloq_method '{}' — expected 'm3' or 'drop'",
-                            other
-                        ));
-                    }
-                };
-            }
-            "threads" => {
-                let raw = parts[1].trim();
-                if raw.eq_ignore_ascii_case("auto") || raw == "0" {
-                    opts.threads = None;
-                } else {
-                    opts.threads = raw.parse::<usize>().ok().filter(|&n| n > 0);
-                }
-            }
-            _ => {}
+            continue;
         }
+        // All other keys flow through the shared dispatch. Swallow errors and
+        // unknown keys to preserve the historically-loose behavior of `.ferx`
+        // parsing (silent fallback on malformed values and unknown keys).
+        let _ = apply_fit_option(&mut opts, parts[0], parts[1]);
     }
     Ok(opts)
+}
+
+/// Apply a single `key = value` pair to `FitOptions`.
+///
+/// Returns:
+/// - `Ok(true)`  — key was recognized and applied.
+/// - `Ok(false)` — key is not a known fit option.
+/// - `Err(msg)`  — key is recognized but the value is malformed.
+///
+/// Does NOT handle `method` (which has list-chain syntax) — that stays in the
+/// block parser. Callers that want strict validation (e.g. the R wrapper's
+/// `settings` argument) should propagate `Err` and treat `Ok(false)` as an
+/// "unknown setting" user error. The `.ferx` file parser intentionally
+/// ignores both cases to stay backward compatible.
+pub fn apply_fit_option(
+    opts: &mut FitOptions,
+    key: &str,
+    value: &str,
+) -> Result<bool, String> {
+    let value = value.trim();
+
+    let parse_usize = |name: &str| -> Result<usize, String> {
+        value
+            .parse::<usize>()
+            .map_err(|_| format!("fit option `{name}`: expected non-negative integer, got `{value}`"))
+    };
+    let parse_bool = |name: &str| -> Result<bool, String> {
+        match value.to_lowercase().as_str() {
+            "true" | "t" | "yes" | "1" => Ok(true),
+            "false" | "f" | "no" | "0" => Ok(false),
+            _ => Err(format!("fit option `{name}`: expected true/false, got `{value}`")),
+        }
+    };
+    let parse_u64_opt = |name: &str| -> Result<Option<u64>, String> {
+        if value.is_empty() || value.eq_ignore_ascii_case("null") || value.eq_ignore_ascii_case("na") {
+            Ok(None)
+        } else {
+            value
+                .parse::<u64>()
+                .map(Some)
+                .map_err(|_| format!("fit option `{name}`: expected non-negative integer, got `{value}`"))
+        }
+    };
+    let parse_f64 = |name: &str| -> Result<f64, String> {
+        value
+            .parse::<f64>()
+            .map_err(|_| format!("fit option `{name}`: expected number, got `{value}`"))
+    };
+
+    match key {
+        "maxiter" => opts.outer_maxiter = parse_usize("maxiter")?,
+        "covariance" => opts.run_covariance_step = parse_bool("covariance")?,
+        "verbose" => opts.verbose = parse_bool("verbose")?,
+        "optimizer" => {
+            opts.optimizer = match value.to_lowercase().as_str() {
+                "slsqp" => Optimizer::Slsqp,
+                "lbfgs" | "nlopt_lbfgs" => Optimizer::NloptLbfgs,
+                "mma" => Optimizer::Mma,
+                "bfgs" => Optimizer::Bfgs,
+                other => {
+                    return Err(format!(
+                        "fit option `optimizer`: unknown value `{other}` — expected slsqp/lbfgs/mma/bfgs"
+                    ));
+                }
+            };
+        }
+        "global_search" => opts.global_search = parse_bool("global_search")?,
+        "global_maxeval" => opts.global_maxeval = parse_usize("global_maxeval")?,
+        "n_exploration" => opts.saem_n_exploration = parse_usize("n_exploration")?,
+        "n_convergence" => opts.saem_n_convergence = parse_usize("n_convergence")?,
+        "n_mh_steps" => opts.saem_n_mh_steps = parse_usize("n_mh_steps")?,
+        "adapt_interval" => opts.saem_adapt_interval = parse_usize("adapt_interval")?,
+        "seed" | "saem_seed" => opts.saem_seed = parse_u64_opt("seed")?,
+        "gn_lambda" => opts.gn_lambda = parse_f64("gn_lambda")?,
+        "sir" => opts.sir = parse_bool("sir")?,
+        "sir_samples" => opts.sir_samples = parse_usize("sir_samples")?,
+        "sir_resamples" => opts.sir_resamples = parse_usize("sir_resamples")?,
+        "sir_seed" => opts.sir_seed = parse_u64_opt("sir_seed")?,
+        "bloq_method" | "bloq" => {
+            opts.bloq_method = match value.to_lowercase().as_str() {
+                "m3" => BloqMethod::M3,
+                "drop" | "none" | "ignore" => BloqMethod::Drop,
+                other => {
+                    return Err(format!(
+                        "fit option `bloq_method`: unknown value `{other}` — expected 'm3' or 'drop'"
+                    ));
+                }
+            };
+        }
+        "threads" => {
+            if value.eq_ignore_ascii_case("auto") || value == "0" {
+                opts.threads = None;
+            } else {
+                match value.parse::<usize>() {
+                    Ok(n) if n > 0 => opts.threads = Some(n),
+                    _ => {
+                        return Err(format!(
+                            "fit option `threads`: expected 'auto', 0, or a positive integer, got `{value}`"
+                        ));
+                    }
+                }
+            }
+        }
+        _ => return Ok(false),
+    }
+    Ok(true)
 }
 
 // ── [structural_model] ODE variant parser ───────────────────────────────────
