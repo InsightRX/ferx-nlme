@@ -596,21 +596,28 @@ fn parse_parameters(
 
     // theta NAME(init)  |  theta NAME(init, FIX)
     // theta NAME(init, lower, upper)  |  theta NAME(init, lower, upper, FIX)
-    // The `FIX` keyword (case-insensitive) marks the theta as non-estimated.
+    //
+    // The `FIX` keyword is case-insensitive and must be the exact token —
+    // the trailing `\b` rejects prefix matches like `FIXED`, which would
+    // otherwise silently mark the parameter as fixed.
     let theta_re = Regex::new(
-        r"(?i)theta\s+(\w+)\(\s*([0-9eE.+-]+)\s*(?:,\s*([0-9eE.+-]+)\s*,\s*([0-9eE.+-]+))?\s*(?:,\s*(FIX))?\s*\)",
+        r"(?i)theta\s+(\w+)\(\s*([0-9eE.+-]+)\s*(?:,\s*([0-9eE.+-]+)\s*,\s*([0-9eE.+-]+))?\s*(?:,\s*(FIX)\b)?\s*\)",
     )
     .unwrap();
 
     // omega NAME ~ value  |  omega NAME ~ value FIX
-    let omega_re = Regex::new(r"(?i)omega\s+(\w+)\s*~\s*([0-9eE.+-]+)\s*(FIX)?").unwrap();
+    let omega_re =
+        Regex::new(r"(?i)omega\s+(\w+)\s*~\s*([0-9eE.+-]+)(?:\s+(FIX)\b)?").unwrap();
 
     // block_omega (NAME1, NAME2, ...) = [lower_triangle_values]  |  ... FIX
-    let block_omega_re =
-        Regex::new(r"(?i)block_omega\s*\(([^)]+)\)\s*=\s*\[([^\]]+)\]\s*(FIX)?").unwrap();
+    let block_omega_re = Regex::new(
+        r"(?i)block_omega\s*\(([^)]+)\)\s*=\s*\[([^\]]+)\](?:\s+(FIX)\b)?",
+    )
+    .unwrap();
 
     // sigma NAME ~ value  |  sigma NAME ~ value FIX
-    let sigma_re = Regex::new(r"(?i)sigma\s+(\w+)\s*~\s*([0-9eE.+-]+)\s*(FIX)?").unwrap();
+    let sigma_re =
+        Regex::new(r"(?i)sigma\s+(\w+)\s*~\s*([0-9eE.+-]+)(?:\s+(FIX)\b)?").unwrap();
 
     for line in lines {
         if let Some(caps) = theta_re.captures(line) {
@@ -1622,6 +1629,24 @@ mod tests {
         assert!(thetas[0].fixed);
         assert!(omegas[0].fixed);
         assert!(sigmas[0].fixed);
+    }
+
+    #[test]
+    fn test_fix_keyword_rejects_prefix_match() {
+        // `FIXED` must not be silently accepted as `FIX`. Any non-exact token
+        // should leave the parameter as free (or fail to parse the line),
+        // never flip `fixed = true`.
+        let lines = vec![
+            "omega ETA_CL ~ 0.09 FIXED".to_string(),
+            "sigma PROP ~ 0.02 FIXED".to_string(),
+            "block_omega (A, B) = [1.0, 0.0, 1.0] FIXED".to_string(),
+        ];
+        let (_, omegas, blocks, sigmas, _) = parse_parameters(&lines).unwrap();
+        // omega/sigma still parse (trailing `FIXED` is ignored) but must NOT
+        // be marked fixed.
+        assert!(!omegas[0].fixed);
+        assert!(!sigmas[0].fixed);
+        assert!(!blocks[0].fixed);
     }
 
     #[test]
