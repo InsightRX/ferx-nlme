@@ -93,8 +93,6 @@ pub fn run_foce_gn(
     let mut converged = false;
 
     for iter in 1..=maxiter {
-        let params = unpack_params(&x, init_params);
-
         // ---- Build the BHHH system ----
         // Gradient + outer-product Hessian approximation
         let (grad, h_bhhh) = build_gn_system(

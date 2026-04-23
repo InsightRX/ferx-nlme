@@ -35,3 +35,23 @@ The main tradeoff is that MH sampling is slightly less efficient per iteration t
 - For models with many (>10) random effects, conjugate Gibbs would converge in fewer iterations — but in exchange you gain flexibility to write models that don't fit the MU-referenced mold
 
 If you have a NONMEM model that uses MU-referencing and want to port it to ferx, you can drop the MU intermediate step and write the individual parameters directly — the results will be equivalent.
+
+## Which outer optimizer should I pick?
+
+`slsqp` (the default) is the right choice for most models — it is fast, handles
+box constraints cleanly, and behaves well on the log-transformed parameter
+scale that ferx uses internally.
+
+Reach for a different optimizer when SLSQP misbehaves:
+
+- **`bobyqa`** — derivative-free, good when FOCE's FD gradients are noisy and
+  SLSQP stalls or oscillates. Slower per iteration on smooth problems, but
+  often converges when gradient-based methods give up.
+- **`trust_region`** — second-order Newton trust-region. Can be faster near
+  convergence because it uses curvature information; tune the CG budget with
+  `steihaug_max_iters` (default 50) if you have more than ~50 packed
+  parameters.
+- **`lbfgs` / `bfgs`** — fall back to these only when NLopt is unavailable.
+
+See [Fit Options](model-file/fit-options.md#optimizer-choices) for the full
+list.

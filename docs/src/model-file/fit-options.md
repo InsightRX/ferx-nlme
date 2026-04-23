@@ -16,7 +16,10 @@ The optional `[fit_options]` block configures the estimation method and optimize
 | `method` | `foce`, `focei`, `saem` | `foce` | Estimation method |
 | `maxiter` | integer | `500` | Maximum outer loop iterations |
 | `covariance` | `true`, `false` | `true` | Compute covariance matrix and standard errors |
-| `optimizer` | `slsqp`, `lbfgs`, `nlopt_lbfgs`, `mma`, `bfgs` | `slsqp` | Optimization algorithm |
+| `optimizer` | `slsqp`, `lbfgs`, `nlopt_lbfgs`, `mma`, `bfgs`, `bobyqa`, `trust_region` | `slsqp` | Optimization algorithm |
+| `inner_maxiter` | integer | `200` | Max iterations for the inner (per-subject EBE) optimizer |
+| `inner_tol` | float | `1e-8` | Gradient-norm convergence tolerance for the inner optimizer |
+| `steihaug_max_iters` | integer | `50` | Max CG iterations for the Steihaug subproblem (only used when `optimizer = trust_region`) |
 | `global_search` | `true`, `false` | `false` | Run gradient-free pre-search before local optimization |
 | `global_maxeval` | integer | auto | Max evaluations for global search |
 | `bloq_method` | `drop`, `m3` | `drop` | How to handle rows with `CENS=1`. `m3` enables Beal's M3 likelihood (see [BLOQ example](../examples/bloq.md)). |
@@ -73,6 +76,17 @@ See [SIR documentation](../estimation/sir.md) for details.
 | `lbfgs` | Limited-memory BFGS | Large parameter spaces |
 | `nlopt_lbfgs` | NLopt L-BFGS | Alternative L-BFGS |
 | `mma` | Method of Moving Asymptotes (NLopt) | Constrained problems |
+| `bobyqa` | NLopt BOBYQA — derivative-free quadratic interpolation | Noisy or non-smooth objectives where FD gradients are unreliable |
+| `trust_region` | Newton trust-region with Steihaug CG subproblem (argmin) | Well-conditioned problems where second-order curvature helps convergence; tune `steihaug_max_iters` |
+
+Notes:
+- `bobyqa` does not use gradients, so it is robust to small discontinuities in
+  the FOCE surface caused by EBE re-estimation, but it converges more slowly
+  than gradient-based methods on smooth problems.
+- `trust_region` uses a finite-difference Hessian of the OFV-at-fixed-EBEs.
+  Each Hessian costs O(n²) OFV evaluations, so it is fastest when the number
+  of packed parameters is small. Increase `steihaug_max_iters` when the
+  parameter count exceeds the default of 50.
 
 ## Global Search
 
@@ -119,4 +133,23 @@ FOCEI with SIR uncertainty:
   sir_samples   = 1000
   sir_resamples = 250
   sir_seed      = 42
+```
+
+Derivative-free BOBYQA fit:
+```
+[fit_options]
+  method        = foce
+  optimizer     = bobyqa
+  maxiter       = 300
+  inner_maxiter = 100
+  inner_tol     = 1e-6
+```
+
+Trust-region with tuned CG subproblem:
+```
+[fit_options]
+  method             = foce
+  optimizer          = trust_region
+  maxiter            = 200
+  steihaug_max_iters = 30
 ```
