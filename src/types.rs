@@ -432,6 +432,10 @@ pub struct FitOptions {
     /// another thread, the outer/inner/SAEM/GN loops exit at the next safe
     /// point and `fit()` returns `Err("cancelled by user")`. Default `None`.
     pub cancel: Option<crate::cancel::CancelFlag>,
+    /// Keys the user explicitly set, in the order they were applied. Populated
+    /// by `parse_fit_options` / `apply_fit_option`. Used by `fit()` to warn
+    /// when a key is set that the selected estimation method does not consume.
+    pub user_set_keys: Vec<String>,
 }
 
 impl Default for FitOptions {
@@ -465,6 +469,7 @@ impl Default for FitOptions {
             mu_referencing: true,
             threads: None,
             cancel: None,
+            user_set_keys: Vec::new(),
         }
     }
 }
@@ -531,6 +536,139 @@ impl FitOptions {
         } else {
             self.methods.clone()
         }
+    }
+
+    /// Check `user_set_keys` against the selected method chain. Returns one
+    /// warning per key that isn't consumed by any method in the chain, listing
+    /// the keys that *are* applicable so the user can correct the mistake.
+    pub fn unsupported_keys_warnings(&self) -> Vec<String> {
+        if self.user_set_keys.is_empty() {
+            return Vec::new();
+        }
+        let chain = self.method_chain();
+        let mut applicable: std::collections::BTreeSet<&'static str> =
+            std::collections::BTreeSet::new();
+        for &m in &chain {
+            applicable.extend(applicable_keys_for_method(m).iter().copied());
+        }
+        let chain_label: String = if chain.len() == 1 {
+            chain[0].label().to_string()
+        } else {
+            chain
+                .iter()
+                .map(|m| m.label())
+                .collect::<Vec<_>>()
+                .join(" → ")
+        };
+        let available: Vec<&'static str> = applicable.iter().copied().collect();
+
+        let mut seen = std::collections::HashSet::new();
+        let mut warnings = Vec::new();
+        for key in &self.user_set_keys {
+            // `method` / `methods` select the chain itself — they can't be
+            // "wrong for the method" in the way other options can.
+            if key == "method" || key == "methods" {
+                continue;
+            }
+            if applicable.contains(key.as_str()) {
+                continue;
+            }
+            if !seen.insert(key.clone()) {
+                continue;
+            }
+            warnings.push(format!(
+                "fit option `{}` is not used by method `{}` and will be ignored. \
+                 Available options for `{}`: {}",
+                key,
+                chain_label,
+                chain_label,
+                available.join(", ")
+            ));
+        }
+        warnings
+    }
+}
+
+/// Fit-option keys that are meaningfully consumed by each estimation method.
+/// A chain takes the union across stages. `method` / `methods` are omitted —
+/// those select the chain itself and can't be "wrong for the method".
+pub fn applicable_keys_for_method(m: EstimationMethod) -> &'static [&'static str] {
+    match m {
+        EstimationMethod::Foce | EstimationMethod::FoceI => &[
+            "covariance",
+            "verbose",
+            "sir",
+            "sir_samples",
+            "sir_resamples",
+            "sir_seed",
+            "bloq_method",
+            "bloq",
+            "mu_referencing",
+            "threads",
+            "maxiter",
+            "inner_maxiter",
+            "inner_tol",
+            "optimizer",
+            "steihaug_max_iters",
+            "global_search",
+            "global_maxeval",
+        ],
+        EstimationMethod::FoceGn => &[
+            "covariance",
+            "verbose",
+            "sir",
+            "sir_samples",
+            "sir_resamples",
+            "sir_seed",
+            "bloq_method",
+            "bloq",
+            "mu_referencing",
+            "threads",
+            "maxiter",
+            "inner_maxiter",
+            "inner_tol",
+            "gn_lambda",
+        ],
+        EstimationMethod::FoceGnHybrid => &[
+            "covariance",
+            "verbose",
+            "sir",
+            "sir_samples",
+            "sir_resamples",
+            "sir_seed",
+            "bloq_method",
+            "bloq",
+            "mu_referencing",
+            "threads",
+            "maxiter",
+            "inner_maxiter",
+            "inner_tol",
+            "optimizer",
+            "steihaug_max_iters",
+            "global_search",
+            "global_maxeval",
+            "gn_lambda",
+        ],
+        EstimationMethod::Saem => &[
+            "covariance",
+            "verbose",
+            "sir",
+            "sir_samples",
+            "sir_resamples",
+            "sir_seed",
+            "bloq_method",
+            "bloq",
+            "mu_referencing",
+            "threads",
+            "inner_maxiter",
+            "inner_tol",
+            "n_exploration",
+            "n_convergence",
+            "n_mh_steps",
+            "adapt_interval",
+            "seed",
+            "saem_seed",
+        ],
     }
 }
 

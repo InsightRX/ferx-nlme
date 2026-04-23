@@ -250,7 +250,7 @@ fn fit_inner(
     let n_stages = chain.len();
     let mut stage_params: ModelParameters = init_params.clone();
     let mut result: Option<crate::estimation::outer_optimizer::OuterResult> = None;
-    let mut accumulated_warnings: Vec<String> = Vec::new();
+    let mut accumulated_warnings: Vec<String> = options.unsupported_keys_warnings();
     let mut total_iterations: usize = 0;
 
     for (stage_idx, &method) in chain.iter().enumerate() {
