@@ -345,6 +345,14 @@ pub fn parse_full_model(content: &str) -> Result<ParsedModel, String> {
         })
         .collect();
 
+    let pk_idx_f64: Vec<f64> = pk_indices.iter().map(|&i| i as f64).collect();
+    let mut sel_flat = vec![0.0f64; pk_indices.len() * n_eta];
+    for (i, &em) in eta_map.iter().enumerate() {
+        if em >= 0 && (em as usize) < n_eta {
+            sel_flat[i * n_eta + em as usize] = 1.0;
+        }
+    }
+
     let model = CompiledModel {
         name,
         pk_model,
@@ -359,6 +367,8 @@ pub fn parse_full_model(content: &str) -> Result<ParsedModel, String> {
         tv_fn,
         pk_indices,
         eta_map,
+        pk_idx_f64,
+        sel_flat,
         ode_spec,
         bloq_method: BloqMethod::Drop,
         mu_refs,

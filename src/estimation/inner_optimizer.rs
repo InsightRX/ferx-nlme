@@ -235,8 +235,8 @@ pub fn find_ebe(
                 &cens_f64,
                 model.pk_model,
                 model.error_model,
-                pk_indices,
-                &model.eta_map,
+                &model.pk_idx_f64,
+                &model.sel_flat,
             );
             GRADIENT_TIMINGS.record_ad(t0.elapsed().as_nanos() as u64);
             g
@@ -277,8 +277,8 @@ pub fn find_ebe(
             &subject.obs_times,
             subject.obs_times.len(),
             model.pk_model,
-            &model.pk_indices,
-            &model.eta_map,
+            &model.pk_idx_f64,
+            &model.sel_flat,
         );
         GRADIENT_TIMINGS.record_jac_ad(t0.elapsed().as_nanos() as u64);
         j

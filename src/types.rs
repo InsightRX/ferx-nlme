@@ -329,6 +329,15 @@ pub struct CompiledModel {
     /// which silently misaligned eta and produced NaN gradients for models
     /// with eta-free PK parameters like 2-cpt where `Q` is fixed.
     pub eta_map: Vec<i32>,
+    /// Precomputed `pk_indices` as `Vec<f64>` — the form the AD functions
+    /// actually want. Cached here so each BFGS gradient call doesn't
+    /// reallocate and recast a tiny vector; on a 110k-find_ebe fit that
+    /// saves several million allocations.
+    pub pk_idx_f64: Vec<f64>,
+    /// Precomputed one-hot eta selector (row-major, n_tv × n_eta) derived
+    /// from `eta_map`. Same motivation as `pk_idx_f64`: built once, reused
+    /// for every AD gradient evaluation.
+    pub sel_flat: Vec<f64>,
     /// ODE specification. When `Some`, predictions use ODE integration instead of
     /// analytical PK equations. The `pk_param_fn` output is flattened and passed
     /// to the ODE RHS function as the parameter vector.

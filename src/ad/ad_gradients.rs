@@ -591,25 +591,13 @@ pub fn compute_nll_gradient_ad(
     cens_f64: &[f64],
     pk_model: PkModel,
     error_model: ErrorModel,
-    pk_indices: &[usize],
-    eta_map: &[i32],
+    pk_idx_f64: &[f64],
+    sel_flat: &[f64],
 ) -> (f64, Vec<f64>) {
     let n_eta = eta.len();
-    let n_tv = tv_adjusted.len();
     let mut d_eta = vec![0.0f64; n_eta];
 
     let pk_and_err = (pk_model_to_id(pk_model) * 10 + error_model_to_id(error_model)) as f64;
-    let pk_idx_f64: Vec<f64> = pk_indices.iter().map(|&i| i as f64).collect();
-    // Build n_tv × n_eta row-major one-hot selector from eta_map: entry (i,j)
-    // is 1.0 iff tv[i] uses eta[j], else 0.0. `exp(dot(sel_row, eta))`
-    // evaluates to `exp(eta[j])` for eta-bearing rows and `exp(0) = 1` for
-    // eta-free rows — both without branching on the differentiated path.
-    let mut sel_flat = vec![0.0f64; n_tv * n_eta];
-    for (i, &em) in eta_map.iter().enumerate() {
-        if em >= 0 && (em as usize) < n_eta {
-            sel_flat[i * n_eta + em as usize] = 1.0;
-        }
-    }
 
     let nll = individual_nll_ad_grad(
         eta,
@@ -625,8 +613,8 @@ pub fn compute_nll_gradient_ad(
         obs_times,
         observations,
         cens_f64,
-        &pk_idx_f64,
-        &sel_flat,
+        pk_idx_f64,
+        sel_flat,
         pk_and_err,
         1.0,
     );
@@ -642,19 +630,11 @@ pub fn compute_jacobian_ad(
     obs_times: &[f64],
     n_obs: usize,
     pk_model: PkModel,
-    pk_indices: &[usize],
-    eta_map: &[i32],
+    pk_idx_f64: &[f64],
+    sel_flat: &[f64],
 ) -> nalgebra::DMatrix<f64> {
     let n_eta = eta.len();
-    let n_tv = tv_adjusted.len();
     let pk_id = pk_model_to_id(pk_model) as f64;
-    let pk_idx_f64: Vec<f64> = pk_indices.iter().map(|&i| i as f64).collect();
-    let mut sel_flat = vec![0.0f64; n_tv * n_eta];
-    for (i, &em) in eta_map.iter().enumerate() {
-        if em >= 0 && (em as usize) < n_eta {
-            sel_flat[i * n_eta + em as usize] = 1.0;
-        }
-    }
     let mut jac = nalgebra::DMatrix::zeros(n_obs, n_eta);
 
     for j in 0..n_eta {
@@ -673,8 +653,8 @@ pub fn compute_jacobian_ad(
             &dose_data.rates,
             &dose_data.durations,
             obs_times,
-            &pk_idx_f64,
-            &sel_flat,
+            pk_idx_f64,
+            sel_flat,
             pk_id,
             &mut out,
             &mut d_out,
