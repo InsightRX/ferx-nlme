@@ -458,6 +458,10 @@ pub struct FitOptions {
     /// another thread, the outer/inner/SAEM/GN loops exit at the next safe
     /// point and `fit()` returns `Err("cancelled by user")`. Default `None`.
     pub cancel: Option<crate::cancel::CancelFlag>,
+    /// Keys the user explicitly set, in the order they were applied. Populated
+    /// by `parse_fit_options` / `apply_fit_option`. Used by `fit()` to warn
+    /// when a key is set that the selected estimation method does not consume.
+    pub user_set_keys: Vec<String>,
 }
 
 impl Default for FitOptions {
@@ -491,6 +495,7 @@ impl Default for FitOptions {
             mu_referencing: true,
             threads: None,
             cancel: None,
+            user_set_keys: Vec::new(),
         }
     }
 }
@@ -557,6 +562,134 @@ impl FitOptions {
         } else {
             self.methods.clone()
         }
+    }
+
+    /// Check `user_set_keys` against the selected method chain. Returns one
+    /// warning per key that isn't consumed by any method in the chain, listing
+    /// the method-specific keys that *are* applicable so the user can correct
+    /// the mistake. Framework-level keys (covariance/verbose/sir/bloq/threads/
+    /// mu_referencing) are omitted from the suggestion list — they apply to
+    /// every method and are exposed as top-level arguments in the wrappers.
+    pub fn unsupported_keys_warnings(&self) -> Vec<String> {
+        if self.user_set_keys.is_empty() {
+            return Vec::new();
+        }
+        let chain = self.method_chain();
+        // Applicability = framework keys ∪ (method-specific keys for each
+        // stage in the chain). A key is legit as long as *some* stage
+        // consumes it.
+        let mut applicable: std::collections::BTreeSet<&'static str> =
+            std::collections::BTreeSet::new();
+        applicable.extend(framework_keys().iter().copied());
+        for &m in &chain {
+            applicable.extend(method_specific_keys(m).iter().copied());
+        }
+        // Only method-specific keys get surfaced as "available" — listing
+        // framework keys here would conflate the two layers.
+        let mut method_only: std::collections::BTreeSet<&'static str> =
+            std::collections::BTreeSet::new();
+        for &m in &chain {
+            method_only.extend(method_specific_keys(m).iter().copied());
+        }
+        let chain_label: String = if chain.len() == 1 {
+            chain[0].label().to_string()
+        } else {
+            chain
+                .iter()
+                .map(|m| m.label())
+                .collect::<Vec<_>>()
+                .join(" → ")
+        };
+        let available: Vec<&'static str> = method_only.iter().copied().collect();
+
+        let mut seen = std::collections::HashSet::new();
+        let mut warnings = Vec::new();
+        for key in &self.user_set_keys {
+            // `method` / `methods` select the chain itself — they can't be
+            // "wrong for the method" in the way other options can.
+            if key == "method" || key == "methods" {
+                continue;
+            }
+            if applicable.contains(key.as_str()) {
+                continue;
+            }
+            if !seen.insert(key.clone()) {
+                continue;
+            }
+            warnings.push(format!(
+                "fit option `{}` is not used by method `{}` and will be ignored. \
+                 Method-specific options for `{}`: {}",
+                key,
+                chain_label,
+                chain_label,
+                available.join(", ")
+            ));
+        }
+        warnings
+    }
+}
+
+/// Framework-level fit-option keys: consumed by every method and typically
+/// exposed as dedicated top-level arguments in the language wrappers
+/// (`covariance`, `verbose`, `bloq_method`, `threads`, `sir`, ...). Kept
+/// separate from `method_specific_keys` so the "unsupported option" warning
+/// can list only method-specific suggestions without conflating the layers.
+pub fn framework_keys() -> &'static [&'static str] {
+    &[
+        "covariance",
+        "verbose",
+        "sir",
+        "sir_samples",
+        "sir_resamples",
+        "sir_seed",
+        "bloq_method",
+        "bloq",
+        "mu_referencing",
+        "threads",
+    ]
+}
+
+/// Fit-option keys that are meaningful only for a particular estimation
+/// method (or family of methods). `method` / `methods` are omitted — those
+/// select the chain itself and can't be "wrong for the method". Framework-
+/// wide keys live in `framework_keys`.
+pub fn method_specific_keys(m: EstimationMethod) -> &'static [&'static str] {
+    match m {
+        EstimationMethod::Foce | EstimationMethod::FoceI => &[
+            "maxiter",
+            "inner_maxiter",
+            "inner_tol",
+            "optimizer",
+            "steihaug_max_iters",
+            "global_search",
+            "global_maxeval",
+        ],
+        EstimationMethod::FoceGn => &[
+            "maxiter",
+            "inner_maxiter",
+            "inner_tol",
+            "gn_lambda",
+        ],
+        EstimationMethod::FoceGnHybrid => &[
+            "maxiter",
+            "inner_maxiter",
+            "inner_tol",
+            "optimizer",
+            "steihaug_max_iters",
+            "global_search",
+            "global_maxeval",
+            "gn_lambda",
+        ],
+        EstimationMethod::Saem => &[
+            "inner_maxiter",
+            "inner_tol",
+            "n_exploration",
+            "n_convergence",
+            "n_mh_steps",
+            "adapt_interval",
+            "seed",
+            "saem_seed",
+        ],
     }
 }
 

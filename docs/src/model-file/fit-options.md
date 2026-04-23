@@ -89,6 +89,18 @@ Notes:
   of packed parameters is small. Increase `steihaug_max_iters` when the
   parameter count exceeds the default of 50.
 
+## Options That Don't Apply to the Selected Method
+
+If you set an option that the chosen estimation method doesn't consume
+(e.g. `n_convergence` with `method = focei`, or `optimizer` with
+`method = saem`), `fit()` emits a warning listing the option, the selected
+method, and the keys that *are* available for that method. The option is
+ignored — the fit still proceeds.
+
+For a chained fit (`method = [saem, focei]`), an option is kept if it applies
+to *any* stage in the chain, so SAEM and FOCEI keys can be mixed without
+warnings.
+
 ## Global Search
 
 Setting `global_search = true` runs a gradient-free pre-search (NLopt CRS2-LM) before the local optimizer. This helps escape local minima on challenging datasets.

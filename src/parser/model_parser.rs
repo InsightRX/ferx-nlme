@@ -437,6 +437,7 @@ fn parse_fit_options(lines: &[String]) -> Result<FitOptions, String> {
                     opts.interaction = true;
                 }
             }
+            opts.user_set_keys.push("method".to_string());
             continue;
         }
         // All other keys flow through the shared dispatch. Both `.ferx`
@@ -506,6 +507,9 @@ pub fn apply_fit_option(opts: &mut FitOptions, key: &str, value: &str) -> Result
             .map_err(|_| format!("fit option `{name}`: expected number, got `{value}`"))
     };
 
+    // Dispatch first, then record the key on success so we can later warn
+    // when a key is set that the selected method does not consume. Malformed
+    // values still return `Err` and don't get recorded.
     match key {
         "maxiter" => opts.outer_maxiter = parse_usize("maxiter")?,
         "inner_maxiter" => opts.inner_maxiter = parse_usize("inner_maxiter")?,
@@ -569,6 +573,7 @@ pub fn apply_fit_option(opts: &mut FitOptions, key: &str, value: &str) -> Result
         }
         _ => return Ok(false),
     }
+    opts.user_set_keys.push(key.to_string());
     Ok(true)
 }
 
@@ -1764,6 +1769,133 @@ mod tests {
 
         assert_eq!(apply_fit_option(&mut opts, "bloq", "m3"), Ok(true));
         assert_eq!(opts.bloq_method, BloqMethod::M3);
+    }
+
+    // ── Warn on options that don't apply to the selected estimation method.
+    //    These fire from inside fit() via FitOptions::unsupported_keys_warnings,
+    //    so we check the raw mechanism here without running a full fit. ────
+
+    #[test]
+    fn test_unsupported_saem_key_under_focei_warns() {
+        let opts = parse_fit_options(&[
+            "method = focei".to_string(),
+            "n_convergence = 300".to_string(),
+        ])
+        .unwrap();
+        let warnings = opts.unsupported_keys_warnings();
+        assert_eq!(warnings.len(), 1, "got: {:?}", warnings);
+        let w = &warnings[0];
+        assert!(w.contains("n_convergence"), "got: {w}");
+        assert!(w.contains("FOCEI"), "got: {w}");
+        assert!(w.contains("will be ignored"), "got: {w}");
+        // Mentions a FOCE-applicable key so the user can see what's available.
+        assert!(w.contains("optimizer"), "got: {w}");
+        // Does NOT suggest SAEM-specific keys as available.
+        assert!(!w.contains("n_mh_steps"), "got: {w}");
+    }
+
+    #[test]
+    fn test_unsupported_focei_key_under_saem_warns() {
+        let opts = parse_fit_options(&[
+            "method = saem".to_string(),
+            "optimizer = lbfgs".to_string(),
+        ])
+        .unwrap();
+        let warnings = opts.unsupported_keys_warnings();
+        assert_eq!(warnings.len(), 1, "got: {:?}", warnings);
+        let w = &warnings[0];
+        assert!(w.contains("optimizer"), "got: {w}");
+        assert!(w.contains("SAEM"), "got: {w}");
+        assert!(w.contains("n_exploration"), "got: {w}");
+    }
+
+    #[test]
+    fn test_applicable_key_in_chain_no_warning() {
+        // methods = [saem, focei]: n_convergence applies to SAEM, optimizer
+        // applies to FOCEI, so neither should warn.
+        let opts = parse_fit_options(&[
+            "method = [saem, focei]".to_string(),
+            "n_convergence = 300".to_string(),
+            "optimizer = lbfgs".to_string(),
+        ])
+        .unwrap();
+        assert!(opts.unsupported_keys_warnings().is_empty());
+    }
+
+    #[test]
+    fn test_common_keys_never_warn() {
+        // Covariance/verbose/sir/bloq/threads/mu_referencing apply to every
+        // method — they must not produce a warning regardless of method.
+        for method in ["foce", "focei", "gn", "gn_hybrid", "saem"] {
+            let opts = parse_fit_options(&[
+                format!("method = {method}"),
+                "covariance = false".to_string(),
+                "verbose = false".to_string(),
+                "sir = true".to_string(),
+                "bloq_method = m3".to_string(),
+                "threads = 2".to_string(),
+                "mu_referencing = false".to_string(),
+            ])
+            .unwrap();
+            let w = opts.unsupported_keys_warnings();
+            assert!(
+                w.is_empty(),
+                "method={method} produced unexpected warnings: {:?}",
+                w
+            );
+        }
+    }
+
+    #[test]
+    fn test_unsupported_warning_omits_framework_keys() {
+        // Framework-wide keys (covariance/verbose/sir/bloq/threads/mu_referencing)
+        // are exposed as top-level wrapper args, not as method-specific settings.
+        // The warning's "Method-specific options" list must not include them —
+        // listing `covariance` next to `optimizer` would conflate the layers.
+        let opts = parse_fit_options(&[
+            "method = focei".to_string(),
+            "n_convergence = 300".to_string(),
+        ])
+        .unwrap();
+        let w = &opts.unsupported_keys_warnings()[0];
+        for framework in [
+            "covariance",
+            "verbose",
+            "sir",
+            "sir_samples",
+            "sir_resamples",
+            "sir_seed",
+            "bloq_method",
+            "bloq",
+            "threads",
+            "mu_referencing",
+        ] {
+            assert!(
+                !w.contains(framework),
+                "framework key `{framework}` leaked into method-specific list: {w}"
+            );
+        }
+        // And it uses the new phrasing, not the old "Available options".
+        assert!(w.contains("Method-specific options"), "got: {w}");
+    }
+
+    #[test]
+    fn test_gn_lambda_under_focei_warns() {
+        let opts = parse_fit_options(&[
+            "method = focei".to_string(),
+            "gn_lambda = 0.05".to_string(),
+        ])
+        .unwrap();
+        let warnings = opts.unsupported_keys_warnings();
+        assert_eq!(warnings.len(), 1, "got: {:?}", warnings);
+        assert!(warnings[0].contains("gn_lambda"));
+    }
+
+    #[test]
+    fn test_no_warning_when_no_keys_set() {
+        // Bare default FitOptions (no parser path) must not conjure warnings.
+        let opts = FitOptions::default();
+        assert!(opts.unsupported_keys_warnings().is_empty());
     }
 
     // ── parse_fit_options: strict parsing at the .ferx layer. Unknown

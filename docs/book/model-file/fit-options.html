@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "ayu";
-            window.path_to_searchindex_js = "../searchindex-4e41e858.js";
+            window.path_to_searchindex_js = "../searchindex-2f461d70.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-66605922.js"></script>
@@ -275,6 +275,15 @@ Each Hessian costs O(n²) OFV evaluations, so it is fastest when the number
 of packed parameters is small. Increase <code>steihaug_max_iters</code> when the
 parameter count exceeds the default of 50.</li>
 </ul>
+<h2 id="options-that-dont-apply-to-the-selected-method"><a class="header" href="#options-that-dont-apply-to-the-selected-method">Options That Don’t Apply to the Selected Method</a></h2>
+<p>If you set an option that the chosen estimation method doesn’t consume
+(e.g. <code>n_convergence</code> with <code>method = focei</code>, or <code>optimizer</code> with
+<code>method = saem</code>), <code>fit()</code> emits a warning listing the option, the selected
+method, and the keys that <em>are</em> available for that method. The option is
+ignored — the fit still proceeds.</p>
+<p>For a chained fit (<code>method = [saem, focei]</code>), an option is kept if it applies
+to <em>any</em> stage in the chain, so SAEM and FOCEI keys can be mixed without
+warnings.</p>
 <h2 id="global-search"><a class="header" href="#global-search">Global Search</a></h2>
 <p>Setting <code>global_search = true</code> runs a gradient-free pre-search (NLopt CRS2-LM) before the local optimizer. This helps escape local minima on challenging datasets.</p>
 <p>The number of global evaluations is auto-scaled based on the number of parameters and observations, or can be set explicitly with <code>global_maxeval</code>.</p>
