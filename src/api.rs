@@ -222,6 +222,10 @@ fn fit_inner(
     options: &FitOptions,
 ) -> Result<FitResult, String> {
     let chain = options.method_chain();
+    // Compute up-front so we can both surface the warnings before the fit
+    // starts (a long-running fit shouldn't bury a "this option is unused"
+    // notice at the end) and carry them through into FitResult.warnings.
+    let unsupported_warnings = options.unsupported_keys_warnings();
     if options.verbose {
         let chain_str: Vec<&str> = chain.iter().map(|m| m.label()).collect();
         // rayon::current_num_threads() reports whichever pool par_iter would use
@@ -229,6 +233,13 @@ fn fit_inner(
         // otherwise the global pool. So this stays accurate in both paths.
         let n_threads = rayon::current_num_threads();
         let thread_word = if n_threads == 1 { "thread" } else { "threads" };
+        if !unsupported_warnings.is_empty() {
+            eprintln!("--- Warnings ---");
+            for w in &unsupported_warnings {
+                eprintln!("  * {}", w);
+            }
+            eprintln!();
+        }
         eprintln!(
             "Starting estimation (chain: {}) on {} {}...",
             chain_str.join(" → "),
@@ -250,7 +261,7 @@ fn fit_inner(
     let n_stages = chain.len();
     let mut stage_params: ModelParameters = init_params.clone();
     let mut result: Option<crate::estimation::outer_optimizer::OuterResult> = None;
-    let mut accumulated_warnings: Vec<String> = options.unsupported_keys_warnings();
+    let mut accumulated_warnings: Vec<String> = unsupported_warnings;
     let mut total_iterations: usize = 0;
 
     for (stage_idx, &method) in chain.iter().enumerate() {
