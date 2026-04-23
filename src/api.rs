@@ -147,6 +147,35 @@ fn build_init_params(parsed: &ParsedModel) -> ModelParameters {
     parsed.model.default_params.clone()
 }
 
+/// Fail early if the model references covariates that the data doesn't carry.
+/// Case-sensitive: `CRCL` and `crcl` are distinct names. Historically a missing
+/// covariate silently evaluated to zero, which left fits stuck at the initial
+/// estimates with no visible diagnostic (see commit introducing this check).
+fn validate_covariates(model: &CompiledModel, population: &Population) -> Result<(), String> {
+    let missing: Vec<&str> = model
+        .referenced_covariates
+        .iter()
+        .filter(|name| !population.covariate_names.iter().any(|n| n == *name))
+        .map(|s| s.as_str())
+        .collect();
+
+    if missing.is_empty() {
+        return Ok(());
+    }
+
+    let available = if population.covariate_names.is_empty() {
+        "(none)".to_string()
+    } else {
+        population.covariate_names.join(", ")
+    };
+    Err(format!(
+        "Model references covariate(s) not found in data (case-sensitive): {}. \
+         Available covariate columns: {}.",
+        missing.join(", "),
+        available
+    ))
+}
+
 /// High-level fit: model file path + data file path → FitResult
 pub fn fit_from_files(
     model_path: &str,
@@ -161,22 +190,51 @@ pub fn fit_from_files(
     fit(&model, &population, &model.default_params, &opts)
 }
 
-/// Main fit entry point: CompiledModel + Population → FitResult
+/// Main fit entry point: CompiledModel + Population → FitResult.
+///
+/// When `options.threads` is `Some(n)`, the fit runs inside a scoped rayon
+/// pool of `n` workers, so this setting is per-call (different fits in the
+/// same process can use different thread counts). When `None`, rayon's
+/// global pool is used (one worker per logical CPU).
 pub fn fit(
     model: &CompiledModel,
     population: &Population,
     init_params: &ModelParameters,
     options: &FitOptions,
 ) -> Result<FitResult, String> {
-    let method_name = match options.method {
-        EstimationMethod::Saem => "SAEM",
-        EstimationMethod::FoceI => "FOCEI",
-        EstimationMethod::Foce => "FOCE",
-        EstimationMethod::FoceGn => "FOCE-GN",
-        EstimationMethod::FoceGnHybrid => "FOCE-GN-Hybrid",
-    };
+    validate_covariates(model, population)?;
+    match options.threads {
+        Some(n) if n > 0 => {
+            let pool = rayon::ThreadPoolBuilder::new()
+                .num_threads(n)
+                .build()
+                .map_err(|e| format!("failed to build rayon pool with {} threads: {}", n, e))?;
+            pool.install(|| fit_inner(model, population, init_params, options))
+        }
+        _ => fit_inner(model, population, init_params, options),
+    }
+}
+
+fn fit_inner(
+    model: &CompiledModel,
+    population: &Population,
+    init_params: &ModelParameters,
+    options: &FitOptions,
+) -> Result<FitResult, String> {
+    let chain = options.method_chain();
     if options.verbose {
-        eprintln!("Starting {} estimation...", method_name);
+        let chain_str: Vec<&str> = chain.iter().map(|m| m.label()).collect();
+        // rayon::current_num_threads() reports whichever pool par_iter would use
+        // from the current call — the scoped pool when options.threads is Some,
+        // otherwise the global pool. So this stays accurate in both paths.
+        let n_threads = rayon::current_num_threads();
+        let thread_word = if n_threads == 1 { "thread" } else { "threads" };
+        eprintln!(
+            "Starting estimation (chain: {}) on {} {}...",
+            chain_str.join(" → "),
+            n_threads,
+            thread_word
+        );
         eprintln!(
             "  {} subjects, {} observations",
             population.subjects.len(),
@@ -188,14 +246,77 @@ pub fn fit(
         );
     }
 
-    // Run estimation
-    let result = match options.method {
-        EstimationMethod::Saem => saem::run_saem(model, population, init_params, options)?,
-        EstimationMethod::FoceGn | EstimationMethod::FoceGnHybrid => {
-            crate::estimation::gauss_newton::run_foce_gn(model, population, init_params, options)
+    // Run each stage in sequence, feeding params forward.
+    let n_stages = chain.len();
+    let mut stage_params: ModelParameters = init_params.clone();
+    let mut result: Option<crate::estimation::outer_optimizer::OuterResult> = None;
+    let mut accumulated_warnings: Vec<String> = Vec::new();
+    let mut total_iterations: usize = 0;
+
+    for (stage_idx, &method) in chain.iter().enumerate() {
+        if crate::cancel::is_cancelled(&options.cancel) {
+            return Err("cancelled by user".to_string());
         }
-        _ => optimize_population(model, population, init_params, options),
-    };
+        let is_last = stage_idx + 1 == n_stages;
+        let mut stage_opts = options.clone();
+        stage_opts.method = method;
+        stage_opts.methods = Vec::new();
+        // Per-stage interaction flag: FOCEI=on, FOCE=off, others inherit from user options.
+        match method {
+            EstimationMethod::FoceI => stage_opts.interaction = true,
+            EstimationMethod::Foce => stage_opts.interaction = false,
+            _ => {}
+        }
+        // Only run the covariance step on the final stage to avoid wasted work.
+        if !is_last {
+            stage_opts.run_covariance_step = false;
+            stage_opts.sir = false;
+        }
+
+        if options.verbose && n_stages > 1 {
+            eprintln!(
+                "\n── Stage {}/{}: {} ──",
+                stage_idx + 1,
+                n_stages,
+                method.label()
+            );
+        }
+
+        let stage_result = match method {
+            EstimationMethod::Saem => {
+                saem::run_saem(model, population, &stage_params, &stage_opts)?
+            }
+            EstimationMethod::FoceGn | EstimationMethod::FoceGnHybrid => {
+                crate::estimation::gauss_newton::run_foce_gn(
+                    model,
+                    population,
+                    &stage_params,
+                    &stage_opts,
+                )
+            }
+            _ => optimize_population(model, population, &stage_params, &stage_opts),
+        };
+
+        stage_params = stage_result.params.clone();
+        total_iterations += stage_result.n_iterations;
+        for w in &stage_result.warnings {
+            accumulated_warnings.push(if n_stages > 1 {
+                format!("[{}] {}", method.label(), w)
+            } else {
+                w.clone()
+            });
+        }
+        result = Some(stage_result);
+    }
+
+    if crate::cancel::is_cancelled(&options.cancel) {
+        return Err("cancelled by user".to_string());
+    }
+
+    let mut result = result.expect("method chain must have at least one stage");
+    // Overwrite with chain-aware totals
+    result.n_iterations = total_iterations;
+    result.warnings = accumulated_warnings;
 
     // Compute per-subject diagnostics
     let subjects = compute_subject_results(
@@ -250,7 +371,7 @@ pub fn fit(
                 .to_string(),
         );
     }
-    let sir_result = if options.sir {
+    let sir_result = if options.sir && !crate::cancel::is_cancelled(&options.cancel) {
         if let Some(ref cov) = result.covariance_matrix {
             if options.verbose {
                 eprintln!("\nRunning SIR...");
@@ -283,7 +404,8 @@ pub fn fit(
     };
 
     let fit_result = FitResult {
-        method: options.method,
+        method: *chain.last().expect("chain non-empty"),
+        method_chain: chain.clone(),
         converged: result.converged,
         ofv,
         aic,
