@@ -1777,6 +1777,39 @@ mod tests {
     }
 
     #[test]
+    fn test_unsupported_warning_omits_framework_keys() {
+        // Framework-wide keys (covariance/verbose/sir/bloq/threads/mu_referencing)
+        // are exposed as top-level wrapper args, not as method-specific settings.
+        // The warning's "Method-specific options" list must not include them —
+        // listing `covariance` next to `optimizer` would conflate the layers.
+        let opts = parse_fit_options(&[
+            "method = focei".to_string(),
+            "n_convergence = 300".to_string(),
+        ])
+        .unwrap();
+        let w = &opts.unsupported_keys_warnings()[0];
+        for framework in [
+            "covariance",
+            "verbose",
+            "sir",
+            "sir_samples",
+            "sir_resamples",
+            "sir_seed",
+            "bloq_method",
+            "bloq",
+            "threads",
+            "mu_referencing",
+        ] {
+            assert!(
+                !w.contains(framework),
+                "framework key `{framework}` leaked into method-specific list: {w}"
+            );
+        }
+        // And it uses the new phrasing, not the old "Available options".
+        assert!(w.contains("Method-specific options"), "got: {w}");
+    }
+
+    #[test]
     fn test_gn_lambda_under_focei_warns() {
         let opts = parse_fit_options(&[
             "method = focei".to_string(),

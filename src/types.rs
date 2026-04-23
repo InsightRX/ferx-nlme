@@ -540,16 +540,30 @@ impl FitOptions {
 
     /// Check `user_set_keys` against the selected method chain. Returns one
     /// warning per key that isn't consumed by any method in the chain, listing
-    /// the keys that *are* applicable so the user can correct the mistake.
+    /// the method-specific keys that *are* applicable so the user can correct
+    /// the mistake. Framework-level keys (covariance/verbose/sir/bloq/threads/
+    /// mu_referencing) are omitted from the suggestion list — they apply to
+    /// every method and are exposed as top-level arguments in the wrappers.
     pub fn unsupported_keys_warnings(&self) -> Vec<String> {
         if self.user_set_keys.is_empty() {
             return Vec::new();
         }
         let chain = self.method_chain();
+        // Applicability = framework keys ∪ (method-specific keys for each
+        // stage in the chain). A key is legit as long as *some* stage
+        // consumes it.
         let mut applicable: std::collections::BTreeSet<&'static str> =
             std::collections::BTreeSet::new();
+        applicable.extend(framework_keys().iter().copied());
         for &m in &chain {
-            applicable.extend(applicable_keys_for_method(m).iter().copied());
+            applicable.extend(method_specific_keys(m).iter().copied());
+        }
+        // Only method-specific keys get surfaced as "available" — listing
+        // framework keys here would conflate the two layers.
+        let mut method_only: std::collections::BTreeSet<&'static str> =
+            std::collections::BTreeSet::new();
+        for &m in &chain {
+            method_only.extend(method_specific_keys(m).iter().copied());
         }
         let chain_label: String = if chain.len() == 1 {
             chain[0].label().to_string()
@@ -560,7 +574,7 @@ impl FitOptions {
                 .collect::<Vec<_>>()
                 .join(" → ")
         };
-        let available: Vec<&'static str> = applicable.iter().copied().collect();
+        let available: Vec<&'static str> = method_only.iter().copied().collect();
 
         let mut seen = std::collections::HashSet::new();
         let mut warnings = Vec::new();
@@ -578,7 +592,7 @@ impl FitOptions {
             }
             warnings.push(format!(
                 "fit option `{}` is not used by method `{}` and will be ignored. \
-                 Available options for `{}`: {}",
+                 Method-specific options for `{}`: {}",
                 key,
                 chain_label,
                 chain_label,
@@ -589,22 +603,33 @@ impl FitOptions {
     }
 }
 
-/// Fit-option keys that are meaningfully consumed by each estimation method.
-/// A chain takes the union across stages. `method` / `methods` are omitted —
-/// those select the chain itself and can't be "wrong for the method".
-pub fn applicable_keys_for_method(m: EstimationMethod) -> &'static [&'static str] {
+/// Framework-level fit-option keys: consumed by every method and typically
+/// exposed as dedicated top-level arguments in the language wrappers
+/// (`covariance`, `verbose`, `bloq_method`, `threads`, `sir`, ...). Kept
+/// separate from `method_specific_keys` so the "unsupported option" warning
+/// can list only method-specific suggestions without conflating the layers.
+pub fn framework_keys() -> &'static [&'static str] {
+    &[
+        "covariance",
+        "verbose",
+        "sir",
+        "sir_samples",
+        "sir_resamples",
+        "sir_seed",
+        "bloq_method",
+        "bloq",
+        "mu_referencing",
+        "threads",
+    ]
+}
+
+/// Fit-option keys that are meaningful only for a particular estimation
+/// method (or family of methods). `method` / `methods` are omitted — those
+/// select the chain itself and can't be "wrong for the method". Framework-
+/// wide keys live in `framework_keys`.
+pub fn method_specific_keys(m: EstimationMethod) -> &'static [&'static str] {
     match m {
         EstimationMethod::Foce | EstimationMethod::FoceI => &[
-            "covariance",
-            "verbose",
-            "sir",
-            "sir_samples",
-            "sir_resamples",
-            "sir_seed",
-            "bloq_method",
-            "bloq",
-            "mu_referencing",
-            "threads",
             "maxiter",
             "inner_maxiter",
             "inner_tol",
@@ -614,32 +639,12 @@ pub fn applicable_keys_for_method(m: EstimationMethod) -> &'static [&'static str
             "global_maxeval",
         ],
         EstimationMethod::FoceGn => &[
-            "covariance",
-            "verbose",
-            "sir",
-            "sir_samples",
-            "sir_resamples",
-            "sir_seed",
-            "bloq_method",
-            "bloq",
-            "mu_referencing",
-            "threads",
             "maxiter",
             "inner_maxiter",
             "inner_tol",
             "gn_lambda",
         ],
         EstimationMethod::FoceGnHybrid => &[
-            "covariance",
-            "verbose",
-            "sir",
-            "sir_samples",
-            "sir_resamples",
-            "sir_seed",
-            "bloq_method",
-            "bloq",
-            "mu_referencing",
-            "threads",
             "maxiter",
             "inner_maxiter",
             "inner_tol",
@@ -650,16 +655,6 @@ pub fn applicable_keys_for_method(m: EstimationMethod) -> &'static [&'static str
             "gn_lambda",
         ],
         EstimationMethod::Saem => &[
-            "covariance",
-            "verbose",
-            "sir",
-            "sir_samples",
-            "sir_resamples",
-            "sir_seed",
-            "bloq_method",
-            "bloq",
-            "mu_referencing",
-            "threads",
             "inner_maxiter",
             "inner_tol",
             "n_exploration",
