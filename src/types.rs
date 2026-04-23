@@ -356,9 +356,46 @@ pub struct CompiledModel {
     pub gradient_method: GradientMethod,
 }
 
-/// Inner-loop gradient method. `Auto` picks FD for small-n_eta analytical
-/// models (where AD overhead dominates) and AD otherwise. Resolved in
-/// `find_ebe` so the heuristic lives next to the code that depends on it.
+/// Inner-loop (per-subject EBE) gradient method.
+///
+/// The inner optimizer is BFGS; what differs across variants is how the
+/// gradient of the individual NLL w.r.t. ETA is computed.
+///
+/// - `Ad`: reverse-mode automatic differentiation via Enzyme. One forward
+///   pass + one reverse pass per gradient, regardless of `n_eta`. Requires
+///   the crate to be compiled with the `autodiff` feature and the model to
+///   have an analytical PK path (`tv_fn` populated). Falls back to `Fd`
+///   automatically when either condition isn't met (e.g. ODE models, which
+///   currently have no AD path).
+/// - `Fd`: central finite differences on the forward NLL. Performs `2·n_eta`
+///   forward evaluations per gradient, so cost scales linearly with the
+///   number of random effects.
+/// - `Auto` (default): pick `Ad` whenever it is available, else `Fd`.
+///
+/// ## When each wins
+///
+/// AD's relative advantage over FD grows with:
+/// 1. **Number of etas.** FD cost scales as `O(n_eta)`; AD stays roughly
+///    flat. For `n_eta ≥ 3` AD is already faster per gradient call on every
+///    analytical PK model tested.
+/// 2. **Forward-pass cost.** Many observations per subject, many doses per
+///    subject, 2- or 3-compartment analytical formulas, and (when
+///    implemented) ODE-based models all amortize AD's fixed reverse-pass
+///    overhead and make the per-gradient gap wider.
+///
+/// On small analytical problems (`n_eta ≈ 3`, few observations, 1-cpt PK)
+/// the wall-clock difference can be small because gradient work is only a
+/// fraction of total fit time — NLopt, population NLL reduction, and
+/// parallel scheduling dominate. Relative gradient-call speedups we have
+/// measured range from ~1.5× (3-cpt infusion) to ~5× (1-cpt oral).
+///
+/// ## Numerical equivalence
+///
+/// For well-conditioned problems both methods converge to the same OFV
+/// within line-search tolerance. FD introduces `O(1e-9)` noise per
+/// component; AD is exact up to floating-point roundoff. Rare disagreements
+/// at the 2nd-decimal level of OFV usually reflect different trajectories
+/// to the same optimum rather than a correctness gap.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GradientMethod {
     Auto,
