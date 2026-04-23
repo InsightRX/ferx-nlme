@@ -23,7 +23,11 @@ impl FoceiProblem<'_> {
     fn run_inner(&self, x: &[f64]) -> (Vec<DVector<f64>>, Vec<DMatrix<f64>>) {
         let params = unpack_params(x, self.init_params);
         let warm = self.cached_etas.lock().unwrap().clone();
-        let warm_ref = if warm.is_empty() { None } else { Some(warm.as_slice()) };
+        let warm_ref = if warm.is_empty() {
+            None
+        } else {
+            Some(warm.as_slice())
+        };
         let mu_k = compute_mu_k(self.model, &params.theta, self.options.mu_referencing);
         let (etas, h_mats, _) = run_inner_loop_warm(
             self.model,
@@ -51,7 +55,11 @@ impl FoceiProblem<'_> {
             self.options.interaction,
         );
         let raw = 2.0 * nll;
-        if raw.is_finite() { raw } else { 1e20 }
+        if raw.is_finite() {
+            raw
+        } else {
+            1e20
+        }
     }
 
     fn grad_fixed(&self, x: &[f64], etas: &[DVector<f64>], h_mats: &[DMatrix<f64>]) -> Vec<f64> {

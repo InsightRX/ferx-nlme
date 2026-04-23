@@ -11,11 +11,14 @@ use ferx_nlme::parser::model_parser::parse_model_file;
 use ferx_nlme::{fit, read_nonmem_csv, FitOptions, Optimizer};
 use std::path::Path;
 
-fn data_and_model() -> (ferx_nlme::types::CompiledModel, ferx_nlme::types::Population) {
-    let model = parse_model_file(Path::new("examples/warfarin.ferx"))
-        .expect("warfarin example must parse");
-    let population = read_nonmem_csv(Path::new("data/warfarin.csv"), None)
-        .expect("warfarin data must load");
+fn data_and_model() -> (
+    ferx_nlme::types::CompiledModel,
+    ferx_nlme::types::Population,
+) {
+    let model =
+        parse_model_file(Path::new("examples/warfarin.ferx")).expect("warfarin example must parse");
+    let population =
+        read_nonmem_csv(Path::new("data/warfarin.csv"), None).expect("warfarin data must load");
     (model, population)
 }
 
@@ -34,8 +37,8 @@ fn slsqp_reaches_a_sane_ofv() {
     let (model, population) = data_and_model();
     let mut opts = base_options();
     opts.optimizer = Optimizer::Slsqp;
-    let result = fit(&model, &population, &model.default_params, &opts)
-        .expect("slsqp fit must succeed");
+    let result =
+        fit(&model, &population, &model.default_params, &opts).expect("slsqp fit must succeed");
     assert!(
         result.ofv.is_finite(),
         "SLSQP OFV should be finite, got {}",
@@ -51,8 +54,8 @@ fn bobyqa_fit_converges_to_finite_ofv() {
     // BOBYQA is derivative-free: one "iteration" is cheap but it needs many
     // to triangulate a quadratic. Give it a bit more headroom.
     opts.outer_maxiter = 200;
-    let result = fit(&model, &population, &model.default_params, &opts)
-        .expect("bobyqa fit must succeed");
+    let result =
+        fit(&model, &population, &model.default_params, &opts).expect("bobyqa fit must succeed");
     assert!(
         result.ofv.is_finite(),
         "BOBYQA OFV must be finite, got {}",

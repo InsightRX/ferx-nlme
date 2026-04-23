@@ -294,18 +294,33 @@ pub fn run_saem(
     let mut log_sigma: Vec<f64> = sigma_cur.iter().map(|&s| s.max(1e-10).ln()).collect();
 
     // Bounds in log-space
-    let log_theta_lower: Vec<f64> = init_params
+    let mut log_theta_lower: Vec<f64> = init_params
         .theta_lower
         .iter()
         .map(|&b| b.max(1e-10).ln())
         .collect();
-    let log_theta_upper: Vec<f64> = init_params
+    let mut log_theta_upper: Vec<f64> = init_params
         .theta_upper
         .iter()
         .map(|&b| b.min(1e9).ln())
         .collect();
-    let log_sigma_lower = vec![-8.0f64; n_sigma];
-    let log_sigma_upper = vec![5.0f64; n_sigma];
+    let mut log_sigma_lower = vec![-8.0f64; n_sigma];
+    let mut log_sigma_upper = vec![5.0f64; n_sigma];
+
+    // Pin FIX parameters: set lower == upper == log(current) so the inner
+    // NLopt M-step treats them as constants. Matches the FOCE/FOCEI treatment.
+    for i in 0..n_theta {
+        if init_params.theta_fixed.get(i).copied().unwrap_or(false) {
+            log_theta_lower[i] = log_theta[i];
+            log_theta_upper[i] = log_theta[i];
+        }
+    }
+    for i in 0..n_sigma {
+        if init_params.sigma_fixed.get(i).copied().unwrap_or(false) {
+            log_sigma_lower[i] = log_sigma[i];
+            log_sigma_upper[i] = log_sigma[i];
+        }
+    }
 
     let mut state = SaemState {
         etas,
@@ -402,7 +417,22 @@ pub fn run_saem(
         state.s2 = (1.0 - gamma) * &state.s2 + gamma * &eta_outer;
 
         // ---- Step 3: M-step Omega (closed form) ----
+        // Restore FIX-ed rows / columns from the template. An eta flagged FIX
+        // keeps its initial variance AND its initial off-diagonal couplings
+        // (zero for a diagonal declaration, block cov for a FIX-ed block).
+        // Letting the sufficient statistic bleed into row/col of a fixed eta
+        // breaks positive-definiteness once the free-block diagonals shrink
+        // during the exploration phase.
         state.omega_mat = state.s2.clone();
+        for i in 0..n_eta {
+            for j in 0..n_eta {
+                let fi = init_params.omega_fixed.get(i).copied().unwrap_or(false);
+                let fj = init_params.omega_fixed.get(j).copied().unwrap_or(false);
+                if fi || fj {
+                    state.omega_mat[(i, j)] = init_params.omega.matrix[(i, j)];
+                }
+            }
+        }
 
         // ---- Step 4: M-step theta, sigma via lightweight NLopt (3 iters, warm-started) ----
         // Only run every few iterations during exploration to save time
@@ -495,11 +525,14 @@ pub fn run_saem(
         theta_names: init_params.theta_names.clone(),
         theta_lower: init_params.theta_lower.clone(),
         theta_upper: init_params.theta_upper.clone(),
+        theta_fixed: init_params.theta_fixed.clone(),
         omega: final_omega,
+        omega_fixed: init_params.omega_fixed.clone(),
         sigma: SigmaVector {
             values: state.sigma_vals.clone(),
             names: init_params.sigma.names.clone(),
         },
+        sigma_fixed: init_params.sigma_fixed.clone(),
     };
 
     // ---- Final EBEs via inner loop (warm-started from SAEM etas) ----

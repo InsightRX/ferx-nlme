@@ -153,8 +153,11 @@ fn build_warfarin_model() -> CompiledModel {
         theta_names: theta_names.clone(),
         theta_lower: vec![0.001, 0.1, 0.01],
         theta_upper: vec![10.0, 500.0, 50.0],
+        theta_fixed: vec![false; 3],
         omega,
+        omega_fixed: vec![false; 3],
         sigma,
+        sigma_fixed: vec![false; 1],
     };
     let pk_param_fn: PkParamFn =
         Box::new(|theta: &[f64], eta: &[f64], _: &HashMap<String, f64>| {
@@ -190,14 +193,17 @@ fn build_warfarin_true_params() -> ModelParameters {
         theta_names: vec!["TVCL".into(), "TVV".into(), "TVKA".into()],
         theta_lower: vec![0.001, 0.1, 0.01],
         theta_upper: vec![10.0, 500.0, 50.0],
+        theta_fixed: vec![false; 3],
         omega: OmegaMatrix::from_diagonal(
             &[0.07, 0.02, 0.40],
             vec!["ETA_CL".into(), "ETA_V".into(), "ETA_KA".into()],
         ),
+        omega_fixed: vec![false; 3],
         sigma: SigmaVector {
             values: vec![0.01],
             names: vec!["PROP_ERR".into()],
         },
+        sigma_fixed: vec![false; 1],
     }
 }
 
@@ -222,8 +228,11 @@ fn generate_two_cpt_iv() {
         theta_names: theta_names.clone(),
         theta_lower: vec![0.1, 1.0, 0.01, 1.0],
         theta_upper: vec![100.0, 500.0, 100.0, 500.0],
+        theta_fixed: vec![false; 4],
         omega,
+        omega_fixed: vec![false; 4],
         sigma,
+        sigma_fixed: vec![false; 1],
     };
     let pk_param_fn: PkParamFn =
         Box::new(|theta: &[f64], eta: &[f64], _: &HashMap<String, f64>| {
@@ -290,8 +299,11 @@ fn generate_two_cpt_oral_cov() {
         theta_names: theta_names.clone(),
         theta_lower: vec![0.1, 1.0, 0.1, 1.0, 0.01, 0.01, 0.01],
         theta_upper: vec![100.0, 500.0, 100.0, 500.0, 10.0, 5.0, 5.0],
+        theta_fixed: vec![false; 7],
         omega,
+        omega_fixed: vec![false; 5],
         sigma,
+        sigma_fixed: vec![false; 1],
     };
     let pk_param_fn: PkParamFn =
         Box::new(|theta: &[f64], eta: &[f64], cov: &HashMap<String, f64>| {
@@ -400,8 +412,11 @@ fn generate_mm_oral() {
         theta_names: theta_names.clone(),
         theta_lower: vec![0.1, 0.1, 1.0, 0.05],
         theta_upper: vec![50.0, 100.0, 200.0, 20.0],
+        theta_fixed: vec![false; 4],
         omega,
+        omega_fixed: vec![false; 2],
         sigma,
+        sigma_fixed: vec![false; 1],
     };
     let pk_param_fn: PkParamFn =
         Box::new(|theta: &[f64], eta: &[f64], _: &HashMap<String, f64>| {

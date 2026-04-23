@@ -1,5 +1,4 @@
 use crate::estimation::outer_optimizer::optimize_population;
-use crate::estimation::parameterization::packed_len;
 use crate::estimation::saem;
 use crate::io::datareader::read_nonmem_csv;
 use crate::io::output;
@@ -329,7 +328,10 @@ fn fit_inner(
     );
 
     let n_obs = population.n_obs();
-    let n_params = packed_len(init_params);
+    // Count only *estimated* parameters for information criteria. NONMEM's
+    // convention: a FIX parameter doesn't cost a degree of freedom.
+    let fixed_mask = crate::estimation::parameterization::packed_fixed_mask(init_params);
+    let n_params = fixed_mask.iter().filter(|&&b| !b).count();
 
     let ofv = result.ofv;
     let aic = ofv + 2.0 * n_params as f64;
@@ -348,7 +350,11 @@ fn fit_inner(
         names.sort();
         warnings.push(format!(
             "mu-ref: {}",
-            names.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
+            names
+                .iter()
+                .map(|s| s.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
         ));
     }
 
@@ -418,6 +424,9 @@ fn fit_inner(
         se_theta,
         se_omega,
         se_sigma,
+        theta_fixed: result.params.theta_fixed.clone(),
+        omega_fixed: result.params.omega_fixed.clone(),
+        sigma_fixed: result.params.sigma_fixed.clone(),
         subjects,
         n_obs,
         n_subjects: population.subjects.len(),

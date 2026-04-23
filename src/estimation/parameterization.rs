@@ -108,9 +108,52 @@ pub fn unpack_params(v: &[f64], template: &ModelParameters) -> ModelParameters {
         theta_names: template.theta_names.clone(),
         theta_lower: template.theta_lower.clone(),
         theta_upper: template.theta_upper.clone(),
+        theta_fixed: template.theta_fixed.clone(),
         omega,
+        omega_fixed: template.omega_fixed.clone(),
         sigma,
+        sigma_fixed: template.sigma_fixed.clone(),
     }
+}
+
+/// Build a boolean mask over the packed parameter vector marking which
+/// entries are held fixed. Layout mirrors [`pack_params`]:
+///
+/// - Theta: `template.theta_fixed[i]`.
+/// - Omega Cholesky L[i,j] is fixed iff either `omega_fixed[i]` or
+///   `omega_fixed[j]` is set. Pinning the whole row and column of a FIX-ed
+///   eta keeps that eta uncorrelated with any other random effect (its
+///   initial off-diagonals are zero for a diagonal declaration, or its block
+///   off-diagonals for a FIX-ed block).
+/// - Sigma: `template.sigma_fixed[i]`.
+pub fn packed_fixed_mask(template: &ModelParameters) -> Vec<bool> {
+    let mut mask = Vec::with_capacity(packed_len(template));
+
+    for &f in &template.theta_fixed {
+        mask.push(f);
+    }
+
+    let n_eta = template.omega.dim();
+    let omega_fixed: &[bool] = &template.omega_fixed;
+    if template.omega.diagonal {
+        for i in 0..n_eta {
+            mask.push(omega_fixed.get(i).copied().unwrap_or(false));
+        }
+    } else {
+        for j in 0..n_eta {
+            for i in j..n_eta {
+                let fi = omega_fixed.get(i).copied().unwrap_or(false);
+                let fj = omega_fixed.get(j).copied().unwrap_or(false);
+                mask.push(fi || fj);
+            }
+        }
+    }
+
+    for &f in &template.sigma_fixed {
+        mask.push(f);
+    }
+
+    mask
 }
 
 /// Compute the number of packed parameters
@@ -126,7 +169,11 @@ pub fn packed_len(template: &ModelParameters) -> usize {
     n_theta + n_omega + n_sigma
 }
 
-/// Compute box constraints for the packed parameter vector
+/// Compute box constraints for the packed parameter vector.
+///
+/// Parameters marked FIX are given `lower == upper == packed_value`, which
+/// pins them for every optimizer that respects box bounds (NLopt SLSQP/L-BFGS/MMA,
+/// the hand-rolled BFGS, and the Gauss-Newton clamp on proposed steps).
 pub fn compute_bounds(template: &ModelParameters) -> PackedBounds {
     let n_theta = template.theta.len();
     let n_eta = template.omega.dim();
@@ -167,15 +214,24 @@ pub fn compute_bounds(template: &ModelParameters) -> PackedBounds {
         upper.push(5.0); // exp(5) ≈ 148
     }
 
+    // Pin any FIX parameters to their packed (log-space) initial value.
+    // We pack first, then overwrite lower=upper=packed[i] for fixed indices.
+    // Pack-before-overwrite is correct even for block Cholesky off-diagonals,
+    // whose "packed" value is the raw L[i,j] (not log-transformed).
+    let packed = pack_params(template);
+    let fixed_mask = packed_fixed_mask(template);
+    for i in 0..fixed_mask.len() {
+        if fixed_mask[i] {
+            lower[i] = packed[i];
+            upper[i] = packed[i];
+        }
+    }
+
     PackedBounds { lower, upper }
 }
 
 /// Return initial ETA vector: warm-start if available, else mu_refs, else zeros.
-pub fn get_eta_init(
-    n_eta: usize,
-    warm_start: Option<&[f64]>,
-    mu_refs: Option<&[f64]>,
-) -> Vec<f64> {
+pub fn get_eta_init(n_eta: usize, warm_start: Option<&[f64]>, mu_refs: Option<&[f64]>) -> Vec<f64> {
     if let Some(ws) = warm_start {
         ws.to_vec()
     } else if let Some(mu) = mu_refs {
@@ -239,8 +295,11 @@ mod tests {
             theta_names: vec!["cl".into(), "v".into()],
             theta_lower: vec![0.01, 0.01],
             theta_upper: vec![1000.0, 10000.0],
+            theta_fixed: vec![false; 2],
             omega,
+            omega_fixed: vec![false; 2],
             sigma,
+            sigma_fixed: vec![false; 1],
         }
     }
 
@@ -351,8 +410,11 @@ mod tests {
             theta_names: vec!["cl".into(), "v".into()],
             theta_lower: vec![0.01, 0.01],
             theta_upper: vec![1000.0, 10000.0],
+            theta_fixed: vec![false; 2],
             omega,
+            omega_fixed: vec![false; 2],
             sigma,
+            sigma_fixed: vec![false; 1],
         }
     }
 
@@ -426,10 +488,7 @@ mod tests {
                 },
             );
         }
-        let omega = OmegaMatrix::from_diagonal(
-            &[0.09, 0.04, 0.30],
-            eta_names.clone(),
-        );
+        let omega = OmegaMatrix::from_diagonal(&[0.09, 0.04, 0.30], eta_names.clone());
         let sigma = SigmaVector {
             values: vec![0.02],
             names: vec!["PROP_ERR".into()],
@@ -439,8 +498,11 @@ mod tests {
             theta_names: theta_names.clone(),
             theta_lower: vec![0.001, 0.1, 0.01],
             theta_upper: vec![10.0, 500.0, 50.0],
+            theta_fixed: vec![false; 3],
             omega,
+            omega_fixed: vec![false; 3],
             sigma,
+            sigma_fixed: vec![false; 1],
         };
         CompiledModel {
             name: "test".into(),
@@ -476,10 +538,7 @@ mod tests {
     #[test]
     fn test_compute_mu_k_disabled_returns_zeros() {
         // `enabled = false` must short-circuit even if mu-refs exist.
-        let model = make_model_with_mu_refs(vec![
-            ("ETA_CL", "TVCL", true),
-            ("ETA_V", "TVV", true),
-        ]);
+        let model = make_model_with_mu_refs(vec![("ETA_CL", "TVCL", true), ("ETA_V", "TVV", true)]);
         let mu = compute_mu_k(&model, &[0.2, 10.0, 1.5], false);
         assert_eq!(mu, vec![0.0, 0.0, 0.0]);
     }
@@ -487,10 +546,7 @@ mod tests {
     #[test]
     fn test_compute_mu_k_log_transformed() {
         // log-transformed mu-ref (exp / multiplicative pattern) → mu = ln(theta).
-        let model = make_model_with_mu_refs(vec![
-            ("ETA_CL", "TVCL", true),
-            ("ETA_V", "TVV", true),
-        ]);
+        let model = make_model_with_mu_refs(vec![("ETA_CL", "TVCL", true), ("ETA_V", "TVV", true)]);
         let theta = vec![0.2_f64, 10.0_f64, 1.5_f64];
         let mu = compute_mu_k(&model, &theta, true);
         assert_relative_eq!(mu[0], 0.2_f64.ln(), epsilon = 1e-12);
@@ -564,5 +620,91 @@ mod tests {
         let expected_len = packed_len(&template);
         assert_eq!(bounds.lower.len(), expected_len);
         assert_eq!(bounds.upper.len(), expected_len);
+    }
+
+    // ── FIX-parameter behavior ─────────────────────────────────────────────
+
+    #[test]
+    fn test_fixed_theta_pins_bounds_to_packed_value() {
+        let mut template = make_template();
+        template.theta_fixed[0] = true; // fix first theta (TVCL = 10)
+        let bounds = compute_bounds(&template);
+        let packed = pack_params(&template);
+        // Lower == upper == packed value (log-space) for the fixed theta
+        assert_relative_eq!(bounds.lower[0], packed[0], epsilon = 1e-12);
+        assert_relative_eq!(bounds.upper[0], packed[0], epsilon = 1e-12);
+        // Free theta still has a nontrivial box
+        assert!(bounds.lower[1] < bounds.upper[1]);
+    }
+
+    #[test]
+    fn test_fixed_sigma_pins_bounds() {
+        let mut template = make_template();
+        template.sigma_fixed[0] = true;
+        let bounds = compute_bounds(&template);
+        let packed = pack_params(&template);
+        let sigma_idx = packed.len() - 1;
+        assert_relative_eq!(bounds.lower[sigma_idx], packed[sigma_idx], epsilon = 1e-12);
+        assert_relative_eq!(bounds.upper[sigma_idx], packed[sigma_idx], epsilon = 1e-12);
+    }
+
+    #[test]
+    fn test_fixed_omega_diagonal_pins_bounds() {
+        let mut template = make_template();
+        template.omega_fixed[0] = true; // fix eta_cl variance
+        let bounds = compute_bounds(&template);
+        let packed = pack_params(&template);
+        let omega0_idx = template.theta.len(); // first omega entry after theta
+        assert_relative_eq!(
+            bounds.lower[omega0_idx],
+            packed[omega0_idx],
+            epsilon = 1e-12
+        );
+        assert_relative_eq!(
+            bounds.upper[omega0_idx],
+            packed[omega0_idx],
+            epsilon = 1e-12
+        );
+        // The other omega (free) still has a real interval
+        assert!(bounds.lower[omega0_idx + 1] < bounds.upper[omega0_idx + 1]);
+    }
+
+    #[test]
+    fn test_fixed_block_omega_pins_all_cholesky_entries() {
+        // 2×2 block, both etas fixed => every Cholesky entry pinned.
+        let mut template = make_block_template();
+        template.omega_fixed = vec![true, true];
+        let bounds = compute_bounds(&template);
+        let packed = pack_params(&template);
+        // Theta entries 0,1 are free; omega entries 2,3,4 are the Cholesky
+        // lower-triangle (L11, L21, L22); sigma entry 5 is free.
+        for i in 2..=4 {
+            assert_relative_eq!(bounds.lower[i], packed[i], epsilon = 1e-12);
+            assert_relative_eq!(bounds.upper[i], packed[i], epsilon = 1e-12);
+        }
+        assert!(bounds.lower[0] < bounds.upper[0]); // theta 0 free
+        assert!(bounds.lower[5] < bounds.upper[5]); // sigma free
+    }
+
+    #[test]
+    fn test_packed_fixed_mask_length() {
+        let template = make_template();
+        let mask = packed_fixed_mask(&template);
+        assert_eq!(mask.len(), packed_len(&template));
+        assert!(mask.iter().all(|&b| !b)); // default: nothing fixed
+    }
+
+    #[test]
+    fn test_packed_fixed_mask_block_off_diagonal() {
+        // One eta fixed, the other free. The whole row/col of a fixed eta is
+        // pinned — this keeps the fixed eta uncorrelated with free etas and
+        // prevents SAEM's closed-form omega M-step from breaking PD.
+        let mut template = make_block_template();
+        template.omega_fixed = vec![true, false];
+        let mask = packed_fixed_mask(&template);
+        // Layout: theta(0,1), omega-chol(2=L11, 3=L21, 4=L22), sigma(5)
+        assert!(mask[2]); // L11 (eta0 diagonal) — fixed
+        assert!(mask[3]); // L21 (couples eta0-fixed to eta1) — pinned
+        assert!(!mask[4]); // L22 (eta1 diagonal) — free
     }
 }

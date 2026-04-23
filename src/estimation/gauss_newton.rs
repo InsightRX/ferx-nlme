@@ -41,6 +41,7 @@ pub fn run_foce_gn(
     let mut x = pack_params(init_params);
     clamp_to_bounds(&mut x, &bounds);
     let n_packed = x.len();
+    let fixed_mask = packed_fixed_mask(init_params);
 
     let mut warnings = Vec::new();
 
@@ -105,7 +106,7 @@ pub fn run_foce_gn(
 
         // ---- Build the BHHH system ----
         // Gradient + outer-product Hessian approximation
-        let (grad, h_bhhh) = build_gn_system(
+        let (mut grad, mut h_bhhh) = build_gn_system(
             &x,
             init_params,
             model,
@@ -115,6 +116,22 @@ pub fn run_foce_gn(
             &bounds,
             options,
         );
+
+        // Zero gradient rows / BHHH rows & cols for FIX parameters, and set
+        // their diagonal to 1. The clamp at step-application keeps x[i] at its
+        // pinned value; this form guarantees the Cholesky solve gives
+        // `delta[i] = 0` exactly (rather than relying on the clamp to hide a
+        // large, meaningless step).
+        for i in 0..n_packed {
+            if fixed_mask[i] {
+                grad[i] = 0.0;
+                for j in 0..n_packed {
+                    h_bhhh[(i, j)] = 0.0;
+                    h_bhhh[(j, i)] = 0.0;
+                }
+                h_bhhh[(i, i)] = 1.0;
+            }
+        }
 
         // ---- Levenberg-Marquardt damping ----
         let mut h_lm = h_bhhh.clone();
@@ -417,8 +434,15 @@ fn build_gn_system(
     let eps = 1e-4;
     let mut per_subj_grad: Vec<Vec<f64>> = vec![vec![0.0; n]; n_subj];
     let mut x_work = x.to_vec();
+    let fixed_mask = packed_fixed_mask(template);
 
     for j in 0..n {
+        // Skip FD evaluation for FIX parameters — the gradient is identically
+        // zero there and the `unpack_params + per-subject NLL` passes are
+        // expensive.
+        if fixed_mask[j] {
+            continue;
+        }
         let h = eps * (1.0 + x[j].abs());
         let xj_plus = (x[j] + h).min(bounds.upper[j]);
         let xj_minus = (x[j] - h).max(bounds.lower[j]);

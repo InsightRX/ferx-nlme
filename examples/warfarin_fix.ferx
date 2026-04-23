@@ -1,0 +1,34 @@
+# Warfarin model with FIX parameters (NONMEM-style).
+#
+# Demonstrates:
+#   - theta with FIX (TVKA held at 1.5, no bounds)
+#   - omega with FIX (ETA_KA variance held at 0.30)
+#   - sigma with FIX (proportional error held at 0.02)
+# Only TVCL, TVV, ETA_CL and ETA_V are estimated.
+
+[parameters]
+  theta TVCL(0.2, 0.001, 10.0)
+  theta TVV(10.0, 0.1, 500.0)
+  theta TVKA(1.5, FIX)
+
+  omega ETA_CL ~ 0.09
+  omega ETA_V  ~ 0.04
+  omega ETA_KA ~ 0.30 FIX
+
+  sigma PROP_ERR ~ 0.02 FIX
+
+[individual_parameters]
+  CL = TVCL * exp(ETA_CL)
+  V  = TVV  * exp(ETA_V)
+  KA = TVKA * exp(ETA_KA)
+
+[structural_model]
+  pk one_cpt_oral(cl=CL, v=V, ka=KA)
+
+[error_model]
+  DV ~ proportional(PROP_ERR)
+
+[fit_options]
+  method     = foce
+  maxiter    = 300
+  covariance = true

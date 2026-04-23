@@ -30,11 +30,8 @@ pub fn read_nonmem_csv(
         .map(|h| h.trim().to_string())
         .collect();
 
-    let col_idx_ci = |name: &str| -> Option<usize> {
-        headers
-            .iter()
-            .position(|h| h.eq_ignore_ascii_case(name))
-    };
+    let col_idx_ci =
+        |name: &str| -> Option<usize> { headers.iter().position(|h| h.eq_ignore_ascii_case(name)) };
     let col_idx_cs = |name: &str| -> Option<usize> { headers.iter().position(|h| h == name) };
 
     let id_col = col_idx_ci("id").ok_or("Missing ID column")?;
