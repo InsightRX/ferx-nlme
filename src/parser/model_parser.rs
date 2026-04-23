@@ -3,6 +3,119 @@ use regex::Regex;
 use std::collections::HashMap;
 use std::path::Path;
 
+// ── Mu-referencing pattern detection ────────────────────────────────────────
+
+/// Walk a Mul-chain and collect direct Theta indices (not inside any function).
+fn collect_mul_thetas(expr: &Expression, out: &mut Vec<usize>) {
+    match expr {
+        Expression::Theta(i) => out.push(*i),
+        Expression::BinOp(l, BinOp::Mul, r) => {
+            collect_mul_thetas(l, out);
+            collect_mul_thetas(r, out);
+        }
+        _ => {}
+    }
+}
+
+/// Walk a Mul-chain and find the first `exp(Eta(j))`, returning the eta index.
+fn find_exp_eta_in_mul(expr: &Expression) -> Option<usize> {
+    match expr {
+        Expression::UnaryFn(name, arg) if name == "exp" => {
+            if let Expression::Eta(j) = arg.as_ref() {
+                return Some(*j);
+            }
+            None
+        }
+        Expression::BinOp(l, BinOp::Mul, r) => {
+            find_exp_eta_in_mul(l).or_else(|| find_exp_eta_in_mul(r))
+        }
+        _ => None,
+    }
+}
+
+/// Detect mu-referencing patterns in one assignment expression.
+/// Returns `Some((eta_idx, theta_idx, log_transformed))` or `None`.
+fn detect_pattern(expr: &Expression) -> Option<(usize, usize, bool)> {
+    match expr {
+        // Pattern 2: exp(log(THETA) + ETA)
+        Expression::UnaryFn(name, inner) if name == "exp" => {
+            // inner must be Add with log(Theta) and Eta in either order
+            if let Expression::BinOp(lhs, BinOp::Add, rhs) = inner.as_ref() {
+                let try_log_theta_eta = |a: &Expression, b: &Expression| -> Option<(usize, usize)> {
+                    if let Expression::UnaryFn(fn_name, fn_arg) = a {
+                        if fn_name == "log" || fn_name == "ln" {
+                            if let Expression::Theta(ti) = fn_arg.as_ref() {
+                                if let Expression::Eta(ei) = b {
+                                    return Some((*ei, *ti));
+                                }
+                            }
+                        }
+                    }
+                    None
+                };
+                if let Some((ei, ti)) = try_log_theta_eta(lhs, rhs)
+                    .or_else(|| try_log_theta_eta(rhs, lhs))
+                {
+                    return Some((ei, ti, true));
+                }
+            }
+            None
+        }
+        // Pattern 3: THETA + ETA or ETA + THETA
+        Expression::BinOp(lhs, BinOp::Add, rhs) => {
+            match (lhs.as_ref(), rhs.as_ref()) {
+                (Expression::Theta(ti), Expression::Eta(ei)) => Some((*ei, *ti, false)),
+                (Expression::Eta(ei), Expression::Theta(ti)) => Some((*ei, *ti, false)),
+                _ => None,
+            }
+        }
+        // Pattern 1 / 4: product containing Theta and exp(Eta)
+        _ => {
+            let mut thetas = Vec::new();
+            collect_mul_thetas(expr, &mut thetas);
+            if thetas.len() == 1 {
+                if let Some(ei) = find_exp_eta_in_mul(expr) {
+                    return Some((ei, thetas[0], true));
+                }
+            }
+            None
+        }
+    }
+}
+
+/// Analyse [individual_parameters] lines and detect mu-referencing relationships.
+fn detect_mu_refs(
+    indiv_lines: &[String],
+    theta_names: &[String],
+    eta_names: &[String],
+) -> HashMap<String, MuRef> {
+    let mut result = HashMap::new();
+    for line in indiv_lines {
+        let parts: Vec<&str> = line.splitn(2, '=').collect();
+        if parts.len() != 2 {
+            continue;
+        }
+        let expr_str = parts[1].trim();
+        let ctx = ParseCtx::new(theta_names, eta_names, &[]);
+        let expr = match parse_expression(expr_str, ctx) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        if let Some((eta_idx, theta_idx, log_transformed)) = detect_pattern(&expr) {
+            if eta_idx < eta_names.len() && theta_idx < theta_names.len() {
+                result.insert(
+                    eta_names[eta_idx].clone(),
+                    MuRef {
+                        theta_name: theta_names[theta_idx].clone(),
+                        log_transformed,
+                    },
+                );
+            }
+        }
+    }
+    result
+}
+
 /// Parse a model file (.ferx) and return a CompiledModel.
 pub fn parse_model_file(path: &Path) -> Result<CompiledModel, String> {
     let content =
@@ -147,6 +260,9 @@ pub fn parse_full_model(content: &str) -> Result<ParsedModel, String> {
             None
         };
 
+    // Detect mu-referencing relationships from [individual_parameters]
+    let mu_refs = detect_mu_refs(indiv_lines, &theta_names, &eta_names);
+
     // Build pk_indices: maps each individual parameter (by declaration order)
     // to its PK parameter index. Needed for AD to place values in correct slots.
     let pk_indices: Vec<usize> = if !pk_param_map.is_empty() {
@@ -185,6 +301,7 @@ pub fn parse_full_model(content: &str) -> Result<ParsedModel, String> {
         pk_indices,
         ode_spec,
         bloq_method: BloqMethod::Drop,
+        mu_refs,
         referenced_covariates,
     };
 
@@ -364,8 +481,8 @@ pub fn apply_fit_option(
     };
     let parse_bool = |name: &str| -> Result<bool, String> {
         match value.to_lowercase().as_str() {
-            "true" | "t" | "yes" | "1" => Ok(true),
-            "false" | "f" | "no" | "0" => Ok(false),
+            "true" | "t" | "yes" | "1" | "on" => Ok(true),
+            "false" | "f" | "no" | "0" | "off" => Ok(false),
             _ => Err(format!("fit option `{name}`: expected true/false, got `{value}`")),
         }
     };
@@ -414,6 +531,7 @@ pub fn apply_fit_option(
         "sir_samples" => opts.sir_samples = parse_usize("sir_samples")?,
         "sir_resamples" => opts.sir_resamples = parse_usize("sir_resamples")?,
         "sir_seed" => opts.sir_seed = parse_u64_opt("sir_seed")?,
+        "mu_referencing" => opts.mu_referencing = parse_bool("mu_referencing")?,
         "bloq_method" | "bloq" => {
             opts.bloq_method = match value.to_lowercase().as_str() {
                 "m3" => BloqMethod::M3,
@@ -1436,6 +1554,37 @@ mod tests {
         assert_eq!(opts.threads, None);
     }
 
+    // ── mu_referencing fit option ────────────────────────────────────────
+
+    #[test]
+    fn test_parse_mu_referencing_default_true() {
+        let opts = parse_fit_options(&["method = foce".to_string()]).unwrap();
+        assert!(opts.mu_referencing);
+    }
+
+    #[test]
+    fn test_parse_mu_referencing_false() {
+        let opts = parse_fit_options(&["mu_referencing = false".to_string()]).unwrap();
+        assert!(!opts.mu_referencing);
+    }
+
+    #[test]
+    fn test_parse_mu_referencing_accepts_synonyms() {
+        for raw in &["true", "TRUE", "1", "yes", "on"] {
+            let opts = parse_fit_options(&[format!("mu_referencing = {}", raw)]).unwrap();
+            assert!(opts.mu_referencing, "{} should enable", raw);
+        }
+        for raw in &["false", "FALSE", "0", "no", "off"] {
+            let opts = parse_fit_options(&[format!("mu_referencing = {}", raw)]).unwrap();
+            assert!(!opts.mu_referencing, "{} should disable", raw);
+        }
+    }
+
+    #[test]
+    fn test_parse_mu_referencing_invalid_rejected() {
+        assert!(parse_fit_options(&["mu_referencing = wibble".to_string()]).is_err());
+    }
+
     // ── apply_fit_option (shared dispatch used by the R wrapper's `settings`
     //    argument and by parse_fit_options) ────────────────────────────────
 
@@ -1616,6 +1765,162 @@ mod tests {
         assert_eq!(opts.saem_n_convergence, 400);
         assert!(opts.sir);
         assert_eq!(opts.sir_samples, 2000);
+    }
+
+    // ── mu-referencing pattern detection ─────────────────────────────────
+
+    fn detect_one(line: &str, theta_names: &[&str], eta_names: &[&str]) -> Option<MuRef> {
+        let tn: Vec<String> = theta_names.iter().map(|s| s.to_string()).collect();
+        let en: Vec<String> = eta_names.iter().map(|s| s.to_string()).collect();
+        let refs = detect_mu_refs(&[line.to_string()], &tn, &en);
+        // Return the one detected mu-ref (if any). Tests assume a single line.
+        refs.into_iter().next().map(|(_, v)| v)
+    }
+
+    #[test]
+    fn test_detect_mu_ref_multiplicative_exp() {
+        // Classic NONMEM pattern: CL = TVCL * exp(ETA_CL)
+        let m = detect_one("CL = TVCL * exp(ETA_CL)", &["TVCL"], &["ETA_CL"])
+            .expect("should detect mu-ref");
+        assert_eq!(m.theta_name, "TVCL");
+        assert!(m.log_transformed);
+    }
+
+    #[test]
+    fn test_detect_mu_ref_exp_of_log_sum() {
+        // Canonical mu-reference form: exp(log(THETA) + ETA)
+        let m = detect_one("CL = exp(log(TVCL) + ETA_CL)", &["TVCL"], &["ETA_CL"])
+            .expect("should detect mu-ref");
+        assert_eq!(m.theta_name, "TVCL");
+        assert!(m.log_transformed);
+    }
+
+    #[test]
+    fn test_detect_mu_ref_exp_of_log_sum_reversed() {
+        // ETA on the left: exp(ETA + log(THETA))
+        let m = detect_one("CL = exp(ETA_CL + log(TVCL))", &["TVCL"], &["ETA_CL"])
+            .expect("should detect mu-ref");
+        assert_eq!(m.theta_name, "TVCL");
+        assert!(m.log_transformed);
+    }
+
+    #[test]
+    fn test_detect_mu_ref_additive() {
+        // Additive eta: CL = TVCL + ETA_CL → mu = TVCL (not log-transformed)
+        let m = detect_one("CL = TVCL + ETA_CL", &["TVCL"], &["ETA_CL"])
+            .expect("should detect mu-ref");
+        assert_eq!(m.theta_name, "TVCL");
+        assert!(!m.log_transformed);
+    }
+
+    #[test]
+    fn test_detect_mu_ref_additive_reversed() {
+        // ETA first: CL = ETA_CL + TVCL
+        let m = detect_one("CL = ETA_CL + TVCL", &["TVCL"], &["ETA_CL"])
+            .expect("should detect mu-ref");
+        assert_eq!(m.theta_name, "TVCL");
+        assert!(!m.log_transformed);
+    }
+
+    #[test]
+    fn test_detect_mu_ref_product_chain_with_covariate() {
+        // Real covariate model: CL = TVCL * (WT/70)^0.75 * exp(ETA_CL).
+        // The detector walks the Mul chain for the anchor theta and the
+        // exp(eta) factor; the Power sub-expression is opaque (neither a
+        // Theta nor an exp(Eta)), so it is simply skipped. As long as there
+        // is exactly one bare Theta factor, detection still succeeds.
+        let m = detect_one(
+            "CL = TVCL * (WT/70)^0.75 * exp(ETA_CL)",
+            &["TVCL"],
+            &["ETA_CL"],
+        )
+        .expect("should still detect mu-ref through opaque covariate term");
+        assert_eq!(m.theta_name, "TVCL");
+        assert!(m.log_transformed);
+    }
+
+    #[test]
+    fn test_detect_mu_ref_rejects_two_thetas() {
+        // Two thetas in the product → ambiguous anchor, pattern rejected.
+        let m = detect_one(
+            "CL = TVCL * TVCL2 * exp(ETA_CL)",
+            &["TVCL", "TVCL2"],
+            &["ETA_CL"],
+        );
+        assert!(m.is_none());
+    }
+
+    #[test]
+    fn test_detect_mu_ref_rejects_constant_only() {
+        // No theta in the product → not a mu-ref.
+        let m = detect_one("CL = 2.0 * exp(ETA_CL)", &["TVCL"], &["ETA_CL"]);
+        assert!(m.is_none());
+    }
+
+    #[test]
+    fn test_detect_mu_ref_rejects_compound_eta_expression() {
+        // exp(ETA_CL + ETA_OCC) is not a bare exp(Eta) — rejected.
+        let m = detect_one(
+            "CL = TVCL * exp(ETA_CL + ETA_OCC)",
+            &["TVCL"],
+            &["ETA_CL", "ETA_OCC"],
+        );
+        assert!(m.is_none());
+    }
+
+    #[test]
+    fn test_detect_mu_ref_rejects_no_eta() {
+        // KM = TVKM — no eta, no mu-ref recorded.
+        let m = detect_one("KM = TVKM", &["TVKM"], &[]);
+        assert!(m.is_none());
+    }
+
+    #[test]
+    fn test_detect_mu_ref_multiple_parameters() {
+        // Detect across several lines; each eta maps to its own theta.
+        let lines = vec![
+            "CL = TVCL * exp(ETA_CL)".to_string(),
+            "V  = TVV  * exp(ETA_V)".to_string(),
+            "KA = TVKA * exp(ETA_KA)".to_string(),
+        ];
+        let tn = vec!["TVCL".to_string(), "TVV".to_string(), "TVKA".to_string()];
+        let en = vec!["ETA_CL".to_string(), "ETA_V".to_string(), "ETA_KA".to_string()];
+        let refs = detect_mu_refs(&lines, &tn, &en);
+        assert_eq!(refs.len(), 3);
+        assert_eq!(refs["ETA_CL"].theta_name, "TVCL");
+        assert_eq!(refs["ETA_V"].theta_name, "TVV");
+        assert_eq!(refs["ETA_KA"].theta_name, "TVKA");
+        assert!(refs.values().all(|m| m.log_transformed));
+    }
+
+    #[test]
+    fn test_detect_mu_ref_full_model_parse() {
+        // End-to-end: parse a minimal .ferx and verify mu_refs is populated.
+        let content = r#"
+[parameters]
+  theta TVCL(0.2, 0.001, 10.0)
+  theta TVV(10.0, 0.1, 500.0)
+
+  omega ETA_CL ~ 0.09
+  omega ETA_V  ~ 0.04
+
+  sigma PROP_ERR ~ 0.02
+
+[individual_parameters]
+  CL = TVCL * exp(ETA_CL)
+  V  = TVV  * exp(ETA_V)
+
+[structural_model]
+  pk one_cpt_iv_bolus(cl=CL, v=V)
+
+[error_model]
+  DV ~ proportional(PROP_ERR)
+"#;
+        let parsed = parse_full_model(content).expect("model should parse");
+        assert_eq!(parsed.model.mu_refs.len(), 2);
+        let cl = parsed.model.mu_refs.get("ETA_CL").unwrap();
+        assert_eq!(cl.theta_name, "TVCL");
+        assert!(cl.log_transformed);
     }
 
     #[test]

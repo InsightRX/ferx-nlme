@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "ayu";
-            window.path_to_searchindex_js = "../searchindex-1004e87f.js";
+            window.path_to_searchindex_js = "../searchindex-2de7f0a2.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-678ba3a2.js"></script>
+        <script src="../toc-66605922.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -196,6 +196,8 @@
 <tr><td><code>optimizer</code></td><td><code>slsqp</code>, <code>lbfgs</code>, <code>nlopt_lbfgs</code>, <code>mma</code>, <code>bfgs</code></td><td><code>slsqp</code></td><td>Optimization algorithm</td></tr>
 <tr><td><code>global_search</code></td><td><code>true</code>, <code>false</code></td><td><code>false</code></td><td>Run gradient-free pre-search before local optimization</td></tr>
 <tr><td><code>global_maxeval</code></td><td>integer</td><td>auto</td><td>Max evaluations for global search</td></tr>
+<tr><td><code>bloq_method</code></td><td><code>drop</code>, <code>m3</code></td><td><code>drop</code></td><td>How to handle rows with <code>CENS=1</code>. <code>m3</code> enables Beal’s M3 likelihood (see <a href="../examples/bloq.html">BLOQ example</a>).</td></tr>
+<tr><td><code>mu_referencing</code></td><td><code>true</code>, <code>false</code></td><td><code>true</code></td><td>Re-centre inner-loop ETA estimates on the current population mean (auto-detected from <code>[individual_parameters]</code>). See the <a href="../faq.html#do-i-need-to-use-mu-referencing-in-my-model-definitions-like-in-nonmem--nlmixr2">FAQ entry</a> for details. Set <code>false</code> to reproduce pre-automatic-mu behaviour.</td></tr>
 </tbody>
 </table>
 </div>

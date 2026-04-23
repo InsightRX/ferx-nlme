@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "ayu";
-            window.path_to_searchindex_js = "../searchindex-1004e87f.js";
+            window.path_to_searchindex_js = "../searchindex-2de7f0a2.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-678ba3a2.js"></script>
+        <script src="../toc-66605922.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -189,6 +189,7 @@
 <tr><td><a href="two-cpt-iv.html">Two-Compartment IV</a></td><td>2-cpt</td><td>IV bolus</td><td>Multi-compartment dynamics</td></tr>
 <tr><td><a href="covariates.html">Covariates</a></td><td>2-cpt</td><td>Oral</td><td>Weight and renal function effects</td></tr>
 <tr><td><a href="ode-model.html">ODE Model</a></td><td>1-cpt</td><td>Oral</td><td>Michaelis-Menten elimination, ODE solver</td></tr>
+<tr><td><a href="bloq.html">BLOQ (M3 method)</a></td><td>1-cpt</td><td>Oral</td><td>Likelihood-based handling of censored observations</td></tr>
 </tbody>
 </table>
 </div>
@@ -207,6 +208,9 @@ ferx examples/mm_oral.ferx --data data/mm_oral.csv
 
 # SAEM estimation
 ferx examples/warfarin_saem.ferx --data data/warfarin.csv
+
+# BLOQ (M3 method)
+ferx examples/warfarin-bloq.ferx --data data/warfarin-bloq.csv
 </code></pre>
 
                     </main>

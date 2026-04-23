@@ -342,6 +342,16 @@ fn fit_inner(
     // Optional SIR step
     let mut warnings = result.warnings;
 
+    // Report detected mu-referencing relationships (only when feature is enabled)
+    if options.mu_referencing && !model.mu_refs.is_empty() {
+        let mut names: Vec<&String> = model.mu_refs.keys().collect();
+        names.sort();
+        warnings.push(format!(
+            "mu-ref: {}",
+            names.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
+        ));
+    }
+
     // When M3 BLOQ is combined with non-interaction FOCE, mixing linearized
     // Gaussian residuals with non-linearized log Φ terms gives inconsistent
     // OFVs near the LLOQ boundary. The FOCE dispatcher routes affected

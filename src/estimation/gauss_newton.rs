@@ -15,7 +15,7 @@
 /// converges in 10-30 iterations vs 100+ for first-order methods.
 use crate::estimation::inner_optimizer::run_inner_loop_warm;
 use crate::estimation::outer_optimizer::{compute_covariance, OuterResult};
-use crate::estimation::parameterization::*;
+use crate::estimation::parameterization::{compute_mu_k, *};
 use crate::stats::likelihood::{
     foce_population_nll, foce_subject_nll_interaction, foce_subject_nll_standard,
 };
@@ -65,6 +65,7 @@ pub fn run_foce_gn(
 
     // Initial inner loop
     let params = unpack_params(&x, init_params);
+    let init_mu_k = compute_mu_k(model, &params.theta, options.mu_referencing);
     let (mut eta_hats, mut h_matrices, _) = run_inner_loop_warm(
         model,
         population,
@@ -72,6 +73,7 @@ pub fn run_foce_gn(
         options.inner_maxiter,
         options.inner_tol,
         None,
+        Some(&init_mu_k),
     );
 
     let mut ofv = 2.0
@@ -152,6 +154,7 @@ pub fn run_foce_gn(
             let params_try = unpack_params(&x_new, init_params);
 
             // Re-estimate EBEs at new parameters (warm-started)
+            let ls_mu_k = compute_mu_k(model, &params_try.theta, options.mu_referencing);
             let (eh, hm, _) = run_inner_loop_warm(
                 model,
                 population,
@@ -159,6 +162,7 @@ pub fn run_foce_gn(
                 options.inner_maxiter,
                 options.inner_tol,
                 Some(&eta_new),
+                Some(&ls_mu_k),
             );
 
             let nll = foce_population_nll(

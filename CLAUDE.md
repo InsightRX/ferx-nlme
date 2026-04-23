@@ -33,7 +33,28 @@ cargo clippy
 
 The binary is called `ferx` and outputs `{model}-fit.yaml` (estimates) and `{model}-sdtab.csv` (per-subject diagnostics).
 
-There is no test suite yet (`tests/` directory and `#[cfg(test)]` blocks are absent). Validation is done by running example models against known datasets in `examples/` and `data/`.
+## Tests
+
+Inline `#[cfg(test)] mod tests` blocks at the bottom of each module (e.g. `src/parser/model_parser.rs`, `src/estimation/parameterization.rs`). Run with `cargo test --lib`.
+
+**Every new feature requires a test.** When adding a new parser pattern, fit option, estimator, or any public behaviour, add a corresponding unit test in the same file's `tests` module before considering the change done. Bug fixes should add a regression test that fails without the fix.
+
+Prefer unit tests of the smallest helper that isolates the new behaviour (e.g. test `detect_mu_refs` directly, not just through a full `fit()` call) — end-to-end fits are too slow and flaky for the default test suite.
+
+## Documentation
+
+Docs live in `docs/` as an [mdBook](https://rust-lang.github.io/mdBook/):
+
+- `docs/src/` — Markdown sources (edit these).
+- `docs/book/` — built HTML, **committed to the repo** (GitHub Pages deploys from it). Run `cd docs && mdbook build` after editing any `docs/src/*.md` and commit both the source and the built output in the same commit.
+- `docs/src/SUMMARY.md` — table of contents; new pages must be added here to show up in the book.
+
+Any user-visible feature (new fit option, new estimator, new file-format directive, behavioural change) must update the relevant page — typically one of:
+
+- `docs/src/model-file/fit-options.md` for `[fit_options]` keys.
+- `docs/src/model-file/individual-parameters.md` for DSL syntax.
+- `docs/src/estimation/*.md` for estimator-specific behaviour.
+- `docs/src/faq.md` for user-facing explanations / comparisons to NONMEM / nlmixr2.
 
 ## Architecture
 

@@ -179,6 +179,7 @@ fn build_warfarin_model() -> CompiledModel {
         pk_indices: vec![PK_IDX_CL, PK_IDX_V, PK_IDX_KA],
         ode_spec: None,
         bloq_method: BloqMethod::Drop,
+        mu_refs: HashMap::new(),
         referenced_covariates: Vec::new(),
     }
 }
@@ -248,6 +249,7 @@ fn generate_two_cpt_iv() {
         pk_indices: vec![PK_IDX_CL, PK_IDX_V, PK_IDX_Q, PK_IDX_V2],
         ode_spec: None,
         bloq_method: BloqMethod::Drop,
+        mu_refs: HashMap::new(),
         referenced_covariates: Vec::new(),
     };
     let obs_times = vec![0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 12.0, 24.0, 48.0, 72.0];
@@ -321,6 +323,7 @@ fn generate_two_cpt_oral_cov() {
         pk_indices: vec![PK_IDX_CL, PK_IDX_V, PK_IDX_Q, PK_IDX_V2, PK_IDX_KA],
         ode_spec: None,
         bloq_method: BloqMethod::Drop,
+        mu_refs: HashMap::new(),
         referenced_covariates: Vec::new(),
     };
 
@@ -437,6 +440,7 @@ fn generate_mm_oral() {
         pk_indices: vec![0, 2],
         ode_spec: Some(ode_spec),
         bloq_method: BloqMethod::Drop,
+        mu_refs: HashMap::new(),
         referenced_covariates: Vec::new(),
     };
     let obs_times = vec![

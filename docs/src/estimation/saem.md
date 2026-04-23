@@ -35,7 +35,12 @@ For each subject, run `n_mh_steps` Metropolis-Hastings iterations to sample from
 
 \\[ p(\eta_i | y_i, \theta, \Omega, \sigma) \\]
 
-**Proposal**: \\( \eta_{\text{prop}} = \eta_{\text{current}} + \delta_i \cdot L \cdot z \\), where \\( z \sim N(0, I) \\) and \\( L = \text{chol}(\Omega) \\).
+**Proposal**:
+
+- *Exploration phase* (with `mu_referencing = true`): \\( \eta_{\text{prop}} = \mu_k + \delta_i \cdot L \cdot z \\), an independence proposal centred on the current population mean \\( \mu_k \\) — auto-detected from `[individual_parameters]`. This helps the chain escape the \\( \eta = 0 \\) basin when `THETA` is far from the truth.
+- *Convergence phase*, and whenever `mu_referencing = false`: \\( \eta_{\text{prop}} = \eta_{\text{current}} + \delta_i \cdot L \cdot z \\), a symmetric random walk that preserves detailed balance during stochastic approximation.
+
+In both cases \\( z \sim N(0, I) \\) and \\( L = \text{chol}(\Omega) \\).
 
 **Acceptance**: Accept with probability \\( \min(1, \exp(\text{NLL}_{\text{current}} - \text{NLL}_{\text{prop}})) \\).
 
