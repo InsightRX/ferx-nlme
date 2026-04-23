@@ -2,36 +2,65 @@
 
 ## Do I need to use MU-referencing in my model definitions, like in NONMEM / nlmixr2?
 
-**No.** FeRx does not require MU-referencing.
+**No.** You do not need to write an explicit `MU_i` intermediate variable — ferx detects the same structure automatically from the right-hand side of each `[individual_parameters]` line.
 
 In NONMEM and nlmixr2, MU-referencing is a convention in which each random effect `ETA(i)` is linearly associated with a single `MU_i` term (typically `MU_i = LOG(THETA(i))`), so individual parameters look like:
 
 ```
 MU_1 = LOG(THETA(1))
-CL = EXP(MU_1 + ETA(1))
+CL   = EXP(MU_1 + ETA(1))
 ```
 
-This structure is required by those tools' SAEM implementations because they rely on conjugate Gibbs updates that are only valid when the `MU_i` → `ETA(i)` relationship is strictly linear (and typically on a log scale). If you deviate — for example by writing `CL = THETA(1) * EXP(ETA(1))` without going through an intermediate `MU_1`, or by mixing multiple etas into one parameter — NONMEM SAEM will either reject the model or silently produce biased estimates.
+This structure is required by NONMEM's SAEM implementation, whose conjugate-Gibbs E-step is only valid when the `MU_i → ETA(i)` relationship is strictly linear (typically on a log scale). Deviating from it — for example writing `CL = THETA(1) * EXP(ETA(1))` without going through an intermediate `MU_1` — causes NONMEM SAEM to reject the model or silently produce biased estimates.
 
-FeRx's SAEM implementation uses **Metropolis-Hastings sampling** for the E-step rather than Gibbs, which does not require MU-referencing. You can write individual parameters in any form you like:
+### How ferx handles it
+
+In ferx, you simply write the individual-parameter line in the form that makes sense for your model. The parser inspects each line and records which `THETA` acts as the "anchor" for each `ETA`, then uses that information to re-centre the estimation search at every outer iteration. The following patterns are detected automatically:
 
 ```
-# All of these work fine in ferx:
-CL = TVCL * exp(ETA_CL)
-CL = TVCL + ETA_CL                              # additive eta
-CL = TVCL * (WT/70)^0.75 * exp(ETA_CL)          # with covariates
-CL = TVCL * exp(ETA_CL + ETA_CL_OCC)            # multiple etas
-VMAX = TVVMAX * exp(ETA_VMAX)
-KM   = TVKM                                      # no eta at all
+CL = TVCL * exp(ETA_CL)              # multiplicative exp — most common
+CL = exp(log(TVCL) + ETA_CL)         # canonical MU form
+CL = TVCL * (WT/70)^0.75 * exp(ETA_CL)   # with covariate adjustment
+CL = TVCL + ETA_CL                   # additive eta (linear shift)
 ```
 
-The FOCE / FOCEI estimators have no MU-referencing requirement in any NLME tool — they use MAP optimization over etas regardless of parameterization. This is equally true in ferx.
+The parser records `ETA_CL → (TVCL, log_transformed)` and at each outer step computes the shift
 
-### Performance implication
+```
+mu[i] = log(theta[i])   # for multiplicative/exp patterns
+mu[i] = theta[i]        # for additive patterns
+```
 
-The main tradeoff is that MH sampling is slightly less efficient per iteration than conjugate Gibbs for MU-referenced models. In practice:
+The inner optimizer (and the SAEM exploration-phase MH proposal) is then centred on this `mu` shift rather than on `eta = 0`. This matches the convergence behaviour that NONMEM / nlmixr2 get from an explicit `MU_i = LOG(THETA(i))` block, without requiring you to write it.
 
-- For models with a few random effects, the difference is negligible
-- For models with many (>10) random effects, conjugate Gibbs would converge in fewer iterations — but in exchange you gain flexibility to write models that don't fit the MU-referenced mold
+Patterns that ferx **does not** auto-detect (and therefore falls back to the plain `eta = 0` start) include:
 
-If you have a NONMEM model that uses MU-referencing and want to port it to ferx, you can drop the MU intermediate step and write the individual parameters directly — the results will be equivalent.
+- Parameters with two or more free thetas in the product (`CL = TVCL * TVSCALE * exp(ETA_CL)`) — ambiguous anchor.
+- Compound eta expressions inside the `exp` (`CL = TVCL * exp(ETA_CL + ETA_OCC)`).
+- Non-standard transforms the parser doesn't recognise.
+
+Mu-referencing being absent is not an error — it just means that eta for that parameter is initialised to zero at each outer step, same as the pre-automatic behaviour. When a fit runs, ferx records the list of auto-detected mu-referenced ETAs in `FitResult.warnings` (as a line starting with `mu-ref: …`) so you can confirm what the parser picked up.
+
+### Why it matters
+
+Mu-referencing mostly affects convergence speed and robustness, not the final MLE:
+
+- **FOCE / FOCEI**: each outer step re-optimises ETA by BFGS. With a mu-shift, the warm-started BFGS sees a much better starting point when `THETA` moves away from the initial estimate, so fewer inner iterations are needed and pathological steps are less likely.
+- **SAEM**: during the exploration phase, Metropolis–Hastings proposals are centred on `mu_k` instead of on the current chain state. This helps the chain escape the (incorrect) `eta = 0` basin when `TVCL` is still far from the true value. During the convergence phase the proposal reverts to a symmetric random walk so that detailed balance holds.
+
+Because the estimator is MLE in both cases, models that converge without mu-referencing will converge to the same estimates with it — just (usually) in fewer iterations.
+
+### Disabling it
+
+If you want to benchmark against the pre-2026 behaviour, set:
+
+```
+[fit_options]
+  mu_referencing = false
+```
+
+or, from the Rust API, `FitOptions { mu_referencing: false, .. }`. The default is `true`.
+
+### Porting from NONMEM
+
+If you have a NONMEM model that uses an explicit `MU_1 = LOG(THETA(1))` line, just drop the `MU_i` intermediate and write the individual parameter directly — ferx will detect the equivalent mu-reference automatically and the fit will be equivalent.

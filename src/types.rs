@@ -414,12 +414,10 @@ pub struct FitOptions {
     /// See [`BloqMethod`]. Defaults to `Drop` (backward-compatible: no effect
     /// when the data has no CENS column).
     pub bloq_method: BloqMethod,
-<<<<<<< HEAD
     /// If true (default), use automatically detected mu-referencing to centre
     /// ETA starting points on the current population mean at each outer step.
     /// Set to false to disable for comparison purposes.
     pub mu_referencing: bool,
-=======
     /// Number of rayon worker threads used for the per-subject parallel loops
     /// (inner EBE search, SAEM MH steps, SIR weighting, likelihood reductions).
     /// `None` (default) leaves rayon's global pool alone, which means one
@@ -431,7 +429,6 @@ pub struct FitOptions {
     /// another thread, the outer/inner/SAEM/GN loops exit at the next safe
     /// point and `fit()` returns `Err("cancelled by user")`. Default `None`.
     pub cancel: Option<crate::cancel::CancelFlag>,
->>>>>>> main
 }
 
 impl Default for FitOptions {
@@ -461,12 +458,9 @@ impl Default for FitOptions {
             sir_resamples: 250,
             sir_seed: None,
             bloq_method: BloqMethod::Drop,
-<<<<<<< HEAD
             mu_referencing: true,
-=======
             threads: None,
             cancel: None,
->>>>>>> main
         }
     }
 }
