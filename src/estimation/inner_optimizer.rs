@@ -1,4 +1,3 @@
-
 use crate::pk;
 use crate::stats::likelihood::individual_nll;
 use crate::types::*;
@@ -37,9 +36,7 @@ pub fn find_ebe(
     let n_eta = model.n_eta;
 
     // mu: shift vector (zeros when no mu-referencing)
-    let mu: Vec<f64> = mu_k
-        .map(|m| m.to_vec())
-        .unwrap_or_else(|| vec![0.0; n_eta]);
+    let mu: Vec<f64> = mu_k.map(|m| m.to_vec()).unwrap_or_else(|| vec![0.0; n_eta]);
 
     // psi_init: warm start converted to psi-space, or prior mode (psi = mu, eta_true = 0)
     let mut psi: Vec<f64> = match eta_init {
@@ -110,8 +107,7 @@ pub fn find_ebe(
         let mu_ad = mu.clone();
         let grad_fn = |p: &[f64]| -> Vec<f64> {
             // Gradient w.r.t. psi = gradient w.r.t. eta_true at eta_true = psi - mu
-            let eta_t: Vec<f64> =
-                p.iter().zip(mu_ad.iter()).map(|(pi, mi)| pi - mi).collect();
+            let eta_t: Vec<f64> = p.iter().zip(mu_ad.iter()).map(|(pi, mi)| pi - mi).collect();
             let (_, g) = ad_gradients::compute_nll_gradient_ad(
                 &eta_t,
                 &tv_adjusted,

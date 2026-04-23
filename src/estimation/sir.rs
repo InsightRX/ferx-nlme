@@ -8,7 +8,9 @@
 //! more robust than the asymptotic covariance matrix.
 
 use crate::estimation::inner_optimizer::run_inner_loop_warm;
-use crate::estimation::parameterization::{compute_bounds, compute_mu_k, pack_params, unpack_params};
+use crate::estimation::parameterization::{
+    compute_bounds, compute_mu_k, pack_params, unpack_params,
+};
 use crate::stats::likelihood::foce_population_nll;
 use crate::types::*;
 use nalgebra::{DMatrix, DVector};

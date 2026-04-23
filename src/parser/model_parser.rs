@@ -41,20 +41,21 @@ fn detect_pattern(expr: &Expression) -> Option<(usize, usize, bool)> {
         Expression::UnaryFn(name, inner) if name == "exp" => {
             // inner must be Add with log(Theta) and Eta in either order
             if let Expression::BinOp(lhs, BinOp::Add, rhs) = inner.as_ref() {
-                let try_log_theta_eta = |a: &Expression, b: &Expression| -> Option<(usize, usize)> {
-                    if let Expression::UnaryFn(fn_name, fn_arg) = a {
-                        if fn_name == "log" || fn_name == "ln" {
-                            if let Expression::Theta(ti) = fn_arg.as_ref() {
-                                if let Expression::Eta(ei) = b {
-                                    return Some((*ei, *ti));
+                let try_log_theta_eta =
+                    |a: &Expression, b: &Expression| -> Option<(usize, usize)> {
+                        if let Expression::UnaryFn(fn_name, fn_arg) = a {
+                            if fn_name == "log" || fn_name == "ln" {
+                                if let Expression::Theta(ti) = fn_arg.as_ref() {
+                                    if let Expression::Eta(ei) = b {
+                                        return Some((*ei, *ti));
+                                    }
                                 }
                             }
                         }
-                    }
-                    None
-                };
-                if let Some((ei, ti)) = try_log_theta_eta(lhs, rhs)
-                    .or_else(|| try_log_theta_eta(rhs, lhs))
+                        None
+                    };
+                if let Some((ei, ti)) =
+                    try_log_theta_eta(lhs, rhs).or_else(|| try_log_theta_eta(rhs, lhs))
                 {
                     return Some((ei, ti, true));
                 }
@@ -62,13 +63,11 @@ fn detect_pattern(expr: &Expression) -> Option<(usize, usize, bool)> {
             None
         }
         // Pattern 3: THETA + ETA or ETA + THETA
-        Expression::BinOp(lhs, BinOp::Add, rhs) => {
-            match (lhs.as_ref(), rhs.as_ref()) {
-                (Expression::Theta(ti), Expression::Eta(ei)) => Some((*ei, *ti, false)),
-                (Expression::Eta(ei), Expression::Theta(ti)) => Some((*ei, *ti, false)),
-                _ => None,
-            }
-        }
+        Expression::BinOp(lhs, BinOp::Add, rhs) => match (lhs.as_ref(), rhs.as_ref()) {
+            (Expression::Theta(ti), Expression::Eta(ei)) => Some((*ei, *ti, false)),
+            (Expression::Eta(ei), Expression::Theta(ti)) => Some((*ei, *ti, false)),
+            _ => None,
+        },
         // Pattern 1 / 4: product containing Theta and exp(Eta)
         _ => {
             let mut thetas = Vec::new();
@@ -450,10 +449,7 @@ fn parse_fit_options(lines: &[String]) -> Result<FitOptions, String> {
         match apply_fit_option(&mut opts, parts[0], parts[1]) {
             Ok(true) => {}
             Ok(false) => {
-                return Err(format!(
-                    "[fit_options]: unknown key `{}`",
-                    parts[0]
-                ));
+                return Err(format!("[fit_options]: unknown key `{}`", parts[0]));
             }
             Err(e) => return Err(format!("[fit_options]: {}", e)),
         }
@@ -475,33 +471,33 @@ fn parse_fit_options(lines: &[String]) -> Result<FitOptions, String> {
 ///
 /// Does NOT handle `method` (which has list-chain syntax) — that stays in
 /// the block parser.
-pub fn apply_fit_option(
-    opts: &mut FitOptions,
-    key: &str,
-    value: &str,
-) -> Result<bool, String> {
+pub fn apply_fit_option(opts: &mut FitOptions, key: &str, value: &str) -> Result<bool, String> {
     let value = value.trim();
 
     let parse_usize = |name: &str| -> Result<usize, String> {
-        value
-            .parse::<usize>()
-            .map_err(|_| format!("fit option `{name}`: expected non-negative integer, got `{value}`"))
+        value.parse::<usize>().map_err(|_| {
+            format!("fit option `{name}`: expected non-negative integer, got `{value}`")
+        })
     };
     let parse_bool = |name: &str| -> Result<bool, String> {
         match value.to_lowercase().as_str() {
             "true" | "t" | "yes" | "1" | "on" => Ok(true),
             "false" | "f" | "no" | "0" | "off" => Ok(false),
-            _ => Err(format!("fit option `{name}`: expected true/false, got `{value}`")),
+            _ => Err(format!(
+                "fit option `{name}`: expected true/false, got `{value}`"
+            )),
         }
     };
     let parse_u64_opt = |name: &str| -> Result<Option<u64>, String> {
-        if value.is_empty() || value.eq_ignore_ascii_case("null") || value.eq_ignore_ascii_case("na") {
+        if value.is_empty()
+            || value.eq_ignore_ascii_case("null")
+            || value.eq_ignore_ascii_case("na")
+        {
             Ok(None)
         } else {
-            value
-                .parse::<u64>()
-                .map(Some)
-                .map_err(|_| format!("fit option `{name}`: expected non-negative integer, got `{value}`"))
+            value.parse::<u64>().map(Some).map_err(|_| {
+                format!("fit option `{name}`: expected non-negative integer, got `{value}`")
+            })
         }
     };
     let parse_f64 = |name: &str| -> Result<f64, String> {
@@ -811,18 +807,14 @@ fn parse_parameters(
     .unwrap();
 
     // omega NAME ~ value  |  omega NAME ~ value FIX
-    let omega_re =
-        Regex::new(r"(?i)omega\s+(\w+)\s*~\s*([0-9eE.+-]+)(?:\s+(FIX)\b)?").unwrap();
+    let omega_re = Regex::new(r"(?i)omega\s+(\w+)\s*~\s*([0-9eE.+-]+)(?:\s+(FIX)\b)?").unwrap();
 
     // block_omega (NAME1, NAME2, ...) = [lower_triangle_values]  |  ... FIX
-    let block_omega_re = Regex::new(
-        r"(?i)block_omega\s*\(([^)]+)\)\s*=\s*\[([^\]]+)\](?:\s+(FIX)\b)?",
-    )
-    .unwrap();
+    let block_omega_re =
+        Regex::new(r"(?i)block_omega\s*\(([^)]+)\)\s*=\s*\[([^\]]+)\](?:\s+(FIX)\b)?").unwrap();
 
     // sigma NAME ~ value  |  sigma NAME ~ value FIX
-    let sigma_re =
-        Regex::new(r"(?i)sigma\s+(\w+)\s*~\s*([0-9eE.+-]+)(?:\s+(FIX)\b)?").unwrap();
+    let sigma_re = Regex::new(r"(?i)sigma\s+(\w+)\s*~\s*([0-9eE.+-]+)(?:\s+(FIX)\b)?").unwrap();
 
     for line in lines {
         if let Some(caps) = theta_re.captures(line) {
@@ -894,11 +886,7 @@ fn parse_parameters(
                 .parse()
                 .map_err(|_| format!("Bad sigma: {}", line))?;
             let fixed = caps.get(3).is_some();
-            sigmas.push(SigmaSpec {
-                name,
-                value,
-                fixed,
-            });
+            sigmas.push(SigmaSpec { name, value, fixed });
         }
     }
 
@@ -1771,10 +1759,7 @@ mod tests {
     #[test]
     fn test_apply_fit_option_optimizer_and_bloq() {
         let mut opts = FitOptions::default();
-        assert_eq!(
-            apply_fit_option(&mut opts, "optimizer", "lbfgs"),
-            Ok(true)
-        );
+        assert_eq!(apply_fit_option(&mut opts, "optimizer", "lbfgs"), Ok(true));
         assert_eq!(opts.optimizer, Optimizer::NloptLbfgs);
 
         assert_eq!(apply_fit_option(&mut opts, "bloq", "m3"), Ok(true));
@@ -1788,8 +1773,7 @@ mod tests {
 
     #[test]
     fn test_parse_fit_options_unknown_key_errors() {
-        let err =
-            parse_fit_options(&["n_exploraton = 200".to_string()]).unwrap_err();
+        let err = parse_fit_options(&["n_exploraton = 200".to_string()]).unwrap_err();
         assert!(err.contains("unknown key"), "got: {err}");
         assert!(err.contains("n_exploraton"), "got: {err}");
     }
@@ -1827,8 +1811,7 @@ mod tests {
         // Smoke test: every checked-in example must parse under the strict
         // [fit_options] rules. Guards against accidentally tightening a key
         // in apply_fit_option in a way that breaks a shipped example.
-        let examples_dir =
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
+        let examples_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
         let mut seen = 0;
         for entry in std::fs::read_dir(&examples_dir).unwrap() {
             let path = entry.unwrap().path();
@@ -1840,7 +1823,11 @@ mod tests {
                 panic!("failed to parse {}: {}", path.display(), e);
             }
         }
-        assert!(seen > 0, "no .ferx files found in {}", examples_dir.display());
+        assert!(
+            seen > 0,
+            "no .ferx files found in {}",
+            examples_dir.display()
+        );
     }
 
     #[test]
@@ -1900,8 +1887,8 @@ mod tests {
     #[test]
     fn test_detect_mu_ref_additive() {
         // Additive eta: CL = TVCL + ETA_CL → mu = TVCL (not log-transformed)
-        let m = detect_one("CL = TVCL + ETA_CL", &["TVCL"], &["ETA_CL"])
-            .expect("should detect mu-ref");
+        let m =
+            detect_one("CL = TVCL + ETA_CL", &["TVCL"], &["ETA_CL"]).expect("should detect mu-ref");
         assert_eq!(m.theta_name, "TVCL");
         assert!(!m.log_transformed);
     }
@@ -1909,8 +1896,8 @@ mod tests {
     #[test]
     fn test_detect_mu_ref_additive_reversed() {
         // ETA first: CL = ETA_CL + TVCL
-        let m = detect_one("CL = ETA_CL + TVCL", &["TVCL"], &["ETA_CL"])
-            .expect("should detect mu-ref");
+        let m =
+            detect_one("CL = ETA_CL + TVCL", &["TVCL"], &["ETA_CL"]).expect("should detect mu-ref");
         assert_eq!(m.theta_name, "TVCL");
         assert!(!m.log_transformed);
     }
@@ -1977,7 +1964,11 @@ mod tests {
             "KA = TVKA * exp(ETA_KA)".to_string(),
         ];
         let tn = vec!["TVCL".to_string(), "TVV".to_string(), "TVKA".to_string()];
-        let en = vec!["ETA_CL".to_string(), "ETA_V".to_string(), "ETA_KA".to_string()];
+        let en = vec![
+            "ETA_CL".to_string(),
+            "ETA_V".to_string(),
+            "ETA_KA".to_string(),
+        ];
         let refs = detect_mu_refs(&lines, &tn, &en);
         assert_eq!(refs.len(), 3);
         assert_eq!(refs["ETA_CL"].theta_name, "TVCL");
@@ -2420,9 +2411,8 @@ mod tests {
 
     #[test]
     fn test_parse_steihaug_max_iters() {
-        let content = minimal_model_with_fit_options(
-            "  optimizer = trust_region\n  steihaug_max_iters = 30",
-        );
+        let content =
+            minimal_model_with_fit_options("  optimizer = trust_region\n  steihaug_max_iters = 30");
         let parsed = parse_full_model(&content).unwrap();
         assert_eq!(parsed.fit_options.optimizer, Optimizer::TrustRegion);
         assert_eq!(parsed.fit_options.steihaug_max_iters, 30);
@@ -2438,9 +2428,7 @@ mod tests {
 
     #[test]
     fn test_parse_inner_maxiter_and_tol() {
-        let content = minimal_model_with_fit_options(
-            "  inner_maxiter = 75\n  inner_tol = 1e-5",
-        );
+        let content = minimal_model_with_fit_options("  inner_maxiter = 75\n  inner_tol = 1e-5");
         let parsed = parse_full_model(&content).unwrap();
         assert_eq!(parsed.fit_options.inner_maxiter, 75);
         assert!((parsed.fit_options.inner_tol - 1e-5).abs() < 1e-15);
@@ -2515,10 +2503,7 @@ mod tests {
     #[test]
     fn test_apply_fit_option_inner_maxiter_and_tol() {
         let mut opts = FitOptions::default();
-        assert_eq!(
-            apply_fit_option(&mut opts, "inner_maxiter", "75"),
-            Ok(true)
-        );
+        assert_eq!(apply_fit_option(&mut opts, "inner_maxiter", "75"), Ok(true));
         assert_eq!(opts.inner_maxiter, 75);
 
         assert_eq!(apply_fit_option(&mut opts, "inner_tol", "1e-5"), Ok(true));

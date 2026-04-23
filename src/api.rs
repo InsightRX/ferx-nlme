@@ -350,7 +350,11 @@ fn fit_inner(
         names.sort();
         warnings.push(format!(
             "mu-ref: {}",
-            names.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
+            names
+                .iter()
+                .map(|s| s.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
         ));
     }
 

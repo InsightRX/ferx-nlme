@@ -30,14 +30,12 @@ pub fn optimize_population(
         Optimizer::Bfgs | Optimizer::Lbfgs => {
             optimize_bfgs(model, population, init_params, options)
         }
-        Optimizer::TrustRegion => {
-            crate::estimation::trust_region::optimize_trust_region(
-                model,
-                population,
-                init_params,
-                options,
-            )
-        }
+        Optimizer::TrustRegion => crate::estimation::trust_region::optimize_trust_region(
+            model,
+            population,
+            init_params,
+            options,
+        ),
     }
 }
 

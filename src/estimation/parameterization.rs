@@ -231,11 +231,7 @@ pub fn compute_bounds(template: &ModelParameters) -> PackedBounds {
 }
 
 /// Return initial ETA vector: warm-start if available, else mu_refs, else zeros.
-pub fn get_eta_init(
-    n_eta: usize,
-    warm_start: Option<&[f64]>,
-    mu_refs: Option<&[f64]>,
-) -> Vec<f64> {
+pub fn get_eta_init(n_eta: usize, warm_start: Option<&[f64]>, mu_refs: Option<&[f64]>) -> Vec<f64> {
     if let Some(ws) = warm_start {
         ws.to_vec()
     } else if let Some(mu) = mu_refs {
@@ -492,10 +488,7 @@ mod tests {
                 },
             );
         }
-        let omega = OmegaMatrix::from_diagonal(
-            &[0.09, 0.04, 0.30],
-            eta_names.clone(),
-        );
+        let omega = OmegaMatrix::from_diagonal(&[0.09, 0.04, 0.30], eta_names.clone());
         let sigma = SigmaVector {
             values: vec![0.02],
             names: vec!["PROP_ERR".into()],
@@ -542,10 +535,7 @@ mod tests {
     #[test]
     fn test_compute_mu_k_disabled_returns_zeros() {
         // `enabled = false` must short-circuit even if mu-refs exist.
-        let model = make_model_with_mu_refs(vec![
-            ("ETA_CL", "TVCL", true),
-            ("ETA_V", "TVV", true),
-        ]);
+        let model = make_model_with_mu_refs(vec![("ETA_CL", "TVCL", true), ("ETA_V", "TVV", true)]);
         let mu = compute_mu_k(&model, &[0.2, 10.0, 1.5], false);
         assert_eq!(mu, vec![0.0, 0.0, 0.0]);
     }
@@ -553,10 +543,7 @@ mod tests {
     #[test]
     fn test_compute_mu_k_log_transformed() {
         // log-transformed mu-ref (exp / multiplicative pattern) → mu = ln(theta).
-        let model = make_model_with_mu_refs(vec![
-            ("ETA_CL", "TVCL", true),
-            ("ETA_V", "TVV", true),
-        ]);
+        let model = make_model_with_mu_refs(vec![("ETA_CL", "TVCL", true), ("ETA_V", "TVV", true)]);
         let theta = vec![0.2_f64, 10.0_f64, 1.5_f64];
         let mu = compute_mu_k(&model, &theta, true);
         assert_relative_eq!(mu[0], 0.2_f64.ln(), epsilon = 1e-12);
@@ -665,8 +652,16 @@ mod tests {
         let bounds = compute_bounds(&template);
         let packed = pack_params(&template);
         let omega0_idx = template.theta.len(); // first omega entry after theta
-        assert_relative_eq!(bounds.lower[omega0_idx], packed[omega0_idx], epsilon = 1e-12);
-        assert_relative_eq!(bounds.upper[omega0_idx], packed[omega0_idx], epsilon = 1e-12);
+        assert_relative_eq!(
+            bounds.lower[omega0_idx],
+            packed[omega0_idx],
+            epsilon = 1e-12
+        );
+        assert_relative_eq!(
+            bounds.upper[omega0_idx],
+            packed[omega0_idx],
+            epsilon = 1e-12
+        );
         // The other omega (free) still has a real interval
         assert!(bounds.lower[omega0_idx + 1] < bounds.upper[omega0_idx + 1]);
     }
