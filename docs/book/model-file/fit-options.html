@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "ayu";
-            window.path_to_searchindex_js = "../searchindex-4e41e858.js";
+            window.path_to_searchindex_js = "../searchindex-1c8a1215.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-66605922.js"></script>
@@ -193,7 +193,7 @@
 <tr><td><code>method</code></td><td><code>foce</code>, <code>focei</code>, <code>saem</code></td><td><code>foce</code></td><td>Estimation method</td></tr>
 <tr><td><code>maxiter</code></td><td>integer</td><td><code>500</code></td><td>Maximum outer loop iterations</td></tr>
 <tr><td><code>covariance</code></td><td><code>true</code>, <code>false</code></td><td><code>true</code></td><td>Compute covariance matrix and standard errors</td></tr>
-<tr><td><code>optimizer</code></td><td><code>slsqp</code>, <code>lbfgs</code>, <code>nlopt_lbfgs</code>, <code>mma</code>, <code>bfgs</code>, <code>bobyqa</code>, <code>trust_region</code></td><td><code>slsqp</code></td><td>Optimization algorithm</td></tr>
+<tr><td><code>optimizer</code></td><td><code>bobyqa</code>, <code>slsqp</code>, <code>lbfgs</code>, <code>nlopt_lbfgs</code>, <code>mma</code>, <code>bfgs</code>, <code>trust_region</code></td><td><code>bobyqa</code></td><td>Optimization algorithm</td></tr>
 <tr><td><code>inner_maxiter</code></td><td>integer</td><td><code>200</code></td><td>Max iterations for the inner (per-subject EBE) optimizer</td></tr>
 <tr><td><code>inner_tol</code></td><td>float</td><td><code>1e-8</code></td><td>Gradient-norm convergence tolerance for the inner optimizer</td></tr>
 <tr><td><code>steihaug_max_iters</code></td><td>integer</td><td><code>50</code></td><td>Max CG iterations for the Steihaug subproblem (only used when <code>optimizer = trust_region</code>)</td></tr>
@@ -255,12 +255,12 @@
 <tr><th>Optimizer</th><th>Description</th><th>Recommended For</th></tr>
 </thead>
 <tbody>
-<tr><td><code>slsqp</code></td><td>Sequential Least Squares Programming (NLopt)</td><td>General use (default)</td></tr>
+<tr><td><code>bobyqa</code></td><td>NLopt BOBYQA — derivative-free quadratic interpolation</td><td><strong>Default.</strong> Robust on noisy / non-smooth FOCE surfaces where FD gradients are unreliable</td></tr>
+<tr><td><code>slsqp</code></td><td>Sequential Least Squares Programming (NLopt)</td><td>Well-behaved smooth problems where a gradient-based method converges fastest</td></tr>
 <tr><td><code>bfgs</code></td><td>Built-in BFGS quasi-Newton</td><td>When NLopt is unavailable</td></tr>
 <tr><td><code>lbfgs</code></td><td>Limited-memory BFGS</td><td>Large parameter spaces</td></tr>
 <tr><td><code>nlopt_lbfgs</code></td><td>NLopt L-BFGS</td><td>Alternative L-BFGS</td></tr>
 <tr><td><code>mma</code></td><td>Method of Moving Asymptotes (NLopt)</td><td>Constrained problems</td></tr>
-<tr><td><code>bobyqa</code></td><td>NLopt BOBYQA — derivative-free quadratic interpolation</td><td>Noisy or non-smooth objectives where FD gradients are unreliable</td></tr>
 <tr><td><code>trust_region</code></td><td>Newton trust-region with Steihaug CG subproblem (argmin)</td><td>Well-conditioned problems where second-order curvature helps convergence; tune <code>steihaug_max_iters</code></td></tr>
 </tbody>
 </table>

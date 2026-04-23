@@ -67,19 +67,20 @@ If you have a NONMEM model that uses an explicit `MU_1 = LOG(THETA(1))` line, ju
 
 ## Which outer optimizer should I pick?
 
-`slsqp` (the default) is the right choice for most models — it is fast, handles
-box constraints cleanly, and behaves well on the log-transformed parameter
-scale that ferx uses internally.
+`bobyqa` is the default — a derivative-free quadratic-interpolation
+trust-region method. It is robust on the FOCE surface, where each
+outer-loop evaluation re-runs the inner EBE optimisation and therefore
+produces small discontinuities that can confuse a gradient-based solver.
 
-Reach for a different optimizer when SLSQP misbehaves:
+Reach for a different optimizer when BOBYQA is slow or stalls:
 
-- **`bobyqa`** — derivative-free, good when FOCE's FD gradients are noisy and
-  SLSQP stalls or oscillates. Slower per iteration on smooth problems, but
-  often converges when gradient-based methods give up.
-- **`trust_region`** — second-order Newton trust-region. Can be faster near
-  convergence because it uses curvature information; tune the CG budget with
-  `steihaug_max_iters` (default 50) if you have more than ~50 packed
-  parameters.
+- **`slsqp`** — gradient-based Sequential Least Squares Programming. Fast
+  on smooth, well-behaved problems; can outpace BOBYQA when the FOCE
+  surface is clean and FD gradients are accurate.
+- **`trust_region`** — second-order Newton trust-region. Uses curvature
+  information from a FD Hessian; can be faster near convergence. Tune
+  the CG budget with `steihaug_max_iters` (default 50) if you have more
+  than ~50 packed parameters.
 - **`lbfgs` / `bfgs`** — fall back to these only when NLopt is unavailable.
 
 See [Fit Options](model-file/fit-options.md#optimizer-choices) for the full

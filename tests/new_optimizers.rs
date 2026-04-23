@@ -29,8 +29,9 @@ fn base_options() -> FitOptions {
 
 #[test]
 fn slsqp_reaches_a_sane_ofv() {
-    // Baseline: SLSQP (default) should converge on warfarin to a moderate OFV.
-    // Used as a reference point for the BOBYQA / trust-region assertions.
+    // Reference point: SLSQP is the gradient-based alternative to the
+    // default BOBYQA. The cross-check test below relies on it converging
+    // to a sane OFV on warfarin.
     let (model, population) = data_and_model();
     let mut opts = base_options();
     opts.optimizer = Optimizer::Slsqp;

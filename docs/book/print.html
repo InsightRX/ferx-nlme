@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "ayu";
-            window.path_to_searchindex_js = "searchindex-4e41e858.js";
+            window.path_to_searchindex_js = "searchindex-1c8a1215.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-66605922.js"></script>
@@ -1046,7 +1046,7 @@ PARAM = THETA + ETA                   # additive
 <tr><td><code>method</code></td><td><code>foce</code>, <code>focei</code>, <code>saem</code></td><td><code>foce</code></td><td>Estimation method</td></tr>
 <tr><td><code>maxiter</code></td><td>integer</td><td><code>500</code></td><td>Maximum outer loop iterations</td></tr>
 <tr><td><code>covariance</code></td><td><code>true</code>, <code>false</code></td><td><code>true</code></td><td>Compute covariance matrix and standard errors</td></tr>
-<tr><td><code>optimizer</code></td><td><code>slsqp</code>, <code>lbfgs</code>, <code>nlopt_lbfgs</code>, <code>mma</code>, <code>bfgs</code>, <code>bobyqa</code>, <code>trust_region</code></td><td><code>slsqp</code></td><td>Optimization algorithm</td></tr>
+<tr><td><code>optimizer</code></td><td><code>bobyqa</code>, <code>slsqp</code>, <code>lbfgs</code>, <code>nlopt_lbfgs</code>, <code>mma</code>, <code>bfgs</code>, <code>trust_region</code></td><td><code>bobyqa</code></td><td>Optimization algorithm</td></tr>
 <tr><td><code>inner_maxiter</code></td><td>integer</td><td><code>200</code></td><td>Max iterations for the inner (per-subject EBE) optimizer</td></tr>
 <tr><td><code>inner_tol</code></td><td>float</td><td><code>1e-8</code></td><td>Gradient-norm convergence tolerance for the inner optimizer</td></tr>
 <tr><td><code>steihaug_max_iters</code></td><td>integer</td><td><code>50</code></td><td>Max CG iterations for the Steihaug subproblem (only used when <code>optimizer = trust_region</code>)</td></tr>
@@ -1108,12 +1108,12 @@ PARAM = THETA + ETA                   # additive
 <tr><th>Optimizer</th><th>Description</th><th>Recommended For</th></tr>
 </thead>
 <tbody>
-<tr><td><code>slsqp</code></td><td>Sequential Least Squares Programming (NLopt)</td><td>General use (default)</td></tr>
+<tr><td><code>bobyqa</code></td><td>NLopt BOBYQA — derivative-free quadratic interpolation</td><td><strong>Default.</strong> Robust on noisy / non-smooth FOCE surfaces where FD gradients are unreliable</td></tr>
+<tr><td><code>slsqp</code></td><td>Sequential Least Squares Programming (NLopt)</td><td>Well-behaved smooth problems where a gradient-based method converges fastest</td></tr>
 <tr><td><code>bfgs</code></td><td>Built-in BFGS quasi-Newton</td><td>When NLopt is unavailable</td></tr>
 <tr><td><code>lbfgs</code></td><td>Limited-memory BFGS</td><td>Large parameter spaces</td></tr>
 <tr><td><code>nlopt_lbfgs</code></td><td>NLopt L-BFGS</td><td>Alternative L-BFGS</td></tr>
 <tr><td><code>mma</code></td><td>Method of Moving Asymptotes (NLopt)</td><td>Constrained problems</td></tr>
-<tr><td><code>bobyqa</code></td><td>NLopt BOBYQA — derivative-free quadratic interpolation</td><td>Noisy or non-smooth objectives where FD gradients are unreliable</td></tr>
 <tr><td><code>trust_region</code></td><td>Newton trust-region with Steihaug CG subproblem (argmin)</td><td>Well-conditioned problems where second-order curvature helps convergence; tune <code>steihaug_max_iters</code></td></tr>
 </tbody>
 </table>
@@ -1313,10 +1313,10 @@ parameter count exceeds the default of 50.</li>
 <tr><th>Algorithm</th><th>Key</th><th>Description</th></tr>
 </thead>
 <tbody>
-<tr><td>SLSQP</td><td><code>slsqp</code></td><td>Sequential Least Squares Programming. Handles bounds well. <strong>Default and recommended.</strong></td></tr>
+<tr><td>BOBYQA</td><td><code>bobyqa</code></td><td>Derivative-free trust-region via quadratic interpolation. <strong>Default</strong> — robust on the FOCE surface where inner-loop EBE re-estimation produces FD-gradient noise.</td></tr>
+<tr><td>SLSQP</td><td><code>slsqp</code></td><td>Sequential Least Squares Programming. Gradient-based; fastest on smooth, well-behaved problems.</td></tr>
 <tr><td>L-BFGS</td><td><code>nlopt_lbfgs</code></td><td>Limited-memory BFGS. Good for large parameter spaces.</td></tr>
 <tr><td>MMA</td><td><code>mma</code></td><td>Method of Moving Asymptotes. Alternative constrained optimizer.</td></tr>
-<tr><td>BOBYQA</td><td><code>bobyqa</code></td><td>Derivative-free trust-region via quadratic interpolation. Useful when FD gradients are unreliable (e.g. noisy FOCE surface).</td></tr>
 </tbody>
 </table>
 </div>
@@ -2795,18 +2795,19 @@ mu[i] = theta[i]        # for additive patterns
 <h3 id="porting-from-nonmem"><a class="header" href="#porting-from-nonmem">Porting from NONMEM</a></h3>
 <p>If you have a NONMEM model that uses an explicit <code>MU_1 = LOG(THETA(1))</code> line, just drop the <code>MU_i</code> intermediate and write the individual parameter directly — ferx will detect the equivalent mu-reference automatically and the fit will be equivalent.</p>
 <h2 id="which-outer-optimizer-should-i-pick"><a class="header" href="#which-outer-optimizer-should-i-pick">Which outer optimizer should I pick?</a></h2>
-<p><code>slsqp</code> (the default) is the right choice for most models — it is fast, handles
-box constraints cleanly, and behaves well on the log-transformed parameter
-scale that ferx uses internally.</p>
-<p>Reach for a different optimizer when SLSQP misbehaves:</p>
+<p><code>bobyqa</code> is the default — a derivative-free quadratic-interpolation
+trust-region method. It is robust on the FOCE surface, where each
+outer-loop evaluation re-runs the inner EBE optimisation and therefore
+produces small discontinuities that can confuse a gradient-based solver.</p>
+<p>Reach for a different optimizer when BOBYQA is slow or stalls:</p>
 <ul>
-<li><strong><code>bobyqa</code></strong> — derivative-free, good when FOCE’s FD gradients are noisy and
-SLSQP stalls or oscillates. Slower per iteration on smooth problems, but
-often converges when gradient-based methods give up.</li>
-<li><strong><code>trust_region</code></strong> — second-order Newton trust-region. Can be faster near
-convergence because it uses curvature information; tune the CG budget with
-<code>steihaug_max_iters</code> (default 50) if you have more than ~50 packed
-parameters.</li>
+<li><strong><code>slsqp</code></strong> — gradient-based Sequential Least Squares Programming. Fast
+on smooth, well-behaved problems; can outpace BOBYQA when the FOCE
+surface is clean and FD gradients are accurate.</li>
+<li><strong><code>trust_region</code></strong> — second-order Newton trust-region. Uses curvature
+information from a FD Hessian; can be faster near convergence. Tune
+the CG budget with <code>steihaug_max_iters</code> (default 50) if you have more
+than ~50 packed parameters.</li>
 <li><strong><code>lbfgs</code> / <code>bfgs</code></strong> — fall back to these only when NLopt is unavailable.</li>
 </ul>
 <p>See <a href="#optimizer-choices">Fit Options</a> for the full

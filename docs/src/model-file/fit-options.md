@@ -16,7 +16,7 @@ The optional `[fit_options]` block configures the estimation method and optimize
 | `method` | `foce`, `focei`, `saem` | `foce` | Estimation method |
 | `maxiter` | integer | `500` | Maximum outer loop iterations |
 | `covariance` | `true`, `false` | `true` | Compute covariance matrix and standard errors |
-| `optimizer` | `slsqp`, `lbfgs`, `nlopt_lbfgs`, `mma`, `bfgs`, `bobyqa`, `trust_region` | `slsqp` | Optimization algorithm |
+| `optimizer` | `bobyqa`, `slsqp`, `lbfgs`, `nlopt_lbfgs`, `mma`, `bfgs`, `trust_region` | `bobyqa` | Optimization algorithm |
 | `inner_maxiter` | integer | `200` | Max iterations for the inner (per-subject EBE) optimizer |
 | `inner_tol` | float | `1e-8` | Gradient-norm convergence tolerance for the inner optimizer |
 | `steihaug_max_iters` | integer | `50` | Max CG iterations for the Steihaug subproblem (only used when `optimizer = trust_region`) |
@@ -72,12 +72,12 @@ See [SIR documentation](../estimation/sir.md) for details.
 
 | Optimizer | Description | Recommended For |
 |-----------|-------------|-----------------|
-| `slsqp` | Sequential Least Squares Programming (NLopt) | General use (default) |
+| `bobyqa` | NLopt BOBYQA — derivative-free quadratic interpolation | **Default.** Robust on noisy / non-smooth FOCE surfaces where FD gradients are unreliable |
+| `slsqp` | Sequential Least Squares Programming (NLopt) | Well-behaved smooth problems where a gradient-based method converges fastest |
 | `bfgs` | Built-in BFGS quasi-Newton | When NLopt is unavailable |
 | `lbfgs` | Limited-memory BFGS | Large parameter spaces |
 | `nlopt_lbfgs` | NLopt L-BFGS | Alternative L-BFGS |
 | `mma` | Method of Moving Asymptotes (NLopt) | Constrained problems |
-| `bobyqa` | NLopt BOBYQA — derivative-free quadratic interpolation | Noisy or non-smooth objectives where FD gradients are unreliable |
 | `trust_region` | Newton trust-region with Steihaug CG subproblem (argmin) | Well-conditioned problems where second-order curvature helps convergence; tune `steihaug_max_iters` |
 
 Notes:

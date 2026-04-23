@@ -80,9 +80,11 @@ For FOCE/FOCEI, the outer optimizer can be set via `optimizer` in `[fit_options]
 
 | Optimizer | Description |
 |-----------|-------------|
-| `slsqp` | NLopt Sequential Least Squares Programming (default) |
+| `bobyqa` | NLopt BOBYQA — derivative-free trust-region (default) |
+| `slsqp` | NLopt Sequential Least Squares Programming |
 | `lbfgs` | NLopt L-BFGS |
 | `mma` | NLopt Method of Moving Asymptotes |
+| `trust_region` | Newton trust-region with Steihaug CG subproblem |
 
 ## Data Format
 

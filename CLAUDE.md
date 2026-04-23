@@ -62,7 +62,7 @@ Any user-visible feature (new fit option, new estimator, new file-format directi
 
 The estimation engine uses a nested optimization structure:
 
-- **Outer loop** (`estimation/outer_optimizer.rs`): Optimizes population parameters (theta, omega, sigma) using NLopt SLSQP (default), L-BFGS, MMA, or built-in BFGS. Parameters are log-transformed for theta/sigma, Cholesky-factored for omega.
+- **Outer loop** (`estimation/outer_optimizer.rs`): Optimizes population parameters (theta, omega, sigma) using NLopt BOBYQA (default, derivative-free), SLSQP, L-BFGS, MMA, built-in BFGS, or a Newton trust-region (see `estimation/trust_region.rs`). Parameters are log-transformed for theta/sigma, Cholesky-factored for omega.
 - **Inner loop** (`estimation/inner_optimizer.rs`): For each subject, finds empirical Bayes estimates (EBEs) of random effects (eta) by minimizing individual negative log-likelihood. Uses BFGS with warm-start from prior iteration; falls back to Nelder-Mead on failure.
 
 ### Gauss-Newton (BHHH) Optimizer

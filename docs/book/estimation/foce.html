@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "ayu";
-            window.path_to_searchindex_js = "../searchindex-4e41e858.js";
+            window.path_to_searchindex_js = "../searchindex-1c8a1215.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-66605922.js"></script>
@@ -212,10 +212,10 @@
 <tr><th>Algorithm</th><th>Key</th><th>Description</th></tr>
 </thead>
 <tbody>
-<tr><td>SLSQP</td><td><code>slsqp</code></td><td>Sequential Least Squares Programming. Handles bounds well. <strong>Default and recommended.</strong></td></tr>
+<tr><td>BOBYQA</td><td><code>bobyqa</code></td><td>Derivative-free trust-region via quadratic interpolation. <strong>Default</strong> — robust on the FOCE surface where inner-loop EBE re-estimation produces FD-gradient noise.</td></tr>
+<tr><td>SLSQP</td><td><code>slsqp</code></td><td>Sequential Least Squares Programming. Gradient-based; fastest on smooth, well-behaved problems.</td></tr>
 <tr><td>L-BFGS</td><td><code>nlopt_lbfgs</code></td><td>Limited-memory BFGS. Good for large parameter spaces.</td></tr>
 <tr><td>MMA</td><td><code>mma</code></td><td>Method of Moving Asymptotes. Alternative constrained optimizer.</td></tr>
-<tr><td>BOBYQA</td><td><code>bobyqa</code></td><td>Derivative-free trust-region via quadratic interpolation. Useful when FD gradients are unreliable (e.g. noisy FOCE surface).</td></tr>
 </tbody>
 </table>
 </div>

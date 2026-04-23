@@ -51,10 +51,10 @@ FOCEI is more accurate when the residual variance depends on the predicted value
 
 | Algorithm | Key | Description |
 |-----------|-----|-------------|
-| SLSQP | `slsqp` | Sequential Least Squares Programming. Handles bounds well. **Default and recommended.** |
+| BOBYQA | `bobyqa` | Derivative-free trust-region via quadratic interpolation. **Default** — robust on the FOCE surface where inner-loop EBE re-estimation produces FD-gradient noise. |
+| SLSQP | `slsqp` | Sequential Least Squares Programming. Gradient-based; fastest on smooth, well-behaved problems. |
 | L-BFGS | `nlopt_lbfgs` | Limited-memory BFGS. Good for large parameter spaces. |
 | MMA | `mma` | Method of Moving Asymptotes. Alternative constrained optimizer. |
-| BOBYQA | `bobyqa` | Derivative-free trust-region via quadratic interpolation. Useful when FD gradients are unreliable (e.g. noisy FOCE surface). |
 
 ### Built-in Algorithms
 
