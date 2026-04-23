@@ -3,6 +3,119 @@ use regex::Regex;
 use std::collections::HashMap;
 use std::path::Path;
 
+// ── Mu-referencing pattern detection ────────────────────────────────────────
+
+/// Walk a Mul-chain and collect direct Theta indices (not inside any function).
+fn collect_mul_thetas(expr: &Expression, out: &mut Vec<usize>) {
+    match expr {
+        Expression::Theta(i) => out.push(*i),
+        Expression::BinOp(l, BinOp::Mul, r) => {
+            collect_mul_thetas(l, out);
+            collect_mul_thetas(r, out);
+        }
+        _ => {}
+    }
+}
+
+/// Walk a Mul-chain and find the first `exp(Eta(j))`, returning the eta index.
+fn find_exp_eta_in_mul(expr: &Expression) -> Option<usize> {
+    match expr {
+        Expression::UnaryFn(name, arg) if name == "exp" => {
+            if let Expression::Eta(j) = arg.as_ref() {
+                return Some(*j);
+            }
+            None
+        }
+        Expression::BinOp(l, BinOp::Mul, r) => {
+            find_exp_eta_in_mul(l).or_else(|| find_exp_eta_in_mul(r))
+        }
+        _ => None,
+    }
+}
+
+/// Detect mu-referencing patterns in one assignment expression.
+/// Returns `Some((eta_idx, theta_idx, log_transformed))` or `None`.
+fn detect_pattern(expr: &Expression) -> Option<(usize, usize, bool)> {
+    match expr {
+        // Pattern 2: exp(log(THETA) + ETA)
+        Expression::UnaryFn(name, inner) if name == "exp" => {
+            // inner must be Add with log(Theta) and Eta in either order
+            if let Expression::BinOp(lhs, BinOp::Add, rhs) = inner.as_ref() {
+                let try_log_theta_eta = |a: &Expression, b: &Expression| -> Option<(usize, usize)> {
+                    if let Expression::UnaryFn(fn_name, fn_arg) = a {
+                        if fn_name == "log" || fn_name == "ln" {
+                            if let Expression::Theta(ti) = fn_arg.as_ref() {
+                                if let Expression::Eta(ei) = b {
+                                    return Some((*ei, *ti));
+                                }
+                            }
+                        }
+                    }
+                    None
+                };
+                if let Some((ei, ti)) = try_log_theta_eta(lhs, rhs)
+                    .or_else(|| try_log_theta_eta(rhs, lhs))
+                {
+                    return Some((ei, ti, true));
+                }
+            }
+            None
+        }
+        // Pattern 3: THETA + ETA or ETA + THETA
+        Expression::BinOp(lhs, BinOp::Add, rhs) => {
+            match (lhs.as_ref(), rhs.as_ref()) {
+                (Expression::Theta(ti), Expression::Eta(ei)) => Some((*ei, *ti, false)),
+                (Expression::Eta(ei), Expression::Theta(ti)) => Some((*ei, *ti, false)),
+                _ => None,
+            }
+        }
+        // Pattern 1 / 4: product containing Theta and exp(Eta)
+        _ => {
+            let mut thetas = Vec::new();
+            collect_mul_thetas(expr, &mut thetas);
+            if thetas.len() == 1 {
+                if let Some(ei) = find_exp_eta_in_mul(expr) {
+                    return Some((ei, thetas[0], true));
+                }
+            }
+            None
+        }
+    }
+}
+
+/// Analyse [individual_parameters] lines and detect mu-referencing relationships.
+fn detect_mu_refs(
+    indiv_lines: &[String],
+    theta_names: &[String],
+    eta_names: &[String],
+) -> HashMap<String, MuRef> {
+    let mut result = HashMap::new();
+    for line in indiv_lines {
+        let parts: Vec<&str> = line.splitn(2, '=').collect();
+        if parts.len() != 2 {
+            continue;
+        }
+        let expr_str = parts[1].trim();
+        let ctx = ParseCtx::new(theta_names, eta_names, &[]);
+        let expr = match parse_expression(expr_str, ctx) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        if let Some((eta_idx, theta_idx, log_transformed)) = detect_pattern(&expr) {
+            if eta_idx < eta_names.len() && theta_idx < theta_names.len() {
+                result.insert(
+                    eta_names[eta_idx].clone(),
+                    MuRef {
+                        theta_name: theta_names[theta_idx].clone(),
+                        log_transformed,
+                    },
+                );
+            }
+        }
+    }
+    result
+}
+
 /// Parse a model file (.ferx) and return a CompiledModel.
 pub fn parse_model_file(path: &Path) -> Result<CompiledModel, String> {
     let content =
@@ -153,6 +266,9 @@ pub fn parse_full_model(content: &str) -> Result<ParsedModel, String> {
             None
         };
 
+    // Detect mu-referencing relationships from [individual_parameters]
+    let mu_refs = detect_mu_refs(indiv_lines, &theta_names, &eta_names);
+
     // Build pk_indices: maps each individual parameter (by declaration order)
     // to its PK parameter index. Needed for AD to place values in correct slots.
     let pk_indices: Vec<usize> = if !pk_param_map.is_empty() {
@@ -191,6 +307,7 @@ pub fn parse_full_model(content: &str) -> Result<ParsedModel, String> {
         pk_indices,
         ode_spec,
         bloq_method: BloqMethod::Drop,
+        mu_refs,
         referenced_covariates,
     };
 
@@ -295,80 +412,168 @@ fn parse_fit_options(lines: &[String]) -> Result<FitOptions, String> {
         if parts.len() != 2 {
             continue;
         }
-        match parts[0] {
-            "method" => {
-                let raw = parts[1].trim();
-                // List form: `method = [a, b, c]` — chain of stages.
-                if raw.starts_with('[') {
-                    let inner = raw.trim_start_matches('[').trim_end_matches(']');
-                    let chain: Vec<EstimationMethod> = inner
-                        .split(',')
-                        .map(|s| s.trim())
-                        .filter(|s| !s.is_empty())
-                        .map(parse_method_token)
-                        .collect::<Result<_, _>>()?;
-                    if chain.is_empty() {
-                        return Err("method = [] is empty; provide at least one method".into());
-                    }
-                    // Interaction flag follows the final stage of the chain.
-                    opts.interaction = *chain.last().unwrap() == EstimationMethod::FoceI;
-                    opts.method = *chain.last().unwrap();
-                    opts.methods = chain;
-                } else {
-                    let m = parse_method_token(raw)?;
-                    opts.method = m;
-                    opts.methods.clear();
-                    if m == EstimationMethod::FoceI {
-                        opts.interaction = true;
-                    }
+        if parts[0] == "method" {
+            let raw = parts[1].trim();
+            // List form: `method = [a, b, c]` — chain of stages.
+            if raw.starts_with('[') {
+                let inner = raw.trim_start_matches('[').trim_end_matches(']');
+                let chain: Vec<EstimationMethod> = inner
+                    .split(',')
+                    .map(|s| s.trim())
+                    .filter(|s| !s.is_empty())
+                    .map(parse_method_token)
+                    .collect::<Result<_, _>>()?;
+                if chain.is_empty() {
+                    return Err("method = [] is empty; provide at least one method".into());
+                }
+                // Interaction flag follows the final stage of the chain.
+                opts.interaction = *chain.last().unwrap() == EstimationMethod::FoceI;
+                opts.method = *chain.last().unwrap();
+                opts.methods = chain;
+            } else {
+                let m = parse_method_token(raw)?;
+                opts.method = m;
+                opts.methods.clear();
+                if m == EstimationMethod::FoceI {
+                    opts.interaction = true;
                 }
             }
-            "maxiter" => opts.outer_maxiter = parts[1].parse().unwrap_or(500),
-            "covariance" => opts.run_covariance_step = parts[1].trim() == "true",
-            "optimizer" => {
-                opts.optimizer = match parts[1].to_lowercase().as_str() {
-                    "slsqp" => Optimizer::Slsqp,
-                    "lbfgs" | "nlopt_lbfgs" => Optimizer::NloptLbfgs,
-                    "mma" => Optimizer::Mma,
-                    "bfgs" => Optimizer::Bfgs,
-                    _ => Optimizer::Slsqp,
-                };
+            continue;
+        }
+        // All other keys flow through the shared dispatch. Both `.ferx`
+        // parsing and the R `settings` path are strict: unknown keys and
+        // malformed values raise an error rather than silently defaulting.
+        // A previous iteration of this parser used `.unwrap_or(default)` /
+        // `== "true"` coercions that could silently flip behavior (e.g.
+        // `covariance = TRUE` set `false`; `bloq_method = foo` landed on
+        // the default `Drop`). Those traps are gone.
+        match apply_fit_option(&mut opts, parts[0], parts[1]) {
+            Ok(true) => {}
+            Ok(false) => {
+                return Err(format!(
+                    "[fit_options]: unknown key `{}`",
+                    parts[0]
+                ));
             }
-            "global_search" => opts.global_search = parts[1].trim() == "true",
-            "global_maxeval" => opts.global_maxeval = parts[1].parse().unwrap_or(0),
-            "n_exploration" => opts.saem_n_exploration = parts[1].trim().parse().unwrap_or(150),
-            "n_convergence" => opts.saem_n_convergence = parts[1].trim().parse().unwrap_or(250),
-            "n_mh_steps" => opts.saem_n_mh_steps = parts[1].trim().parse().unwrap_or(3),
-            "adapt_interval" => opts.saem_adapt_interval = parts[1].trim().parse().unwrap_or(50),
-            "seed" => opts.saem_seed = parts[1].trim().parse().ok(),
-            "sir" => opts.sir = parts[1].trim() == "true",
-            "sir_samples" => opts.sir_samples = parts[1].trim().parse().unwrap_or(1000),
-            "sir_resamples" => opts.sir_resamples = parts[1].trim().parse().unwrap_or(250),
-            "sir_seed" => opts.sir_seed = parts[1].trim().parse().ok(),
-            "bloq_method" | "bloq" => {
-                opts.bloq_method = match parts[1].trim().to_lowercase().as_str() {
-                    "m3" => BloqMethod::M3,
-                    "drop" | "none" | "ignore" => BloqMethod::Drop,
-                    other => {
-                        return Err(format!(
-                            "Unknown bloq_method '{}' — expected 'm3' or 'drop'",
-                            other
-                        ));
-                    }
-                };
-            }
-            "threads" => {
-                let raw = parts[1].trim();
-                if raw.eq_ignore_ascii_case("auto") || raw == "0" {
-                    opts.threads = None;
-                } else {
-                    opts.threads = raw.parse::<usize>().ok().filter(|&n| n > 0);
-                }
-            }
-            _ => {}
+            Err(e) => return Err(format!("[fit_options]: {}", e)),
         }
     }
     Ok(opts)
+}
+
+/// Apply a single `key = value` pair to `FitOptions`.
+///
+/// Returns:
+/// - `Ok(true)`  — key was recognized and applied.
+/// - `Ok(false)` — key is not a known fit option.
+/// - `Err(msg)`  — key is recognized but the value is malformed.
+///
+/// This is the single source of truth for the `[fit_options]` key grammar,
+/// shared between `.ferx` parsing and the R wrapper's generic `settings`
+/// list. Callers that want strict validation (e.g. the R wrapper) should
+/// propagate `Err` and treat `Ok(false)` as "unknown setting".
+///
+/// Does NOT handle `method` (which has list-chain syntax) — that stays in
+/// the block parser.
+pub fn apply_fit_option(
+    opts: &mut FitOptions,
+    key: &str,
+    value: &str,
+) -> Result<bool, String> {
+    let value = value.trim();
+
+    let parse_usize = |name: &str| -> Result<usize, String> {
+        value
+            .parse::<usize>()
+            .map_err(|_| format!("fit option `{name}`: expected non-negative integer, got `{value}`"))
+    };
+    let parse_bool = |name: &str| -> Result<bool, String> {
+        match value.to_lowercase().as_str() {
+            "true" | "t" | "yes" | "1" | "on" => Ok(true),
+            "false" | "f" | "no" | "0" | "off" => Ok(false),
+            _ => Err(format!("fit option `{name}`: expected true/false, got `{value}`")),
+        }
+    };
+    let parse_u64_opt = |name: &str| -> Result<Option<u64>, String> {
+        if value.is_empty() || value.eq_ignore_ascii_case("null") || value.eq_ignore_ascii_case("na") {
+            Ok(None)
+        } else {
+            value
+                .parse::<u64>()
+                .map(Some)
+                .map_err(|_| format!("fit option `{name}`: expected non-negative integer, got `{value}`"))
+        }
+    };
+    let parse_f64 = |name: &str| -> Result<f64, String> {
+        value
+            .parse::<f64>()
+            .map_err(|_| format!("fit option `{name}`: expected number, got `{value}`"))
+    };
+
+    match key {
+        "maxiter" => opts.outer_maxiter = parse_usize("maxiter")?,
+        "inner_maxiter" => opts.inner_maxiter = parse_usize("inner_maxiter")?,
+        "inner_tol" => opts.inner_tol = parse_f64("inner_tol")?,
+        "covariance" => opts.run_covariance_step = parse_bool("covariance")?,
+        "verbose" => opts.verbose = parse_bool("verbose")?,
+        "optimizer" => {
+            opts.optimizer = match value.to_lowercase().as_str() {
+                "slsqp" => Optimizer::Slsqp,
+                "lbfgs" | "nlopt_lbfgs" => Optimizer::NloptLbfgs,
+                "mma" => Optimizer::Mma,
+                "bfgs" => Optimizer::Bfgs,
+                "bobyqa" => Optimizer::Bobyqa,
+                "trust_region" | "newton_tr" => Optimizer::TrustRegion,
+                other => {
+                    return Err(format!(
+                        "fit option `optimizer`: unknown value `{other}` — expected \
+                         slsqp/lbfgs/nlopt_lbfgs/mma/bfgs/bobyqa/trust_region"
+                    ));
+                }
+            };
+        }
+        "steihaug_max_iters" => opts.steihaug_max_iters = parse_usize("steihaug_max_iters")?,
+        "global_search" => opts.global_search = parse_bool("global_search")?,
+        "global_maxeval" => opts.global_maxeval = parse_usize("global_maxeval")?,
+        "n_exploration" => opts.saem_n_exploration = parse_usize("n_exploration")?,
+        "n_convergence" => opts.saem_n_convergence = parse_usize("n_convergence")?,
+        "n_mh_steps" => opts.saem_n_mh_steps = parse_usize("n_mh_steps")?,
+        "adapt_interval" => opts.saem_adapt_interval = parse_usize("adapt_interval")?,
+        "seed" | "saem_seed" => opts.saem_seed = parse_u64_opt("seed")?,
+        "gn_lambda" => opts.gn_lambda = parse_f64("gn_lambda")?,
+        "sir" => opts.sir = parse_bool("sir")?,
+        "sir_samples" => opts.sir_samples = parse_usize("sir_samples")?,
+        "sir_resamples" => opts.sir_resamples = parse_usize("sir_resamples")?,
+        "sir_seed" => opts.sir_seed = parse_u64_opt("sir_seed")?,
+        "mu_referencing" => opts.mu_referencing = parse_bool("mu_referencing")?,
+        "bloq_method" | "bloq" => {
+            opts.bloq_method = match value.to_lowercase().as_str() {
+                "m3" => BloqMethod::M3,
+                "drop" | "none" | "ignore" => BloqMethod::Drop,
+                other => {
+                    return Err(format!(
+                        "fit option `bloq_method`: unknown value `{other}` — expected 'm3' or 'drop'"
+                    ));
+                }
+            };
+        }
+        "threads" => {
+            if value.eq_ignore_ascii_case("auto") || value == "0" {
+                opts.threads = None;
+            } else {
+                match value.parse::<usize>() {
+                    Ok(n) if n > 0 => opts.threads = Some(n),
+                    _ => {
+                        return Err(format!(
+                            "fit option `threads`: expected 'auto', 0, or a positive integer, got `{value}`"
+                        ));
+                    }
+                }
+            }
+        }
+        _ => return Ok(false),
+    }
+    Ok(true)
 }
 
 // ── [structural_model] ODE variant parser ───────────────────────────────────
@@ -1427,13 +1632,12 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_threads_invalid_falls_back_to_none() {
-        // Consistent with how other numeric fit_options (maxiter, sir_samples)
-        // silently fall back on parse failure rather than erroring out.
-        let opts = parse_fit_options(&["threads = -1".to_string()]).unwrap();
-        assert_eq!(opts.threads, None);
-        let opts = parse_fit_options(&["threads = wibble".to_string()]).unwrap();
-        assert_eq!(opts.threads, None);
+    fn test_parse_threads_invalid_errors() {
+        // Strict parsing: malformed threads values raise a parse error
+        // rather than silently falling back to `None` (the pre-refactor
+        // `.parse().ok().filter(...)` behavior was a typo trap).
+        assert!(parse_fit_options(&["threads = -1".to_string()]).is_err());
+        assert!(parse_fit_options(&["threads = wibble".to_string()]).is_err());
     }
 
     #[test]
@@ -1441,6 +1645,375 @@ mod tests {
         // No `threads` line → None (rayon global pool, one worker per logical CPU).
         let opts = parse_fit_options(&["method = focei".to_string()]).unwrap();
         assert_eq!(opts.threads, None);
+    }
+
+    // ── mu_referencing fit option ────────────────────────────────────────
+
+    #[test]
+    fn test_parse_mu_referencing_default_true() {
+        let opts = parse_fit_options(&["method = foce".to_string()]).unwrap();
+        assert!(opts.mu_referencing);
+    }
+
+    #[test]
+    fn test_parse_mu_referencing_false() {
+        let opts = parse_fit_options(&["mu_referencing = false".to_string()]).unwrap();
+        assert!(!opts.mu_referencing);
+    }
+
+    #[test]
+    fn test_parse_mu_referencing_accepts_synonyms() {
+        for raw in &["true", "TRUE", "1", "yes", "on"] {
+            let opts = parse_fit_options(&[format!("mu_referencing = {}", raw)]).unwrap();
+            assert!(opts.mu_referencing, "{} should enable", raw);
+        }
+        for raw in &["false", "FALSE", "0", "no", "off"] {
+            let opts = parse_fit_options(&[format!("mu_referencing = {}", raw)]).unwrap();
+            assert!(!opts.mu_referencing, "{} should disable", raw);
+        }
+    }
+
+    #[test]
+    fn test_parse_mu_referencing_invalid_rejected() {
+        assert!(parse_fit_options(&["mu_referencing = wibble".to_string()]).is_err());
+    }
+
+    // ── apply_fit_option (shared dispatch used by the R wrapper's `settings`
+    //    argument and by parse_fit_options) ────────────────────────────────
+
+    #[test]
+    fn test_apply_fit_option_known_applies() {
+        let mut opts = FitOptions::default();
+        assert_eq!(
+            apply_fit_option(&mut opts, "n_exploration", "200"),
+            Ok(true)
+        );
+        assert_eq!(opts.saem_n_exploration, 200);
+
+        assert_eq!(
+            apply_fit_option(&mut opts, "n_convergence", "400"),
+            Ok(true)
+        );
+        assert_eq!(opts.saem_n_convergence, 400);
+    }
+
+    #[test]
+    fn test_apply_fit_option_unknown_key_returns_false() {
+        let mut opts = FitOptions::default();
+        // Typo / unknown → Ok(false). Caller decides whether to error out.
+        assert_eq!(
+            apply_fit_option(&mut opts, "n_exploraton", "200"),
+            Ok(false)
+        );
+        // `method` is deliberately excluded (list-chain syntax is handled
+        // in the block parser); treat it as unknown here.
+        assert_eq!(apply_fit_option(&mut opts, "method", "focei"), Ok(false));
+    }
+
+    #[test]
+    fn test_apply_fit_option_malformed_value_errors() {
+        let mut opts = FitOptions::default();
+        assert!(apply_fit_option(&mut opts, "n_exploration", "oops").is_err());
+        assert!(apply_fit_option(&mut opts, "covariance", "maybe").is_err());
+        assert!(apply_fit_option(&mut opts, "gn_lambda", "x").is_err());
+        assert!(apply_fit_option(&mut opts, "optimizer", "does_not_exist").is_err());
+        assert!(apply_fit_option(&mut opts, "bloq_method", "nope").is_err());
+        assert!(apply_fit_option(&mut opts, "threads", "-1").is_err());
+        // Failed apply must not mutate — default preserved.
+        assert_eq!(opts.saem_n_exploration, 150);
+    }
+
+    #[test]
+    fn test_apply_fit_option_bool_variants() {
+        let mut opts = FitOptions::default();
+        for v in ["true", "True", "TRUE", "yes", "1", "t"] {
+            opts.sir = false;
+            assert_eq!(apply_fit_option(&mut opts, "sir", v), Ok(true));
+            assert!(opts.sir, "value `{v}` should parse as true");
+        }
+        for v in ["false", "False", "no", "0", "f"] {
+            opts.sir = true;
+            assert_eq!(apply_fit_option(&mut opts, "sir", v), Ok(true));
+            assert!(!opts.sir, "value `{v}` should parse as false");
+        }
+    }
+
+    #[test]
+    fn test_apply_fit_option_seed_null_clears() {
+        let mut opts = FitOptions::default();
+        opts.saem_seed = Some(7);
+        // R sends NULL/NA through as the literal "null" / "na".
+        assert_eq!(apply_fit_option(&mut opts, "seed", "null"), Ok(true));
+        assert_eq!(opts.saem_seed, None);
+
+        assert_eq!(apply_fit_option(&mut opts, "seed", "42"), Ok(true));
+        assert_eq!(opts.saem_seed, Some(42));
+
+        // `saem_seed` is accepted as an alias so R users can use either spelling.
+        assert_eq!(apply_fit_option(&mut opts, "saem_seed", "99"), Ok(true));
+        assert_eq!(opts.saem_seed, Some(99));
+    }
+
+    #[test]
+    fn test_apply_fit_option_threads_variants() {
+        let mut opts = FitOptions::default();
+        assert_eq!(apply_fit_option(&mut opts, "threads", "4"), Ok(true));
+        assert_eq!(opts.threads, Some(4));
+
+        assert_eq!(apply_fit_option(&mut opts, "threads", "auto"), Ok(true));
+        assert_eq!(opts.threads, None);
+
+        opts.threads = Some(4);
+        assert_eq!(apply_fit_option(&mut opts, "threads", "0"), Ok(true));
+        assert_eq!(opts.threads, None);
+    }
+
+    #[test]
+    fn test_apply_fit_option_optimizer_and_bloq() {
+        let mut opts = FitOptions::default();
+        assert_eq!(
+            apply_fit_option(&mut opts, "optimizer", "lbfgs"),
+            Ok(true)
+        );
+        assert_eq!(opts.optimizer, Optimizer::NloptLbfgs);
+
+        assert_eq!(apply_fit_option(&mut opts, "bloq", "m3"), Ok(true));
+        assert_eq!(opts.bloq_method, BloqMethod::M3);
+    }
+
+    // ── parse_fit_options: strict parsing at the .ferx layer. Unknown
+    //    keys and malformed values both raise an error — a typo like
+    //    `covariance = maybe` or `bloq_method = nope` now fails loudly
+    //    instead of silently landing on an unexpected default. ───────────
+
+    #[test]
+    fn test_parse_fit_options_unknown_key_errors() {
+        let err =
+            parse_fit_options(&["n_exploraton = 200".to_string()]).unwrap_err();
+        assert!(err.contains("unknown key"), "got: {err}");
+        assert!(err.contains("n_exploraton"), "got: {err}");
+    }
+
+    #[test]
+    fn test_parse_fit_options_malformed_numeric_errors() {
+        assert!(parse_fit_options(&["n_exploration = oops".to_string()]).is_err());
+    }
+
+    #[test]
+    fn test_parse_fit_options_malformed_bool_errors() {
+        // Pre-refactor, `covariance = maybe` silently coerced to `false`
+        // via `== "true"`, flipping the default. Now it errors.
+        assert!(parse_fit_options(&["covariance = maybe".to_string()]).is_err());
+    }
+
+    #[test]
+    fn test_parse_fit_options_uppercase_bool_accepted() {
+        // Pre-refactor, `covariance = TRUE` silently became `false`
+        // because the inline check only matched lowercase "true". The
+        // strict parser accepts common casing variants.
+        let opts = parse_fit_options(&["covariance = TRUE".to_string()]).unwrap();
+        assert!(opts.run_covariance_step);
+    }
+
+    #[test]
+    fn test_parse_fit_options_bloq_method_typo_errors() {
+        // `bloq_method` was already strict in the old inline parser; the
+        // new strict dispatch must preserve that (not silently default).
+        assert!(parse_fit_options(&["bloq_method = nope".to_string()]).is_err());
+    }
+
+    #[test]
+    fn test_parse_all_example_ferx_files() {
+        // Smoke test: every checked-in example must parse under the strict
+        // [fit_options] rules. Guards against accidentally tightening a key
+        // in apply_fit_option in a way that breaks a shipped example.
+        let examples_dir =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
+        let mut seen = 0;
+        for entry in std::fs::read_dir(&examples_dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.extension().and_then(|s| s.to_str()) != Some("ferx") {
+                continue;
+            }
+            seen += 1;
+            if let Err(e) = parse_full_model_file(&path) {
+                panic!("failed to parse {}: {}", path.display(), e);
+            }
+        }
+        assert!(seen > 0, "no .ferx files found in {}", examples_dir.display());
+    }
+
+    #[test]
+    fn test_parse_fit_options_applies_known_keys() {
+        let lines = vec![
+            "method = saem".to_string(),
+            "n_exploration = 200".to_string(),
+            "n_convergence = 400".to_string(),
+            "sir = true".to_string(),
+            "sir_samples = 2000".to_string(),
+        ];
+        let opts = parse_fit_options(&lines).unwrap();
+        assert_eq!(opts.method, EstimationMethod::Saem);
+        assert_eq!(opts.saem_n_exploration, 200);
+        assert_eq!(opts.saem_n_convergence, 400);
+        assert!(opts.sir);
+        assert_eq!(opts.sir_samples, 2000);
+    }
+
+    // ── mu-referencing pattern detection ─────────────────────────────────
+
+    fn detect_one(line: &str, theta_names: &[&str], eta_names: &[&str]) -> Option<MuRef> {
+        let tn: Vec<String> = theta_names.iter().map(|s| s.to_string()).collect();
+        let en: Vec<String> = eta_names.iter().map(|s| s.to_string()).collect();
+        let refs = detect_mu_refs(&[line.to_string()], &tn, &en);
+        // Return the one detected mu-ref (if any). Tests assume a single line.
+        refs.into_iter().next().map(|(_, v)| v)
+    }
+
+    #[test]
+    fn test_detect_mu_ref_multiplicative_exp() {
+        // Classic NONMEM pattern: CL = TVCL * exp(ETA_CL)
+        let m = detect_one("CL = TVCL * exp(ETA_CL)", &["TVCL"], &["ETA_CL"])
+            .expect("should detect mu-ref");
+        assert_eq!(m.theta_name, "TVCL");
+        assert!(m.log_transformed);
+    }
+
+    #[test]
+    fn test_detect_mu_ref_exp_of_log_sum() {
+        // Canonical mu-reference form: exp(log(THETA) + ETA)
+        let m = detect_one("CL = exp(log(TVCL) + ETA_CL)", &["TVCL"], &["ETA_CL"])
+            .expect("should detect mu-ref");
+        assert_eq!(m.theta_name, "TVCL");
+        assert!(m.log_transformed);
+    }
+
+    #[test]
+    fn test_detect_mu_ref_exp_of_log_sum_reversed() {
+        // ETA on the left: exp(ETA + log(THETA))
+        let m = detect_one("CL = exp(ETA_CL + log(TVCL))", &["TVCL"], &["ETA_CL"])
+            .expect("should detect mu-ref");
+        assert_eq!(m.theta_name, "TVCL");
+        assert!(m.log_transformed);
+    }
+
+    #[test]
+    fn test_detect_mu_ref_additive() {
+        // Additive eta: CL = TVCL + ETA_CL → mu = TVCL (not log-transformed)
+        let m = detect_one("CL = TVCL + ETA_CL", &["TVCL"], &["ETA_CL"])
+            .expect("should detect mu-ref");
+        assert_eq!(m.theta_name, "TVCL");
+        assert!(!m.log_transformed);
+    }
+
+    #[test]
+    fn test_detect_mu_ref_additive_reversed() {
+        // ETA first: CL = ETA_CL + TVCL
+        let m = detect_one("CL = ETA_CL + TVCL", &["TVCL"], &["ETA_CL"])
+            .expect("should detect mu-ref");
+        assert_eq!(m.theta_name, "TVCL");
+        assert!(!m.log_transformed);
+    }
+
+    #[test]
+    fn test_detect_mu_ref_product_chain_with_covariate() {
+        // Real covariate model: CL = TVCL * (WT/70)^0.75 * exp(ETA_CL).
+        // The detector walks the Mul chain for the anchor theta and the
+        // exp(eta) factor; the Power sub-expression is opaque (neither a
+        // Theta nor an exp(Eta)), so it is simply skipped. As long as there
+        // is exactly one bare Theta factor, detection still succeeds.
+        let m = detect_one(
+            "CL = TVCL * (WT/70)^0.75 * exp(ETA_CL)",
+            &["TVCL"],
+            &["ETA_CL"],
+        )
+        .expect("should still detect mu-ref through opaque covariate term");
+        assert_eq!(m.theta_name, "TVCL");
+        assert!(m.log_transformed);
+    }
+
+    #[test]
+    fn test_detect_mu_ref_rejects_two_thetas() {
+        // Two thetas in the product → ambiguous anchor, pattern rejected.
+        let m = detect_one(
+            "CL = TVCL * TVCL2 * exp(ETA_CL)",
+            &["TVCL", "TVCL2"],
+            &["ETA_CL"],
+        );
+        assert!(m.is_none());
+    }
+
+    #[test]
+    fn test_detect_mu_ref_rejects_constant_only() {
+        // No theta in the product → not a mu-ref.
+        let m = detect_one("CL = 2.0 * exp(ETA_CL)", &["TVCL"], &["ETA_CL"]);
+        assert!(m.is_none());
+    }
+
+    #[test]
+    fn test_detect_mu_ref_rejects_compound_eta_expression() {
+        // exp(ETA_CL + ETA_OCC) is not a bare exp(Eta) — rejected.
+        let m = detect_one(
+            "CL = TVCL * exp(ETA_CL + ETA_OCC)",
+            &["TVCL"],
+            &["ETA_CL", "ETA_OCC"],
+        );
+        assert!(m.is_none());
+    }
+
+    #[test]
+    fn test_detect_mu_ref_rejects_no_eta() {
+        // KM = TVKM — no eta, no mu-ref recorded.
+        let m = detect_one("KM = TVKM", &["TVKM"], &[]);
+        assert!(m.is_none());
+    }
+
+    #[test]
+    fn test_detect_mu_ref_multiple_parameters() {
+        // Detect across several lines; each eta maps to its own theta.
+        let lines = vec![
+            "CL = TVCL * exp(ETA_CL)".to_string(),
+            "V  = TVV  * exp(ETA_V)".to_string(),
+            "KA = TVKA * exp(ETA_KA)".to_string(),
+        ];
+        let tn = vec!["TVCL".to_string(), "TVV".to_string(), "TVKA".to_string()];
+        let en = vec!["ETA_CL".to_string(), "ETA_V".to_string(), "ETA_KA".to_string()];
+        let refs = detect_mu_refs(&lines, &tn, &en);
+        assert_eq!(refs.len(), 3);
+        assert_eq!(refs["ETA_CL"].theta_name, "TVCL");
+        assert_eq!(refs["ETA_V"].theta_name, "TVV");
+        assert_eq!(refs["ETA_KA"].theta_name, "TVKA");
+        assert!(refs.values().all(|m| m.log_transformed));
+    }
+
+    #[test]
+    fn test_detect_mu_ref_full_model_parse() {
+        // End-to-end: parse a minimal .ferx and verify mu_refs is populated.
+        let content = r#"
+[parameters]
+  theta TVCL(0.2, 0.001, 10.0)
+  theta TVV(10.0, 0.1, 500.0)
+
+  omega ETA_CL ~ 0.09
+  omega ETA_V  ~ 0.04
+
+  sigma PROP_ERR ~ 0.02
+
+[individual_parameters]
+  CL = TVCL * exp(ETA_CL)
+  V  = TVV  * exp(ETA_V)
+
+[structural_model]
+  pk one_cpt_iv_bolus(cl=CL, v=V)
+
+[error_model]
+  DV ~ proportional(PROP_ERR)
+"#;
+        let parsed = parse_full_model(content).expect("model should parse");
+        assert_eq!(parsed.model.mu_refs.len(), 2);
+        let cl = parsed.model.mu_refs.get("ETA_CL").unwrap();
+        assert_eq!(cl.theta_name, "TVCL");
+        assert!(cl.log_transformed);
     }
 
     #[test]
@@ -1769,5 +2342,189 @@ mod tests {
         assert!((omega.matrix[(1, 1)] - 0.04).abs() < 1e-10); // ETA_V
         assert!((omega.matrix[(2, 2)] - 0.40).abs() < 1e-10); // ETA_KA
         assert!((omega.matrix[(0, 1)] - 0.02).abs() < 1e-10); // cov(CL, V)
+    }
+
+    // ── fit_options parsing: new optimizer choices ──────────────────────────
+
+    fn minimal_model_with_fit_options(fit_opts: &str) -> String {
+        format!(
+            r#"
+[parameters]
+  theta TVCL(0.2, 0.001, 10.0)
+  theta TVV(10.0, 0.1, 500.0)
+  theta TVKA(1.5, 0.01, 50.0)
+  omega ETA_CL ~ 0.09
+  omega ETA_V  ~ 0.04
+  omega ETA_KA ~ 0.30
+  sigma PROP_ERR ~ 0.02
+
+[individual_parameters]
+  CL = TVCL * exp(ETA_CL)
+  V  = TVV  * exp(ETA_V)
+  KA = TVKA * exp(ETA_KA)
+
+[structural_model]
+  pk one_cpt_oral(cl=CL, v=V, ka=KA)
+
+[error_model]
+  DV ~ proportional(PROP_ERR)
+
+[fit_options]
+{}
+"#,
+            fit_opts
+        )
+    }
+
+    #[test]
+    fn test_parse_optimizer_bobyqa() {
+        let content = minimal_model_with_fit_options("  optimizer = bobyqa");
+        let parsed = parse_full_model(&content).unwrap();
+        assert_eq!(parsed.fit_options.optimizer, Optimizer::Bobyqa);
+    }
+
+    #[test]
+    fn test_parse_optimizer_trust_region() {
+        let content = minimal_model_with_fit_options("  optimizer = trust_region");
+        let parsed = parse_full_model(&content).unwrap();
+        assert_eq!(parsed.fit_options.optimizer, Optimizer::TrustRegion);
+    }
+
+    #[test]
+    fn test_parse_optimizer_newton_tr_alias() {
+        // newton_tr is an accepted alias for trust_region
+        let content = minimal_model_with_fit_options("  optimizer = newton_tr");
+        let parsed = parse_full_model(&content).unwrap();
+        assert_eq!(parsed.fit_options.optimizer, Optimizer::TrustRegion);
+    }
+
+    #[test]
+    fn test_parse_optimizer_case_insensitive() {
+        // Parser lowercases the value, so mixed-case should map the same way.
+        let content = minimal_model_with_fit_options("  optimizer = BOBYQA");
+        let parsed = parse_full_model(&content).unwrap();
+        assert_eq!(parsed.fit_options.optimizer, Optimizer::Bobyqa);
+
+        let content2 = minimal_model_with_fit_options("  optimizer = Trust_Region");
+        let parsed2 = parse_full_model(&content2).unwrap();
+        assert_eq!(parsed2.fit_options.optimizer, Optimizer::TrustRegion);
+    }
+
+    #[test]
+    fn test_parse_optimizer_defaults_to_slsqp() {
+        // No [fit_options] block → default optimizer.
+        let content = minimal_model_with_fit_options("  maxiter = 100");
+        let parsed = parse_full_model(&content).unwrap();
+        assert_eq!(parsed.fit_options.optimizer, Optimizer::Slsqp);
+    }
+
+    #[test]
+    fn test_parse_steihaug_max_iters() {
+        let content = minimal_model_with_fit_options(
+            "  optimizer = trust_region\n  steihaug_max_iters = 30",
+        );
+        let parsed = parse_full_model(&content).unwrap();
+        assert_eq!(parsed.fit_options.optimizer, Optimizer::TrustRegion);
+        assert_eq!(parsed.fit_options.steihaug_max_iters, 30);
+    }
+
+    #[test]
+    fn test_steihaug_max_iters_default() {
+        // Default must match the documented value (50).
+        let content = minimal_model_with_fit_options("  optimizer = trust_region");
+        let parsed = parse_full_model(&content).unwrap();
+        assert_eq!(parsed.fit_options.steihaug_max_iters, 50);
+    }
+
+    #[test]
+    fn test_parse_inner_maxiter_and_tol() {
+        let content = minimal_model_with_fit_options(
+            "  inner_maxiter = 75\n  inner_tol = 1e-5",
+        );
+        let parsed = parse_full_model(&content).unwrap();
+        assert_eq!(parsed.fit_options.inner_maxiter, 75);
+        assert!((parsed.fit_options.inner_tol - 1e-5).abs() < 1e-15);
+    }
+
+    #[test]
+    fn test_fit_options_defaults() {
+        // Guard against accidental drift in defaults — documented as:
+        //   optimizer = slsqp, inner_maxiter = 200, inner_tol = 1e-8,
+        //   steihaug_max_iters = 50.
+        let opts = FitOptions::default();
+        assert_eq!(opts.optimizer, Optimizer::Slsqp);
+        assert_eq!(opts.inner_maxiter, 200);
+        assert!((opts.inner_tol - 1e-8).abs() < 1e-20);
+        assert_eq!(opts.steihaug_max_iters, 50);
+    }
+
+    #[test]
+    fn test_parse_example_warfarin_bobyqa_file() {
+        // The example file is part of the user-visible surface; parsing it is
+        // a lightweight smoke test that the key names match what the docs
+        // and examples advertise.
+        let content = include_str!("../../examples/warfarin_bobyqa.ferx");
+        let parsed = parse_full_model(content).unwrap();
+        assert_eq!(parsed.fit_options.optimizer, Optimizer::Bobyqa);
+        assert_eq!(parsed.fit_options.outer_maxiter, 300);
+        assert_eq!(parsed.fit_options.inner_maxiter, 100);
+    }
+
+    #[test]
+    fn test_parse_example_warfarin_trust_region_file() {
+        let content = include_str!("../../examples/warfarin_trust_region.ferx");
+        let parsed = parse_full_model(content).unwrap();
+        assert_eq!(parsed.fit_options.optimizer, Optimizer::TrustRegion);
+        assert_eq!(parsed.fit_options.steihaug_max_iters, 30);
+    }
+
+    // ── apply_fit_option: coverage of the newly-added optimizer keys.
+    //    The generic apply_fit_option tests (known/unknown/malformed/bool
+    //    variants/threads/seed) live in the earlier test block — these
+    //    only add the keys that are new on this branch.
+
+    #[test]
+    fn test_apply_fit_option_optimizer_bobyqa() {
+        let mut opts = FitOptions::default();
+        assert_eq!(apply_fit_option(&mut opts, "optimizer", "bobyqa"), Ok(true));
+        assert_eq!(opts.optimizer, Optimizer::Bobyqa);
+    }
+
+    #[test]
+    fn test_apply_fit_option_optimizer_trust_region() {
+        let mut opts = FitOptions::default();
+        assert_eq!(
+            apply_fit_option(&mut opts, "optimizer", "trust_region"),
+            Ok(true)
+        );
+        assert_eq!(opts.optimizer, Optimizer::TrustRegion);
+    }
+
+    #[test]
+    fn test_apply_fit_option_steihaug_max_iters() {
+        let mut opts = FitOptions::default();
+        assert_eq!(
+            apply_fit_option(&mut opts, "steihaug_max_iters", "30"),
+            Ok(true)
+        );
+        assert_eq!(opts.steihaug_max_iters, 30);
+        // Reject malformed (e.g. negative) value.
+        assert!(apply_fit_option(&mut opts, "steihaug_max_iters", "-1").is_err());
+    }
+
+    #[test]
+    fn test_apply_fit_option_inner_maxiter_and_tol() {
+        let mut opts = FitOptions::default();
+        assert_eq!(
+            apply_fit_option(&mut opts, "inner_maxiter", "75"),
+            Ok(true)
+        );
+        assert_eq!(opts.inner_maxiter, 75);
+
+        assert_eq!(apply_fit_option(&mut opts, "inner_tol", "1e-5"), Ok(true));
+        assert!((opts.inner_tol - 1e-5).abs() < 1e-15);
+
+        assert!(apply_fit_option(&mut opts, "inner_maxiter", "oops").is_err());
+        assert!(apply_fit_option(&mut opts, "inner_tol", "not_a_num").is_err());
     }
 }

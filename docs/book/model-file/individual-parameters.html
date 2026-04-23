@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "ayu";
-            window.path_to_searchindex_js = "../searchindex-1004e87f.js";
+            window.path_to_searchindex_js = "../searchindex-4e41e858.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-678ba3a2.js"></script>
+        <script src="../toc-66605922.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -229,6 +229,14 @@
 [individual_parameters]
   CL = TVCL * (WT/70)^THETA_WT * (CRCL/100)^THETA_CRCL * exp(ETA_CL)
 </code></pre>
+<h2 id="automatic-mu-referencing"><a class="header" href="#automatic-mu-referencing">Automatic MU-referencing</a></h2>
+<p>When a line matches one of the patterns</p>
+<pre><code>PARAM = THETA * exp(ETA)              # multiplicative / log-normal
+PARAM = THETA * &lt;anything&gt; * exp(ETA) # multiplicative with covariate terms
+PARAM = exp(log(THETA) + ETA)         # canonical MU form
+PARAM = THETA + ETA                   # additive
+</code></pre>
+<p>ferx records the <code>(ETA → THETA)</code> mapping and uses it to re-centre the inner-loop ETA search at each outer iteration — reproducing NONMEM / nlmixr2’s MU-referencing behaviour without requiring you to write an explicit <code>MU_i</code> line. See the <a href="../faq.html#do-i-need-to-use-mu-referencing-in-my-model-definitions-like-in-nonmem--nlmixr2">FAQ</a> for details on which patterns are and are not detected, and for the <code>mu_referencing = false</code> escape hatch.</p>
 <h2 id="covariate-detection"><a class="header" href="#covariate-detection">Covariate Detection</a></h2>
 <p>Any uppercase identifier in the expression that does not match a theta name or eta name is automatically treated as a covariate. The covariate value is read from the corresponding column in the data file.</p>
 <p>For example, in <code>CL = TVCL * (WT/70)^0.75 * exp(ETA_CL)</code>:</p>

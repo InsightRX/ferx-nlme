@@ -287,6 +287,14 @@ pub enum ErrorModel {
 /// PK parameter function: maps (theta, eta, covariates) -> PkParams
 pub type PkParamFn = Box<dyn Fn(&[f64], &[f64], &HashMap<String, f64>) -> PkParams + Send + Sync>;
 
+/// Associates an ETA with its mu-referencing anchor theta.
+#[derive(Debug, Clone)]
+pub struct MuRef {
+    pub theta_name: String,
+    /// true for patterns THETA*exp(ETA) or exp(log(THETA)+ETA); false for THETA+ETA
+    pub log_transformed: bool,
+}
+
 /// A compiled model ready for estimation
 pub struct CompiledModel {
     pub name: String,
@@ -299,6 +307,9 @@ pub struct CompiledModel {
     pub theta_names: Vec<String>,
     pub eta_names: Vec<String>,
     pub default_params: ModelParameters,
+    /// Detected mu-referencing relationships: eta_name → (theta_name, log_transformed).
+    /// Populated by the parser; empty map means no mu-referencing detected.
+    pub mu_refs: HashMap<String, MuRef>,
     /// Computes covariate-adjusted typical values per subject for AD.
     /// Returns `tv[i]` such that `PK_param[i] = tv[i] * exp(eta[i])`.
     /// Covariates and theta are folded in; only eta is differentiated.
@@ -429,6 +440,13 @@ pub struct FitOptions {
     /// See [`BloqMethod`]. Defaults to `Drop` (backward-compatible: no effect
     /// when the data has no CENS column).
     pub bloq_method: BloqMethod,
+    /// Maximum CG iterations for the Steihaug subproblem solver (trust-region only).
+    /// Should be at least n_params; default 50 covers most population PK models.
+    pub steihaug_max_iters: usize,
+    /// If true (default), use automatically detected mu-referencing to centre
+    /// ETA starting points on the current population mean at each outer step.
+    /// Set to false to disable for comparison purposes.
+    pub mu_referencing: bool,
     /// Number of rayon worker threads used for the per-subject parallel loops
     /// (inner EBE search, SAEM MH steps, SIR weighting, likelihood reductions).
     /// `None` (default) leaves rayon's global pool alone, which means one
@@ -469,6 +487,8 @@ impl Default for FitOptions {
             sir_resamples: 250,
             sir_seed: None,
             bloq_method: BloqMethod::Drop,
+            steihaug_max_iters: 50,
+            mu_referencing: true,
             threads: None,
             cancel: None,
         }
@@ -500,6 +520,10 @@ pub enum Optimizer {
     NloptLbfgs,
     /// NLopt LD_MMA — Method of Moving Asymptotes
     Mma,
+    /// NLopt LN_BOBYQA — derivative-free quadratic interpolation
+    Bobyqa,
+    /// Newton trust-region with Steihaug CG subproblem (via argmin)
+    TrustRegion,
 }
 
 /// Estimation method

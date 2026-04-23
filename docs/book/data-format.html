@@ -35,10 +35,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "ayu";
-            window.path_to_searchindex_js = "searchindex-1004e87f.js";
+            window.path_to_searchindex_js = "searchindex-4e41e858.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-678ba3a2.js"></script>
+        <script src="toc-66605922.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -206,6 +206,7 @@
 <tr><td><code>MDV</code></td><td>integer</td><td>0</td><td>Missing DV flag. 1 = DV should be ignored</td></tr>
 <tr><td><code>II</code></td><td>numeric</td><td>0</td><td>Interdose interval for repeated dosing</td></tr>
 <tr><td><code>SS</code></td><td>integer</td><td>0</td><td>Steady-state flag. 1 = assume steady state</td></tr>
+<tr><td><code>CENS</code></td><td>integer</td><td>0</td><td>Censoring flag. 1 = observation is below LLOQ; <code>DV</code> carries the LLOQ value. Paired with <code>bloq_method = m3</code> in <code>[fit_options]</code> to enable likelihood-based handling — see <a href="examples/bloq.html">BLOQ example</a>.</td></tr>
 </tbody>
 </table>
 </div>

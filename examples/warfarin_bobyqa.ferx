@@ -1,0 +1,41 @@
+# Example: warfarin 1-compartment model fitted with BOBYQA optimizer
+#
+# optimizer     — outer optimizer (slsqp, lbfgs, mma, bobyqa, trust_region)
+# maxiter       — max outer iterations (default 500)
+# inner_maxiter — max ETA estimation iterations per subject (default 200)
+# inner_tol     — ETA convergence tolerance (default 1e-8)
+#
+# BOBYQA is derivative-free and more robust on poorly-scaled surfaces.
+# trust_region uses second-order curvature and can be faster near convergence.
+
+# One-compartment oral PK model (warfarin)
+
+[parameters]
+  theta TVCL(0.2, 0.001, 10.0)
+  theta TVV(10.0, 0.1, 500.0)
+  theta TVKA(1.5, 0.01, 50.0)
+
+  omega ETA_CL ~ 0.09
+  omega ETA_V  ~ 0.04
+  omega ETA_KA ~ 0.30
+
+  sigma PROP_ERR ~ 0.02
+
+[individual_parameters]
+  CL = TVCL * exp(ETA_CL)
+  V  = TVV  * exp(ETA_V)
+  KA = TVKA * exp(ETA_KA)
+
+[structural_model]
+  pk one_cpt_oral(cl=CL, v=V, ka=KA)
+
+[error_model]
+  DV ~ proportional(PROP_ERR)
+
+[fit_options]
+  method        = foce
+  covariance    = true
+  optimizer     = bobyqa
+  maxiter       = 300
+  inner_maxiter = 100
+  inner_tol     = 1e-6
