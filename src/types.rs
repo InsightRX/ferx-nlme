@@ -554,7 +554,7 @@ impl Default for FitOptions {
             run_covariance_step: true,
             interaction: false,
             verbose: true,
-            optimizer: Optimizer::Slsqp,
+            optimizer: Optimizer::Bobyqa,
             lbfgs_memory: 5,
             global_search: false,
             global_maxeval: 0,

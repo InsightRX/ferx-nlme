@@ -2612,11 +2612,11 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_optimizer_defaults_to_slsqp() {
+    fn test_parse_optimizer_defaults_to_bobyqa() {
         // No [fit_options] block → default optimizer.
         let content = minimal_model_with_fit_options("  maxiter = 100");
         let parsed = parse_full_model(&content).unwrap();
-        assert_eq!(parsed.fit_options.optimizer, Optimizer::Slsqp);
+        assert_eq!(parsed.fit_options.optimizer, Optimizer::Bobyqa);
     }
 
     #[test]
@@ -2647,10 +2647,10 @@ mod tests {
     #[test]
     fn test_fit_options_defaults() {
         // Guard against accidental drift in defaults — documented as:
-        //   optimizer = slsqp, inner_maxiter = 200, inner_tol = 1e-8,
+        //   optimizer = bobyqa, inner_maxiter = 200, inner_tol = 1e-8,
         //   steihaug_max_iters = 50.
         let opts = FitOptions::default();
-        assert_eq!(opts.optimizer, Optimizer::Slsqp);
+        assert_eq!(opts.optimizer, Optimizer::Bobyqa);
         assert_eq!(opts.inner_maxiter, 200);
         assert!((opts.inner_tol - 1e-8).abs() < 1e-20);
         assert_eq!(opts.steihaug_max_iters, 50);
