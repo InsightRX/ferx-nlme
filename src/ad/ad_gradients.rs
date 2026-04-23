@@ -490,19 +490,29 @@ fn macro_rates_three_cpt_ad(
 
 /// 2-cpt macro rate constants (α, β, k21).
 ///
-/// Branch-free: for any positive k10, k12, k21 the discriminant
+/// For any positive k10, k12, k21 the discriminant
 /// `s² − 4d = (k10 − k21)² + k12·(k12 + 2·k10 + 2·k21)` is non-negative
-/// and `α = (s + √disc)/2 ≥ s/2 > 0`, so the previous `if sq > 0` and
-/// `if alpha > 1e-30` guards never fired for valid PK parameters —
-/// dropping them removes ~all of Enzyme's per-observation AD overhead
-/// on 2-cpt/3-cpt analytical models.
+/// and `α = (s + √disc)/2 ≥ s/2 > 0`, so the old `if sq > 0` /
+/// `if alpha > 1e-30` guards never fired for physical parameters — and
+/// under Enzyme reverse-mode the phi nodes they created defeated type
+/// deduction, producing NaN gradients.
+///
+/// Kept branch-free. To survive transient FP cancellation that makes
+/// the discriminant a tiny negative (e.g. a line-search trial point
+/// grazing a degenerate parameter configuration), `arg` is clamped to
+/// `≥ 0` via `(arg + |arg|) / 2` — arithmetic only, no `.max()`
+/// (which lowers to `llvm.maximumnum` and breaks the Enzyme compile)
+/// and no `if`/`else` (which would reintroduce the phi-node pathology).
+/// `.abs()` lowers to `llvm.fabs`, which Enzyme differentiates correctly.
 fn macro_rates(cl: f64, v1: f64, q: f64, v2: f64) -> (f64, f64, f64) {
     let k10 = cl / v1;
     let k12 = q / v1;
     let k21 = q / v2;
     let s = k10 + k12 + k21;
     let d = k10 * k21;
-    let disc = (s * s - 4.0 * d).sqrt();
+    let arg = s * s - 4.0 * d;
+    let arg_clamped = (arg + arg.abs()) * 0.5;
+    let disc = arg_clamped.sqrt();
     let alpha = (s + disc) / 2.0;
     let beta = d / alpha;
     (alpha, beta, k21)
@@ -575,7 +585,9 @@ impl FlatDoseData {
 // ─── Public interface ───────────────────────────────────────────────────────
 
 /// Compute gradient of individual_nll w.r.t. eta using reverse-mode AD.
-/// `tv_adjusted` = covariate-adjusted typical values (length n_eta).
+/// `tv_adjusted` = covariate-adjusted typical values, length n_tv
+/// (parallel to `pk_idx_f64` and `sel_flat`'s row dimension — not n_eta;
+/// one entry per `[individual_parameters]` assignment).
 /// `cens_f64` = per-observation censoring flags (0 or 1 as f64); pass all
 /// zeros when M3 is disabled.
 #[allow(clippy::too_many_arguments)]

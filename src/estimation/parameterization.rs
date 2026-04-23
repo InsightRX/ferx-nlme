@@ -523,7 +523,7 @@ mod tests {
 
             eta_map: (0..3).map(|i| i as i32).collect(),
 
-            pk_idx_f64: vec![0.0, 1.0, 2.0],
+            pk_idx_f64: vec![0.0, 1.0, 4.0],
 
             sel_flat: {
                 let mut v = vec![0.0f64; 3 * 3];

@@ -311,14 +311,22 @@ pub struct CompiledModel {
     /// Populated by the parser; empty map means no mu-referencing detected.
     pub mu_refs: HashMap<String, MuRef>,
     /// Computes covariate-adjusted typical values per subject for AD.
-    /// Returns `tv[i]` such that `PK_param[i] = tv[i] * exp(eta[i])`.
-    /// Covariates and theta are folded in; only eta is differentiated.
-    /// When `Some`, enables AD gradient computation in the inner loop.
-    /// When `None`, falls back to finite-difference gradients.
+    /// Returns one value per `[individual_parameters]` assignment (in
+    /// declaration order), evaluated with eta = 0. Covariates and theta are
+    /// folded in; only eta is differentiated. The AD inner loop then
+    /// computes `pk[pk_indices[i]] = tv[i] * exp(dot(sel_flat[i,:], eta))`,
+    /// so `tv.len() == pk_indices.len() == eta_map.len() == sel_flat.len() / n_eta`,
+    /// and the eta application is driven by `sel_flat` rather than being
+    /// positional. When `Some`, enables AD gradient computation in the
+    /// inner loop; when `None` (e.g. ODE models), falls back to FD.
     pub tv_fn: Option<Box<dyn Fn(&[f64], &HashMap<String, f64>) -> Vec<f64> + Send + Sync>>,
-    /// Maps each individual parameter (eta index) to its PK parameter index.
-    /// E.g. for a model with CL, V, KA: [PK_IDX_CL, PK_IDX_V, PK_IDX_KA] = [0, 1, 4].
-    /// Used by AD functions to place parameters in the correct PK slots.
+    /// Maps each `[individual_parameters]` assignment (by declaration order)
+    /// to its PK parameter slot. E.g. for a model with CL, V, KA:
+    /// `[PK_IDX_CL, PK_IDX_V, PK_IDX_KA] = [0, 1, 4]`. Parallel to the
+    /// output of `tv_fn` and to `eta_map`; used by AD to route each tv
+    /// value to the correct PK slot. Note: the index here is the
+    /// assignment/tv index, *not* the eta index — see `eta_map` for the
+    /// latter (they diverge when some params are eta-free).
     pub pk_indices: Vec<usize>,
     /// Per-tv eta index: `eta_map[i]` is the eta index referenced by the
     /// i-th [individual_parameters] assignment, or -1 if the assignment
@@ -342,17 +350,24 @@ pub struct CompiledModel {
     /// analytical PK equations. The `pk_param_fn` output is flattened and passed
     /// to the ODE RHS function as the parameter vector.
     pub ode_spec: Option<crate::ode::OdeSpec>,
-    /// Set by `fit()` from [`FitOptions::bloq_method`] so likelihood/AD paths can
-    /// read it without threading it through every call site.
+    /// Mirror of [`FitOptions::bloq_method`] so likelihood/AD paths can read
+    /// it without threading the options struct through every call site.
+    /// Set by [`fit_from_files`](crate::fit_from_files) automatically;
+    /// callers invoking [`fit`](crate::fit) with a hand-built `CompiledModel`
+    /// must set this field to match `options.bloq_method` themselves.
     pub bloq_method: BloqMethod,
     /// Covariate names referenced by any expression in the model (preserved
     /// in the case the modeller wrote). Validated against the data's covariate
     /// columns before a fit so that a missing/misspelt covariate fails loudly
     /// instead of silently evaluating to zero.
     pub referenced_covariates: Vec<String>,
-    /// Gradient method for the inner (EBE) optimizer. Set by `fit()` from
-    /// [`FitOptions::gradient_method`] so the inner loop can dispatch at
-    /// runtime without threading it through every call site.
+    /// Mirror of [`FitOptions::gradient_method`] so the inner loop can
+    /// dispatch at runtime without threading the options struct through
+    /// every call site. Set by [`fit_from_files`](crate::fit_from_files)
+    /// automatically; callers invoking [`fit`](crate::fit) with a
+    /// hand-built `CompiledModel` must set this field to match
+    /// `options.gradient_method` themselves. A mismatch is not detected —
+    /// `find_ebe` reads this field, not `options`.
     pub gradient_method: GradientMethod,
 }
 
@@ -537,8 +552,10 @@ pub struct FitOptions {
     /// by `parse_fit_options` / `apply_fit_option`. Used by `fit()` to warn
     /// when a key is set that the selected estimation method does not consume.
     pub user_set_keys: Vec<String>,
-    /// Inner-loop gradient method. Default [`GradientMethod::Auto`] dispatches
-    /// between AD and FD at runtime based on model/eta size.
+    /// Inner-loop gradient method. Default [`GradientMethod::Auto`] prefers
+    /// AD whenever the crate was built with the `autodiff` feature and the
+    /// model has an analytical PK path (`tv_fn` populated); otherwise falls
+    /// back to FD. See [`GradientMethod`] for the full contract.
     pub gradient_method: GradientMethod,
 }
 
@@ -598,13 +615,17 @@ pub enum BloqMethod {
 pub enum Optimizer {
     Bfgs,
     Lbfgs,
-    /// NLopt LD_SLSQP — Sequential Least Squares Programming (recommended)
+    /// NLopt LD_SLSQP — Sequential Least Squares Programming. Gradient-based;
+    /// faster on smooth, well-behaved problems but more sensitive to the
+    /// noisy FOCE surface than BOBYQA.
     Slsqp,
     /// NLopt LD_LBFGS
     NloptLbfgs,
     /// NLopt LD_MMA — Method of Moving Asymptotes
     Mma,
-    /// NLopt LN_BOBYQA — derivative-free quadratic interpolation
+    /// NLopt LN_BOBYQA — derivative-free quadratic interpolation. Default:
+    /// robust on the FOCE objective surface, which is near-noisy because of
+    /// the inner EBE optimization.
     Bobyqa,
     /// Newton trust-region with Steihaug CG subproblem (via argmin)
     TrustRegion,

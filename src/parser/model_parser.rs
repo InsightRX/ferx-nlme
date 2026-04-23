@@ -2020,6 +2020,26 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_fit_options_gradient_method() {
+        // Accepted aliases resolve to the expected GradientMethod variant.
+        for (input, expected) in [
+            ("gradient = auto", GradientMethod::Auto),
+            ("gradient = ad", GradientMethod::Ad),
+            ("gradient = autodiff", GradientMethod::Ad),
+            ("gradient = fd", GradientMethod::Fd),
+            ("gradient = finite", GradientMethod::Fd),
+            ("gradient_method = ad", GradientMethod::Ad),
+        ] {
+            let opts = parse_fit_options(&[input.to_string()]).unwrap();
+            assert_eq!(opts.gradient_method, expected, "input: {input}");
+        }
+
+        // Unknown values must fail loudly — silently defaulting would hide
+        // typos like `gradient = auo` that a user probably intended as `auto`.
+        assert!(parse_fit_options(&["gradient = nope".to_string()]).is_err());
+    }
+
+    #[test]
     fn test_parse_all_example_ferx_files() {
         // Smoke test: every checked-in example must parse under the strict
         // [fit_options] rules. Guards against accidentally tightening a key

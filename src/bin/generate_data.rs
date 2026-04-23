@@ -183,9 +183,13 @@ fn build_warfarin_model() -> CompiledModel {
 
         eta_map: (0..3).map(|i| i as i32).collect(),
 
-        pk_idx_f64: vec![0.0, 1.0, 2.0],
+        pk_idx_f64: [PK_IDX_CL, PK_IDX_V, PK_IDX_KA]
+            .iter()
+            .map(|&i| i as f64)
+            .collect(),
 
         sel_flat: {
+            // n_tv = 3, n_eta = 3, each tv uses its positional eta.
             let mut v = vec![0.0f64; 3 * 3];
             for i in 0..3 {
                 v[i * 3 + i] = 1.0;
@@ -272,7 +276,10 @@ fn generate_two_cpt_iv() {
 
         eta_map: (0..4).map(|i| i as i32).collect(),
 
-        pk_idx_f64: vec![0.0, 1.0, 2.0, 3.0],
+        pk_idx_f64: [PK_IDX_CL, PK_IDX_V, PK_IDX_Q, PK_IDX_V2]
+            .iter()
+            .map(|&i| i as f64)
+            .collect(),
 
         sel_flat: {
             let mut v = vec![0.0f64; 4 * 4];
@@ -362,7 +369,10 @@ fn generate_two_cpt_oral_cov() {
 
         eta_map: (0..5).map(|i| i as i32).collect(),
 
-        pk_idx_f64: vec![0.0, 1.0, 2.0, 3.0, 4.0],
+        pk_idx_f64: [PK_IDX_CL, PK_IDX_V, PK_IDX_Q, PK_IDX_V2, PK_IDX_KA]
+            .iter()
+            .map(|&i| i as f64)
+            .collect(),
 
         sel_flat: {
             let mut v = vec![0.0f64; 5 * 5];
@@ -495,7 +505,7 @@ fn generate_mm_oral() {
 
         eta_map: (0..2).map(|i| i as i32).collect(),
 
-        pk_idx_f64: vec![0.0, 1.0],
+        pk_idx_f64: vec![0.0, 2.0],
 
         sel_flat: {
             let mut v = vec![0.0f64; 2 * 2];

@@ -7,20 +7,23 @@ use std::sync::atomic::{AtomicU64, Ordering};
 #[cfg(feature = "autodiff")]
 use crate::ad::ad_gradients::{self, FlatDoseData};
 
-/// Resolve [`GradientMethod::Auto`] to a concrete choice of AD vs FD for this
-/// model/subject.
+/// Resolve [`GradientMethod::Auto`] to a concrete AD/FD choice for this model.
+/// Returns `true` for AD, `false` for FD.
 ///
-/// AD wins when forward_cost >> n_eta * perturbation_cost; in practice that
-/// means expensive forward models (ODE integration) or models with many etas.
-/// Analytical PK with small n_eta is the opposite regime — FD is faster.
+/// Policy (`Auto` case): prefer AD whenever it is available. Empirically
+/// (`FERX_TIME_GRADIENTS=1` on 1-cpt oral, 2-cpt infusion, 3-cpt infusion)
+/// reverse-mode AD is 1.5-5x faster per BFGS gradient call than central FD
+/// across the tested range of models — the tape/backward overhead is
+/// dominated by the savings from one gradient call vs `2·n_eta` forward
+/// perturbations, even at small `n_eta`.
 ///
-/// AD also requires (a) the crate to be compiled with `feature = "autodiff"`
-/// and (b) the model to have `tv_fn` populated (analytical PK path only).
-/// ODE models currently have no AD path, so Auto must resolve to FD.
-fn resolve_gradient_method(model: &CompiledModel, n_eta: usize) -> bool {
+/// AD requires (a) the crate compiled with `feature = "autodiff"` and
+/// (b) the model to have `tv_fn` populated (analytical PK path only).
+/// ODE models have no AD path, so `Auto` resolves to FD there.
+fn resolve_gradient_method(model: &CompiledModel) -> bool {
     #[cfg(not(feature = "autodiff"))]
     {
-        let _ = (model, n_eta);
+        let _ = model;
         return false;
     }
     #[cfg(feature = "autodiff")]
@@ -28,15 +31,9 @@ fn resolve_gradient_method(model: &CompiledModel, n_eta: usize) -> bool {
         if model.tv_fn.is_none() {
             return false;
         }
-        let _ = n_eta;
         match model.gradient_method {
             GradientMethod::Ad => true,
             GradientMethod::Fd => false,
-            // Empirically (FERX_TIME_GRADIENTS=1 on warfarin, 3 etas, analytical
-            // 1-cpt): reverse-mode AD is ~3× faster per BFGS call than central
-            // FD even at small n_eta. The tape/backward overhead is dominated
-            // by the savings from one gradient call vs 2n forward perturbations.
-            // Prefer AD whenever it is available.
             GradientMethod::Auto => true,
         }
     }
@@ -169,7 +166,7 @@ pub fn find_ebe(
     // Resolve Auto → concrete method based on model/eta characteristics.
     // Autodiff is only available when the crate was compiled with the feature
     // and the model provides tv_fn (the parser attaches it for analytical PK).
-    let use_ad = resolve_gradient_method(model, n_eta);
+    let use_ad = resolve_gradient_method(model);
 
     // Try BFGS — AD gradient if `use_ad`, FD otherwise. The AD gradient of
     // individual_nll w.r.t. psi equals the gradient w.r.t. eta_true (chain
@@ -213,7 +210,6 @@ pub fn find_ebe(
             2.0 * ld
         };
 
-        let pk_indices = &model.pk_indices;
         // Under M3, feed actual CENS flags so the AD path applies -log Φ to
         // censored rows. Otherwise pass zeros — Enzyme will trace the Gaussian
         // branch for every observation, identical to the pre-M3 behavior.
