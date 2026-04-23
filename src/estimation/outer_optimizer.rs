@@ -3,6 +3,8 @@ use crate::estimation::parameterization::{compute_mu_k, *};
 use crate::stats::likelihood::foce_population_nll;
 use crate::types::*;
 use nalgebra::{DMatrix, DVector};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 /// Result of outer optimization
 pub struct OuterResult {
@@ -90,6 +92,12 @@ fn optimize_nlopt(
         n_evals: 0,
     };
 
+    // External counter mirrors state.n_evals — nlopt doesn't hand `state`
+    // back after `opt.optimize()`, so we need an Arc to read the final
+    // count for reporting. Keep both in sync inside the objective closure.
+    let n_evals_outer = Arc::new(AtomicUsize::new(0));
+    let n_evals_cl = Arc::clone(&n_evals_outer);
+
     // Select NLopt algorithm
     let algo = match options.optimizer {
         Optimizer::Slsqp => nlopt::Algorithm::Slsqp,
@@ -151,6 +159,7 @@ fn optimize_nlopt(
                     g[i] = 100.0 * (x[i] - center); // gradient points away from center
                 }
                 state.n_evals += 1;
+                n_evals_cl.fetch_add(1, Ordering::Relaxed);
                 return ofv;
             }
             let ofv_fn = |xp: &[f64], eh: &[DVector<f64>], hm: &[DMatrix<f64>]| -> f64 {
@@ -180,6 +189,7 @@ fn optimize_nlopt(
         state.cached_etas = ehs;
         state.cached_h_mats = hms;
         state.n_evals += 1;
+        n_evals_cl.fetch_add(1, Ordering::Relaxed);
         if ofv < state.best_ofv {
             state.best_ofv = ofv;
             if verbose {
@@ -253,6 +263,7 @@ fn optimize_nlopt(
             n_evals: 0,
         };
 
+        let n_evals_cl2 = Arc::clone(&n_evals_outer);
         let objective2 = |x: &[f64], grad: Option<&mut [f64]>, state: &mut NloptState| -> f64 {
             if crate::cancel::is_cancelled(&options.cancel) {
                 if let Some(g) = grad {
@@ -293,6 +304,7 @@ fn optimize_nlopt(
                         g[i] = 100.0 * (x[i] - center);
                     }
                     state.n_evals += 1;
+                    n_evals_cl2.fetch_add(1, Ordering::Relaxed);
                     return ofv;
                 }
                 let ofv_fn = |xp: &[f64], eh: &[DVector<f64>], hm: &[DMatrix<f64>]| -> f64 {
@@ -321,6 +333,7 @@ fn optimize_nlopt(
             state.cached_etas = ehs;
             state.cached_h_mats = hms;
             state.n_evals += 1;
+            n_evals_cl2.fetch_add(1, Ordering::Relaxed);
             if ofv < state.best_ofv {
                 state.best_ofv = ofv;
                 if verbose {
@@ -429,7 +442,12 @@ fn optimize_nlopt(
         params: final_params,
         ofv: final_ofv,
         converged,
-        n_iterations: 0, // NLopt doesn't expose iteration count directly
+        // NLopt doesn't expose an "iteration" count (BOBYQA/SLSQP don't have
+        // iterations in the textbook sense), so report the number of
+        // objective-function evaluations instead — the only monotone
+        // progress counter NLopt exposes, and the quantity most users
+        // actually care about ("how much work did the fit do").
+        n_iterations: n_evals_outer.load(Ordering::Relaxed),
         eta_hats: final_ehs,
         h_matrices: final_hms,
         covariance_matrix,

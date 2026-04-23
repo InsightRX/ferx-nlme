@@ -33,6 +33,36 @@ fn find_exp_eta_in_mul(expr: &Expression) -> Option<usize> {
     }
 }
 
+/// Collect all eta indices referenced by an expression (e.g. `Eta(2)` appears
+/// inside `TVQ * exp(ETA_V2)` → `[2]`). Used to build the AD path's per-tv
+/// eta-index map so parameters without etas (e.g. `Q = TVQ`) are handled
+/// correctly — otherwise the AD loop would misalign `eta[i]` with `pk[i]`
+/// and either apply the wrong eta or leave a pk slot at 0.
+fn extract_eta_indices(expr: &Expression) -> Vec<usize> {
+    let mut out = Vec::new();
+    fn walk(e: &Expression, out: &mut Vec<usize>) {
+        match e {
+            Expression::Eta(i) => {
+                if !out.contains(i) {
+                    out.push(*i);
+                }
+            }
+            Expression::BinOp(l, _, r) => {
+                walk(l, out);
+                walk(r, out);
+            }
+            Expression::UnaryFn(_, a) => walk(a, out),
+            Expression::Power(b, e) => {
+                walk(b, out);
+                walk(e, out);
+            }
+            _ => {}
+        }
+    }
+    walk(expr, &mut out);
+    out
+}
+
 /// Detect mu-referencing patterns in one assignment expression.
 /// Returns `Some((eta_idx, theta_idx, log_transformed))` or `None`.
 fn detect_pattern(expr: &Expression) -> Option<(usize, usize, bool)> {
@@ -291,6 +321,30 @@ pub fn parse_full_model(content: &str) -> Result<ParsedModel, String> {
         (0..n_eta).collect()
     };
 
+    // Per-tv eta index: for each [individual_parameters] line, find which eta
+    // its expression references (or -1 for none). Used by the AD path so
+    // `pk[pk_indices[i]] = tv[i] * exp(eta[eta_map[i]])` stays correct even
+    // when some params are eta-free (e.g. `Q = TVQ`). If a line references
+    // multiple etas (unusual), pick the first.
+    let eta_map: Vec<i32> = indiv_lines
+        .iter()
+        .map(|line| {
+            let parts: Vec<&str> = line.splitn(2, '=').collect();
+            if parts.len() != 2 {
+                return -1i32;
+            }
+            let ctx = ParseCtx::new(&theta_names, &eta_names, &[]);
+            match parse_expression(parts[1].trim(), ctx) {
+                Ok(expr) => extract_eta_indices(&expr)
+                    .first()
+                    .copied()
+                    .map(|i| i as i32)
+                    .unwrap_or(-1),
+                Err(_) => -1,
+            }
+        })
+        .collect();
+
     let model = CompiledModel {
         name,
         pk_model,
@@ -304,6 +358,7 @@ pub fn parse_full_model(content: &str) -> Result<ParsedModel, String> {
         default_params,
         tv_fn,
         pk_indices,
+        eta_map,
         ode_spec,
         bloq_method: BloqMethod::Drop,
         mu_refs,

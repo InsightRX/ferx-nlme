@@ -222,6 +222,7 @@ pub fn find_ebe(
         let mu_ad = mu.clone();
         let grad_fn = |p: &[f64]| -> Vec<f64> {
             let eta_t: Vec<f64> = p.iter().zip(mu_ad.iter()).map(|(pi, mi)| pi - mi).collect();
+            let t0 = std::time::Instant::now();
             let (_, g) = ad_gradients::compute_nll_gradient_ad(
                 &eta_t,
                 &tv_adjusted,
@@ -235,27 +236,20 @@ pub fn find_ebe(
                 model.pk_model,
                 model.error_model,
                 pk_indices,
+                &model.eta_map,
             );
+            GRADIENT_TIMINGS.record_ad(t0.elapsed().as_nanos() as u64);
             g
         };
-        let t0 = std::time::Instant::now();
-        let r = bfgs_minimize_with_grad(&obj, &grad_fn, &mut psi, n_eta, max_iter, tol);
-        GRADIENT_TIMINGS.record_ad(t0.elapsed().as_nanos() as u64);
-        r
+        bfgs_minimize_with_grad(&obj, &grad_fn, &mut psi, n_eta, max_iter, tol)
     } else {
-        let t0 = std::time::Instant::now();
-        let r = bfgs_minimize(&obj, &mut psi, n_eta, max_iter, tol);
-        GRADIENT_TIMINGS.record_fd(t0.elapsed().as_nanos() as u64);
-        r
+        bfgs_minimize(&obj, &mut psi, n_eta, max_iter, tol)
     };
 
     #[cfg(not(feature = "autodiff"))]
     let result = {
         let _ = use_ad; // silence unused warning on stable builds
-        let t0 = std::time::Instant::now();
-        let r = bfgs_minimize(&obj, &mut psi, n_eta, max_iter, tol);
-        GRADIENT_TIMINGS.record_fd(t0.elapsed().as_nanos() as u64);
-        r
+        bfgs_minimize(&obj, &mut psi, n_eta, max_iter, tol)
     };
 
     // If BFGS failed, try Nelder-Mead from the prior mode (psi = mu, eta_true = 0)
@@ -284,6 +278,7 @@ pub fn find_ebe(
             subject.obs_times.len(),
             model.pk_model,
             &model.pk_indices,
+            &model.eta_map,
         );
         GRADIENT_TIMINGS.record_jac_ad(t0.elapsed().as_nanos() as u64);
         j
@@ -601,6 +596,7 @@ fn backtracking_line_search(
 
 /// Central finite difference gradient (optimized step size)
 fn gradient_fd(obj: &dyn Fn(&[f64]) -> f64, x: &[f64], n: usize) -> Vec<f64> {
+    let t0 = std::time::Instant::now();
     let mut g = vec![0.0; n];
     let mut x_work = x.to_vec();
     for i in 0..n {
@@ -612,6 +608,7 @@ fn gradient_fd(obj: &dyn Fn(&[f64]) -> f64, x: &[f64], n: usize) -> Vec<f64> {
         g[i] = (fp - fm) / (2.0 * h);
         x_work[i] = x[i];
     }
+    GRADIENT_TIMINGS.record_fd(t0.elapsed().as_nanos() as u64);
     g
 }
 

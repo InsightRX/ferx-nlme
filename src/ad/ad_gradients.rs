@@ -26,11 +26,12 @@ use std::autodiff::{autodiff_forward, autodiff_reverse};
     Const,
     Const,
     Const,
+    Const,
     Active
 )]
 pub fn individual_nll_ad(
     eta: &[f64],
-    tv: &[f64],             // covariate-adjusted typical values, length n_eta
+    tv: &[f64],             // covariate-adjusted typical values, length pk_idx_f64.len()
     omega_inv_flat: &[f64], // n_eta*n_eta, row-major
     log_det_omega: f64,
     sigma_values: &[f64],
@@ -42,9 +43,11 @@ pub fn individual_nll_ad(
     observations: &[f64],
     cens_f64: &[f64],      // per-observation censoring flag; > 0.5 ⇒ BLOQ (M3)
     pk_idx_f64: &[f64],    // PK parameter indices as f64 (cast to usize inside)
+    sel_flat: &[f64],      // n_tv × n_eta row-major one-hot eta selector
     pk_and_err_model: f64, // pk_model_id * 10 + error_model_id
 ) -> f64 {
     let n_eta = eta.len();
+    let n_tv = tv.len();
     let n_doses = dose_times.len();
     let n_obs = obs_times.len();
     let pk_model_id = (pk_and_err_model as i32) / 10;
@@ -58,12 +61,22 @@ pub fn individual_nll_ad(
         }
     }
 
-    // PK params: tv[i] * exp(eta[i]), placed at correct PK index
+    // PK params: pk[idx] = tv[i] * exp(dot(sel_row_i, eta)). `sel_flat`
+    // encodes which eta (if any) applies to each tv entry as a one-hot
+    // row (length n_eta), with an all-zero row meaning "no eta". This is
+    // fully branch-free on the differentiated path — Enzyme needs that
+    // for reverse-mode type deduction to succeed; the earlier
+    // `if has_eta` form produced NaN gradients on 2-cpt models because
+    // the phi node at the if/else merge defeated Enzyme's type analysis.
     let mut pk = [0.0f64; MAX_PK_PARAMS];
     pk[PK_IDX_F] = 1.0;
-    for i in 0..n_eta {
+    for i in 0..n_tv {
+        let mut eta_contrib = 0.0;
+        for j in 0..n_eta {
+            eta_contrib += sel_flat[i * n_eta + j] * eta[j];
+        }
         let idx = pk_idx_f64[i] as usize;
-        pk[idx] = tv[i] * eta[i].exp();
+        pk[idx] = tv[i] * eta_contrib.exp();
     }
 
     // Predictions + data likelihood
@@ -161,6 +174,7 @@ fn log_normal_cdf_ad(z: f64) -> f64 {
     Const,
     Const,
     Const,
+    Const,
     Dual
 )]
 pub fn predict_all_ad(
@@ -171,20 +185,26 @@ pub fn predict_all_ad(
     dose_rates: &[f64],
     dose_durations: &[f64],
     obs_times: &[f64],
-    pk_idx_f64: &[f64], // PK parameter indices as f64 (cast to usize inside)
+    pk_idx_f64: &[f64],  // PK parameter indices as f64 (cast to usize inside)
+    sel_flat: &[f64],    // n_tv × n_eta row-major one-hot eta selector
     pk_model_id: f64,
     out: &mut [f64],
 ) {
     let n_eta = eta.len();
+    let n_tv = tv.len();
     let n_doses = dose_times.len();
     let n_obs = obs_times.len();
     let pk_id = pk_model_id as i32;
 
     let mut pk = [0.0f64; MAX_PK_PARAMS];
     pk[PK_IDX_F] = 1.0;
-    for i in 0..n_eta {
+    for i in 0..n_tv {
+        let mut eta_contrib = 0.0;
+        for j in 0..n_eta {
+            eta_contrib += sel_flat[i * n_eta + j] * eta[j];
+        }
         let idx = pk_idx_f64[i] as usize;
-        pk[idx] = tv[i] * eta[i].exp();
+        pk[idx] = tv[i] * eta_contrib.exp();
     }
 
     for obs_idx in 0..n_obs {
@@ -301,10 +321,12 @@ fn single_dose_ad(
         5 => {
             // TwoCptInfusion
             let (alpha, beta, k21) = macro_rates(cl, v, q, v2);
+            // For any positive (cl, v, q, v2) we have alpha > 0 and
+            // alpha - beta = disc > 0, and beta = d/alpha >= 0. The previous
+            // `.abs() < 1e-12` guards produced NaN gradients under Enzyme
+            // reverse-mode (branching on .abs() poisons the adjoint), and were
+            // dead for physical params — remove them.
             let diff = alpha - beta;
-            if diff.abs() < 1e-12 || alpha.abs() < 1e-12 || beta.abs() < 1e-12 {
-                return 0.0;
-            }
             if dur <= 0.0 {
                 let a = (amt / v) * (alpha - k21) / diff;
                 let b = (amt / v) * (k21 - beta) / diff;
@@ -466,16 +488,23 @@ fn macro_rates_three_cpt_ad(
     (alpha, beta, gamma, k21, k31)
 }
 
+/// 2-cpt macro rate constants (α, β, k21).
+///
+/// Branch-free: for any positive k10, k12, k21 the discriminant
+/// `s² − 4d = (k10 − k21)² + k12·(k12 + 2·k10 + 2·k21)` is non-negative
+/// and `α = (s + √disc)/2 ≥ s/2 > 0`, so the previous `if sq > 0` and
+/// `if alpha > 1e-30` guards never fired for valid PK parameters —
+/// dropping them removes ~all of Enzyme's per-observation AD overhead
+/// on 2-cpt/3-cpt analytical models.
 fn macro_rates(cl: f64, v1: f64, q: f64, v2: f64) -> (f64, f64, f64) {
     let k10 = cl / v1;
     let k12 = q / v1;
     let k21 = q / v2;
     let s = k10 + k12 + k21;
     let d = k10 * k21;
-    let sq = s * s - 4.0 * d;
-    let disc = (if sq > 0.0 { sq } else { 0.0 }).sqrt();
+    let disc = (s * s - 4.0 * d).sqrt();
     let alpha = (s + disc) / 2.0;
-    let beta = if alpha > 1e-30 { d / alpha } else { 0.0 };
+    let beta = d / alpha;
     (alpha, beta, k21)
 }
 
@@ -563,12 +592,24 @@ pub fn compute_nll_gradient_ad(
     pk_model: PkModel,
     error_model: ErrorModel,
     pk_indices: &[usize],
+    eta_map: &[i32],
 ) -> (f64, Vec<f64>) {
     let n_eta = eta.len();
+    let n_tv = tv_adjusted.len();
     let mut d_eta = vec![0.0f64; n_eta];
 
     let pk_and_err = (pk_model_to_id(pk_model) * 10 + error_model_to_id(error_model)) as f64;
     let pk_idx_f64: Vec<f64> = pk_indices.iter().map(|&i| i as f64).collect();
+    // Build n_tv × n_eta row-major one-hot selector from eta_map: entry (i,j)
+    // is 1.0 iff tv[i] uses eta[j], else 0.0. `exp(dot(sel_row, eta))`
+    // evaluates to `exp(eta[j])` for eta-bearing rows and `exp(0) = 1` for
+    // eta-free rows — both without branching on the differentiated path.
+    let mut sel_flat = vec![0.0f64; n_tv * n_eta];
+    for (i, &em) in eta_map.iter().enumerate() {
+        if em >= 0 && (em as usize) < n_eta {
+            sel_flat[i * n_eta + em as usize] = 1.0;
+        }
+    }
 
     let nll = individual_nll_ad_grad(
         eta,
@@ -585,6 +626,7 @@ pub fn compute_nll_gradient_ad(
         observations,
         cens_f64,
         &pk_idx_f64,
+        &sel_flat,
         pk_and_err,
         1.0,
     );
@@ -601,10 +643,18 @@ pub fn compute_jacobian_ad(
     n_obs: usize,
     pk_model: PkModel,
     pk_indices: &[usize],
+    eta_map: &[i32],
 ) -> nalgebra::DMatrix<f64> {
     let n_eta = eta.len();
+    let n_tv = tv_adjusted.len();
     let pk_id = pk_model_to_id(pk_model) as f64;
     let pk_idx_f64: Vec<f64> = pk_indices.iter().map(|&i| i as f64).collect();
+    let mut sel_flat = vec![0.0f64; n_tv * n_eta];
+    for (i, &em) in eta_map.iter().enumerate() {
+        if em >= 0 && (em as usize) < n_eta {
+            sel_flat[i * n_eta + em as usize] = 1.0;
+        }
+    }
     let mut jac = nalgebra::DMatrix::zeros(n_obs, n_eta);
 
     for j in 0..n_eta {
@@ -624,6 +674,7 @@ pub fn compute_jacobian_ad(
             &dose_data.durations,
             obs_times,
             &pk_idx_f64,
+            &sel_flat,
             pk_id,
             &mut out,
             &mut d_out,

@@ -518,6 +518,7 @@ mod tests {
             mu_refs: refs,
             tv_fn: None,
             pk_indices: vec![0, 1, 4],
+            eta_map: (0..3).map(|i| i as i32).collect(),
             ode_spec: None,
             bloq_method: BloqMethod::Drop,
             referenced_covariates: Vec::new(),

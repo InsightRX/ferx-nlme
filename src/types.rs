@@ -320,6 +320,15 @@ pub struct CompiledModel {
     /// E.g. for a model with CL, V, KA: [PK_IDX_CL, PK_IDX_V, PK_IDX_KA] = [0, 1, 4].
     /// Used by AD functions to place parameters in the correct PK slots.
     pub pk_indices: Vec<usize>,
+    /// Per-tv eta index: `eta_map[i]` is the eta index referenced by the
+    /// i-th [individual_parameters] assignment, or -1 if the assignment
+    /// references no eta (e.g. `Q = TVQ`). Parallel to `pk_indices` and the
+    /// output of `tv_fn`; used by the AD path to correctly combine eta
+    /// with each tv slot. Before this field existed the AD loop assumed
+    /// `pk_indices.len() == n_eta` with 1:1 positional correspondence,
+    /// which silently misaligned eta and produced NaN gradients for models
+    /// with eta-free PK parameters like 2-cpt where `Q` is fixed.
+    pub eta_map: Vec<i32>,
     /// ODE specification. When `Some`, predictions use ODE integration instead of
     /// analytical PK equations. The `pk_param_fn` output is flattened and passed
     /// to the ODE RHS function as the parameter vector.
