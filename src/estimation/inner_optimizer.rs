@@ -176,7 +176,10 @@ pub fn find_ebe(
     // rule: d/dpsi = d/d(eta_true), since psi = eta_true + mu).
     #[cfg(feature = "autodiff")]
     let result = if use_ad {
-        let tv_fn = model.tv_fn.as_ref().expect("resolve_gradient_method guarantees tv_fn");
+        let tv_fn = model
+            .tv_fn
+            .as_ref()
+            .expect("resolve_gradient_method guarantees tv_fn");
         let tv_adjusted = tv_fn(&params.theta, &subject.covariates);
         let dose_data = FlatDoseData::from_subject(subject);
         let omega_inv = params
@@ -266,7 +269,10 @@ pub fn find_ebe(
     // Compute Jacobian at eta_true — use AD when available and chosen.
     #[cfg(feature = "autodiff")]
     let h_matrix = if use_ad {
-        let tv_fn = model.tv_fn.as_ref().expect("resolve_gradient_method guarantees tv_fn");
+        let tv_fn = model
+            .tv_fn
+            .as_ref()
+            .expect("resolve_gradient_method guarantees tv_fn");
         let tv_adjusted = tv_fn(&params.theta, &subject.covariates);
         let dose_data = FlatDoseData::from_subject(subject);
         let t0 = std::time::Instant::now();

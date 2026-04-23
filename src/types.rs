@@ -745,12 +745,7 @@ pub fn method_specific_keys(m: EstimationMethod) -> &'static [&'static str] {
             "global_search",
             "global_maxeval",
         ],
-        EstimationMethod::FoceGn => &[
-            "maxiter",
-            "inner_maxiter",
-            "inner_tol",
-            "gn_lambda",
-        ],
+        EstimationMethod::FoceGn => &["maxiter", "inner_maxiter", "inner_tol", "gn_lambda"],
         EstimationMethod::FoceGnHybrid => &[
             "maxiter",
             "inner_maxiter",

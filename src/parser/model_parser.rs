@@ -346,7 +346,14 @@ pub fn parse_full_model(content: &str) -> Result<ParsedModel, String> {
         .collect();
 
     let pk_idx_f64: Vec<f64> = pk_indices.iter().map(|&i| i as f64).collect();
-    let mut sel_flat = vec![0.0f64; pk_indices.len() * n_eta];
+    // sel_flat is n_tv × n_eta (n_tv = eta_map.len() = number of
+    // individual_parameters lines). pk_indices.len() can differ from
+    // eta_map.len() for ODE models (where pk_indices is synthesized as
+    // `(0..n_eta).collect()`), so size from eta_map to avoid an OOB panic
+    // when the two disagree. The AD path is only taken when tv_fn is
+    // populated (analytical models), where the two lengths match.
+    let n_tv = eta_map.len();
+    let mut sel_flat = vec![0.0f64; n_tv * n_eta];
     for (i, &em) in eta_map.iter().enumerate() {
         if em >= 0 && (em as usize) < n_eta {
             sel_flat[i * n_eta + em as usize] = 1.0;
@@ -1874,11 +1881,9 @@ mod tests {
 
     #[test]
     fn test_unsupported_focei_key_under_saem_warns() {
-        let opts = parse_fit_options(&[
-            "method = saem".to_string(),
-            "optimizer = lbfgs".to_string(),
-        ])
-        .unwrap();
+        let opts =
+            parse_fit_options(&["method = saem".to_string(), "optimizer = lbfgs".to_string()])
+                .unwrap();
         let warnings = opts.unsupported_keys_warnings();
         assert_eq!(warnings.len(), 1, "got: {:?}", warnings);
         let w = &warnings[0];
@@ -1959,11 +1964,9 @@ mod tests {
 
     #[test]
     fn test_gn_lambda_under_focei_warns() {
-        let opts = parse_fit_options(&[
-            "method = focei".to_string(),
-            "gn_lambda = 0.05".to_string(),
-        ])
-        .unwrap();
+        let opts =
+            parse_fit_options(&["method = focei".to_string(), "gn_lambda = 0.05".to_string()])
+                .unwrap();
         let warnings = opts.unsupported_keys_warnings();
         assert_eq!(warnings.len(), 1, "got: {:?}", warnings);
         assert!(warnings[0].contains("gn_lambda"));

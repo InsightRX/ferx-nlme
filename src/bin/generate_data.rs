@@ -185,7 +185,13 @@ fn build_warfarin_model() -> CompiledModel {
 
         pk_idx_f64: vec![0.0, 1.0, 2.0],
 
-        sel_flat: { let mut v = vec![0.0f64; 3 * 3]; for i in 0..3 { v[i * 3 + i] = 1.0; } v },
+        sel_flat: {
+            let mut v = vec![0.0f64; 3 * 3];
+            for i in 0..3 {
+                v[i * 3 + i] = 1.0;
+            }
+            v
+        },
         ode_spec: None,
         bloq_method: BloqMethod::Drop,
         mu_refs: HashMap::new(),
@@ -268,7 +274,13 @@ fn generate_two_cpt_iv() {
 
         pk_idx_f64: vec![0.0, 1.0, 2.0, 3.0],
 
-        sel_flat: { let mut v = vec![0.0f64; 4 * 4]; for i in 0..4 { v[i * 4 + i] = 1.0; } v },
+        sel_flat: {
+            let mut v = vec![0.0f64; 4 * 4];
+            for i in 0..4 {
+                v[i * 4 + i] = 1.0;
+            }
+            v
+        },
         ode_spec: None,
         bloq_method: BloqMethod::Drop,
         mu_refs: HashMap::new(),
@@ -352,7 +364,13 @@ fn generate_two_cpt_oral_cov() {
 
         pk_idx_f64: vec![0.0, 1.0, 2.0, 3.0, 4.0],
 
-        sel_flat: { let mut v = vec![0.0f64; 5 * 5]; for i in 0..5 { v[i * 5 + i] = 1.0; } v },
+        sel_flat: {
+            let mut v = vec![0.0f64; 5 * 5];
+            for i in 0..5 {
+                v[i * 5 + i] = 1.0;
+            }
+            v
+        },
         ode_spec: None,
         bloq_method: BloqMethod::Drop,
         mu_refs: HashMap::new(),
@@ -479,7 +497,13 @@ fn generate_mm_oral() {
 
         pk_idx_f64: vec![0.0, 1.0],
 
-        sel_flat: { let mut v = vec![0.0f64; 2 * 2]; for i in 0..2 { v[i * 2 + i] = 1.0; } v },
+        sel_flat: {
+            let mut v = vec![0.0f64; 2 * 2];
+            for i in 0..2 {
+                v[i * 2 + i] = 1.0;
+            }
+            v
+        },
         ode_spec: Some(ode_spec),
         bloq_method: BloqMethod::Drop,
         mu_refs: HashMap::new(),

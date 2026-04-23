@@ -185,8 +185,8 @@ pub fn predict_all_ad(
     dose_rates: &[f64],
     dose_durations: &[f64],
     obs_times: &[f64],
-    pk_idx_f64: &[f64],  // PK parameter indices as f64 (cast to usize inside)
-    sel_flat: &[f64],    // n_tv × n_eta row-major one-hot eta selector
+    pk_idx_f64: &[f64], // PK parameter indices as f64 (cast to usize inside)
+    sel_flat: &[f64],   // n_tv × n_eta row-major one-hot eta selector
     pk_model_id: f64,
     out: &mut [f64],
 ) {
