@@ -498,8 +498,11 @@ mod tests {
             theta_names: theta_names.clone(),
             theta_lower: vec![0.001, 0.1, 0.01],
             theta_upper: vec![10.0, 500.0, 50.0],
+            theta_fixed: vec![false; 3],
             omega,
+            omega_fixed: vec![false; 3],
             sigma,
+            sigma_fixed: vec![false; 1],
         };
         CompiledModel {
             name: "test".into(),
