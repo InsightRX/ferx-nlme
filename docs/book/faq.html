@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "ayu";
-            window.path_to_searchindex_js = "searchindex-2de7f0a2.js";
+            window.path_to_searchindex_js = "searchindex-4e41e858.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-66605922.js"></script>
@@ -219,6 +219,23 @@ mu[i] = theta[i]        # for additive patterns
 <p>or, from the Rust API, <code>FitOptions { mu_referencing: false, .. }</code>. The default is <code>true</code>.</p>
 <h3 id="porting-from-nonmem"><a class="header" href="#porting-from-nonmem">Porting from NONMEM</a></h3>
 <p>If you have a NONMEM model that uses an explicit <code>MU_1 = LOG(THETA(1))</code> line, just drop the <code>MU_i</code> intermediate and write the individual parameter directly — ferx will detect the equivalent mu-reference automatically and the fit will be equivalent.</p>
+<h2 id="which-outer-optimizer-should-i-pick"><a class="header" href="#which-outer-optimizer-should-i-pick">Which outer optimizer should I pick?</a></h2>
+<p><code>slsqp</code> (the default) is the right choice for most models — it is fast, handles
+box constraints cleanly, and behaves well on the log-transformed parameter
+scale that ferx uses internally.</p>
+<p>Reach for a different optimizer when SLSQP misbehaves:</p>
+<ul>
+<li><strong><code>bobyqa</code></strong> — derivative-free, good when FOCE’s FD gradients are noisy and
+SLSQP stalls or oscillates. Slower per iteration on smooth problems, but
+often converges when gradient-based methods give up.</li>
+<li><strong><code>trust_region</code></strong> — second-order Newton trust-region. Can be faster near
+convergence because it uses curvature information; tune the CG budget with
+<code>steihaug_max_iters</code> (default 50) if you have more than ~50 packed
+parameters.</li>
+<li><strong><code>lbfgs</code> / <code>bfgs</code></strong> — fall back to these only when NLopt is unavailable.</li>
+</ul>
+<p>See <a href="model-file/fit-options.html#optimizer-choices">Fit Options</a> for the full
+list.</p>
 
                     </main>
 

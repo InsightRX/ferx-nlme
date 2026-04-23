@@ -462,11 +462,13 @@ fn parse_fit_options(lines: &[String]) -> Result<FitOptions, String> {
 /// - `Ok(false)` — key is not a known fit option.
 /// - `Err(msg)`  — key is recognized but the value is malformed.
 ///
-/// Does NOT handle `method` (which has list-chain syntax) — that stays in the
-/// block parser. Callers that want strict validation (e.g. the R wrapper's
-/// `settings` argument) should propagate `Err` and treat `Ok(false)` as an
-/// "unknown setting" user error. The `.ferx` file parser intentionally
-/// ignores both cases to stay backward compatible.
+/// This is the single source of truth for the `[fit_options]` key grammar,
+/// shared between `.ferx` parsing and the R wrapper's generic `settings`
+/// list. Callers that want strict validation (e.g. the R wrapper) should
+/// propagate `Err` and treat `Ok(false)` as "unknown setting".
+///
+/// Does NOT handle `method` (which has list-chain syntax) — that stays in
+/// the block parser.
 pub fn apply_fit_option(
     opts: &mut FitOptions,
     key: &str,
@@ -504,6 +506,8 @@ pub fn apply_fit_option(
 
     match key {
         "maxiter" => opts.outer_maxiter = parse_usize("maxiter")?,
+        "inner_maxiter" => opts.inner_maxiter = parse_usize("inner_maxiter")?,
+        "inner_tol" => opts.inner_tol = parse_f64("inner_tol")?,
         "covariance" => opts.run_covariance_step = parse_bool("covariance")?,
         "verbose" => opts.verbose = parse_bool("verbose")?,
         "optimizer" => {
@@ -512,13 +516,17 @@ pub fn apply_fit_option(
                 "lbfgs" | "nlopt_lbfgs" => Optimizer::NloptLbfgs,
                 "mma" => Optimizer::Mma,
                 "bfgs" => Optimizer::Bfgs,
+                "bobyqa" => Optimizer::Bobyqa,
+                "trust_region" | "newton_tr" => Optimizer::TrustRegion,
                 other => {
                     return Err(format!(
-                        "fit option `optimizer`: unknown value `{other}` — expected slsqp/lbfgs/mma/bfgs"
+                        "fit option `optimizer`: unknown value `{other}` — expected \
+                         slsqp/lbfgs/nlopt_lbfgs/mma/bfgs/bobyqa/trust_region"
                     ));
                 }
             };
         }
+        "steihaug_max_iters" => opts.steihaug_max_iters = parse_usize("steihaug_max_iters")?,
         "global_search" => opts.global_search = parse_bool("global_search")?,
         "global_maxeval" => opts.global_maxeval = parse_usize("global_maxeval")?,
         "n_exploration" => opts.saem_n_exploration = parse_usize("n_exploration")?,
@@ -2082,5 +2090,189 @@ mod tests {
         assert!((omega.matrix[(1, 1)] - 0.04).abs() < 1e-10); // ETA_V
         assert!((omega.matrix[(2, 2)] - 0.40).abs() < 1e-10); // ETA_KA
         assert!((omega.matrix[(0, 1)] - 0.02).abs() < 1e-10); // cov(CL, V)
+    }
+
+    // ── fit_options parsing: new optimizer choices ──────────────────────────
+
+    fn minimal_model_with_fit_options(fit_opts: &str) -> String {
+        format!(
+            r#"
+[parameters]
+  theta TVCL(0.2, 0.001, 10.0)
+  theta TVV(10.0, 0.1, 500.0)
+  theta TVKA(1.5, 0.01, 50.0)
+  omega ETA_CL ~ 0.09
+  omega ETA_V  ~ 0.04
+  omega ETA_KA ~ 0.30
+  sigma PROP_ERR ~ 0.02
+
+[individual_parameters]
+  CL = TVCL * exp(ETA_CL)
+  V  = TVV  * exp(ETA_V)
+  KA = TVKA * exp(ETA_KA)
+
+[structural_model]
+  pk one_cpt_oral(cl=CL, v=V, ka=KA)
+
+[error_model]
+  DV ~ proportional(PROP_ERR)
+
+[fit_options]
+{}
+"#,
+            fit_opts
+        )
+    }
+
+    #[test]
+    fn test_parse_optimizer_bobyqa() {
+        let content = minimal_model_with_fit_options("  optimizer = bobyqa");
+        let parsed = parse_full_model(&content).unwrap();
+        assert_eq!(parsed.fit_options.optimizer, Optimizer::Bobyqa);
+    }
+
+    #[test]
+    fn test_parse_optimizer_trust_region() {
+        let content = minimal_model_with_fit_options("  optimizer = trust_region");
+        let parsed = parse_full_model(&content).unwrap();
+        assert_eq!(parsed.fit_options.optimizer, Optimizer::TrustRegion);
+    }
+
+    #[test]
+    fn test_parse_optimizer_newton_tr_alias() {
+        // newton_tr is an accepted alias for trust_region
+        let content = minimal_model_with_fit_options("  optimizer = newton_tr");
+        let parsed = parse_full_model(&content).unwrap();
+        assert_eq!(parsed.fit_options.optimizer, Optimizer::TrustRegion);
+    }
+
+    #[test]
+    fn test_parse_optimizer_case_insensitive() {
+        // Parser lowercases the value, so mixed-case should map the same way.
+        let content = minimal_model_with_fit_options("  optimizer = BOBYQA");
+        let parsed = parse_full_model(&content).unwrap();
+        assert_eq!(parsed.fit_options.optimizer, Optimizer::Bobyqa);
+
+        let content2 = minimal_model_with_fit_options("  optimizer = Trust_Region");
+        let parsed2 = parse_full_model(&content2).unwrap();
+        assert_eq!(parsed2.fit_options.optimizer, Optimizer::TrustRegion);
+    }
+
+    #[test]
+    fn test_parse_optimizer_defaults_to_slsqp() {
+        // No [fit_options] block → default optimizer.
+        let content = minimal_model_with_fit_options("  maxiter = 100");
+        let parsed = parse_full_model(&content).unwrap();
+        assert_eq!(parsed.fit_options.optimizer, Optimizer::Slsqp);
+    }
+
+    #[test]
+    fn test_parse_steihaug_max_iters() {
+        let content = minimal_model_with_fit_options(
+            "  optimizer = trust_region\n  steihaug_max_iters = 30",
+        );
+        let parsed = parse_full_model(&content).unwrap();
+        assert_eq!(parsed.fit_options.optimizer, Optimizer::TrustRegion);
+        assert_eq!(parsed.fit_options.steihaug_max_iters, 30);
+    }
+
+    #[test]
+    fn test_steihaug_max_iters_default() {
+        // Default must match the documented value (50).
+        let content = minimal_model_with_fit_options("  optimizer = trust_region");
+        let parsed = parse_full_model(&content).unwrap();
+        assert_eq!(parsed.fit_options.steihaug_max_iters, 50);
+    }
+
+    #[test]
+    fn test_parse_inner_maxiter_and_tol() {
+        let content = minimal_model_with_fit_options(
+            "  inner_maxiter = 75\n  inner_tol = 1e-5",
+        );
+        let parsed = parse_full_model(&content).unwrap();
+        assert_eq!(parsed.fit_options.inner_maxiter, 75);
+        assert!((parsed.fit_options.inner_tol - 1e-5).abs() < 1e-15);
+    }
+
+    #[test]
+    fn test_fit_options_defaults() {
+        // Guard against accidental drift in defaults — documented as:
+        //   optimizer = slsqp, inner_maxiter = 200, inner_tol = 1e-8,
+        //   steihaug_max_iters = 50.
+        let opts = FitOptions::default();
+        assert_eq!(opts.optimizer, Optimizer::Slsqp);
+        assert_eq!(opts.inner_maxiter, 200);
+        assert!((opts.inner_tol - 1e-8).abs() < 1e-20);
+        assert_eq!(opts.steihaug_max_iters, 50);
+    }
+
+    #[test]
+    fn test_parse_example_warfarin_bobyqa_file() {
+        // The example file is part of the user-visible surface; parsing it is
+        // a lightweight smoke test that the key names match what the docs
+        // and examples advertise.
+        let content = include_str!("../../examples/warfarin_bobyqa.ferx");
+        let parsed = parse_full_model(content).unwrap();
+        assert_eq!(parsed.fit_options.optimizer, Optimizer::Bobyqa);
+        assert_eq!(parsed.fit_options.outer_maxiter, 300);
+        assert_eq!(parsed.fit_options.inner_maxiter, 100);
+    }
+
+    #[test]
+    fn test_parse_example_warfarin_trust_region_file() {
+        let content = include_str!("../../examples/warfarin_trust_region.ferx");
+        let parsed = parse_full_model(content).unwrap();
+        assert_eq!(parsed.fit_options.optimizer, Optimizer::TrustRegion);
+        assert_eq!(parsed.fit_options.steihaug_max_iters, 30);
+    }
+
+    // ── apply_fit_option: coverage of the newly-added optimizer keys.
+    //    The generic apply_fit_option tests (known/unknown/malformed/bool
+    //    variants/threads/seed) live in the earlier test block — these
+    //    only add the keys that are new on this branch.
+
+    #[test]
+    fn test_apply_fit_option_optimizer_bobyqa() {
+        let mut opts = FitOptions::default();
+        assert_eq!(apply_fit_option(&mut opts, "optimizer", "bobyqa"), Ok(true));
+        assert_eq!(opts.optimizer, Optimizer::Bobyqa);
+    }
+
+    #[test]
+    fn test_apply_fit_option_optimizer_trust_region() {
+        let mut opts = FitOptions::default();
+        assert_eq!(
+            apply_fit_option(&mut opts, "optimizer", "trust_region"),
+            Ok(true)
+        );
+        assert_eq!(opts.optimizer, Optimizer::TrustRegion);
+    }
+
+    #[test]
+    fn test_apply_fit_option_steihaug_max_iters() {
+        let mut opts = FitOptions::default();
+        assert_eq!(
+            apply_fit_option(&mut opts, "steihaug_max_iters", "30"),
+            Ok(true)
+        );
+        assert_eq!(opts.steihaug_max_iters, 30);
+        // Reject malformed (e.g. negative) value.
+        assert!(apply_fit_option(&mut opts, "steihaug_max_iters", "-1").is_err());
+    }
+
+    #[test]
+    fn test_apply_fit_option_inner_maxiter_and_tol() {
+        let mut opts = FitOptions::default();
+        assert_eq!(
+            apply_fit_option(&mut opts, "inner_maxiter", "75"),
+            Ok(true)
+        );
+        assert_eq!(opts.inner_maxiter, 75);
+
+        assert_eq!(apply_fit_option(&mut opts, "inner_tol", "1e-5"), Ok(true));
+        assert!((opts.inner_tol - 1e-5).abs() < 1e-15);
+
+        assert!(apply_fit_option(&mut opts, "inner_maxiter", "oops").is_err());
+        assert!(apply_fit_option(&mut opts, "inner_tol", "not_a_num").is_err());
     }
 }

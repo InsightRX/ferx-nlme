@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "ayu";
-            window.path_to_searchindex_js = "searchindex-2de7f0a2.js";
+            window.path_to_searchindex_js = "searchindex-4e41e858.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-66605922.js"></script>
@@ -1046,7 +1046,10 @@ PARAM = THETA + ETA                   # additive
 <tr><td><code>method</code></td><td><code>foce</code>, <code>focei</code>, <code>saem</code></td><td><code>foce</code></td><td>Estimation method</td></tr>
 <tr><td><code>maxiter</code></td><td>integer</td><td><code>500</code></td><td>Maximum outer loop iterations</td></tr>
 <tr><td><code>covariance</code></td><td><code>true</code>, <code>false</code></td><td><code>true</code></td><td>Compute covariance matrix and standard errors</td></tr>
-<tr><td><code>optimizer</code></td><td><code>slsqp</code>, <code>lbfgs</code>, <code>nlopt_lbfgs</code>, <code>mma</code>, <code>bfgs</code></td><td><code>slsqp</code></td><td>Optimization algorithm</td></tr>
+<tr><td><code>optimizer</code></td><td><code>slsqp</code>, <code>lbfgs</code>, <code>nlopt_lbfgs</code>, <code>mma</code>, <code>bfgs</code>, <code>bobyqa</code>, <code>trust_region</code></td><td><code>slsqp</code></td><td>Optimization algorithm</td></tr>
+<tr><td><code>inner_maxiter</code></td><td>integer</td><td><code>200</code></td><td>Max iterations for the inner (per-subject EBE) optimizer</td></tr>
+<tr><td><code>inner_tol</code></td><td>float</td><td><code>1e-8</code></td><td>Gradient-norm convergence tolerance for the inner optimizer</td></tr>
+<tr><td><code>steihaug_max_iters</code></td><td>integer</td><td><code>50</code></td><td>Max CG iterations for the Steihaug subproblem (only used when <code>optimizer = trust_region</code>)</td></tr>
 <tr><td><code>global_search</code></td><td><code>true</code>, <code>false</code></td><td><code>false</code></td><td>Run gradient-free pre-search before local optimization</td></tr>
 <tr><td><code>global_maxeval</code></td><td>integer</td><td>auto</td><td>Max evaluations for global search</td></tr>
 <tr><td><code>bloq_method</code></td><td><code>drop</code>, <code>m3</code></td><td><code>drop</code></td><td>How to handle rows with <code>CENS=1</code>. <code>m3</code> enables Beal’s M3 likelihood (see <a href="#bloq-m3-method">BLOQ example</a>).</td></tr>
@@ -1110,9 +1113,21 @@ PARAM = THETA + ETA                   # additive
 <tr><td><code>lbfgs</code></td><td>Limited-memory BFGS</td><td>Large parameter spaces</td></tr>
 <tr><td><code>nlopt_lbfgs</code></td><td>NLopt L-BFGS</td><td>Alternative L-BFGS</td></tr>
 <tr><td><code>mma</code></td><td>Method of Moving Asymptotes (NLopt)</td><td>Constrained problems</td></tr>
+<tr><td><code>bobyqa</code></td><td>NLopt BOBYQA — derivative-free quadratic interpolation</td><td>Noisy or non-smooth objectives where FD gradients are unreliable</td></tr>
+<tr><td><code>trust_region</code></td><td>Newton trust-region with Steihaug CG subproblem (argmin)</td><td>Well-conditioned problems where second-order curvature helps convergence; tune <code>steihaug_max_iters</code></td></tr>
 </tbody>
 </table>
 </div>
+<p>Notes:</p>
+<ul>
+<li><code>bobyqa</code> does not use gradients, so it is robust to small discontinuities in
+the FOCE surface caused by EBE re-estimation, but it converges more slowly
+than gradient-based methods on smooth problems.</li>
+<li><code>trust_region</code> uses a finite-difference Hessian of the OFV-at-fixed-EBEs.
+Each Hessian costs O(n²) OFV evaluations, so it is fastest when the number
+of packed parameters is small. Increase <code>steihaug_max_iters</code> when the
+parameter count exceeds the default of 50.</li>
+</ul>
 <h2 id="global-search"><a class="header" href="#global-search">Global Search</a></h2>
 <p>Setting <code>global_search = true</code> runs a gradient-free pre-search (NLopt CRS2-LM) before the local optimizer. This helps escape local minima on challenging datasets.</p>
 <p>The number of global evaluations is auto-scaled based on the number of parameters and observations, or can be set explicitly with <code>global_maxeval</code>.</p>
@@ -1147,6 +1162,21 @@ PARAM = THETA + ETA                   # additive
   sir_samples   = 1000
   sir_resamples = 250
   sir_seed      = 42
+</code></pre>
+<p>Derivative-free BOBYQA fit:</p>
+<pre><code>[fit_options]
+  method        = foce
+  optimizer     = bobyqa
+  maxiter       = 300
+  inner_maxiter = 100
+  inner_tol     = 1e-6
+</code></pre>
+<p>Trust-region with tuned CG subproblem:</p>
+<pre><code>[fit_options]
+  method             = foce
+  optimizer          = trust_region
+  maxiter            = 200
+  steihaug_max_iters = 30
 </code></pre>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="simulation"><a class="header" href="#simulation">Simulation</a></h1>
@@ -1286,6 +1316,7 @@ PARAM = THETA + ETA                   # additive
 <tr><td>SLSQP</td><td><code>slsqp</code></td><td>Sequential Least Squares Programming. Handles bounds well. <strong>Default and recommended.</strong></td></tr>
 <tr><td>L-BFGS</td><td><code>nlopt_lbfgs</code></td><td>Limited-memory BFGS. Good for large parameter spaces.</td></tr>
 <tr><td>MMA</td><td><code>mma</code></td><td>Method of Moving Asymptotes. Alternative constrained optimizer.</td></tr>
+<tr><td>BOBYQA</td><td><code>bobyqa</code></td><td>Derivative-free trust-region via quadratic interpolation. Useful when FD gradients are unreliable (e.g. noisy FOCE surface).</td></tr>
 </tbody>
 </table>
 </div>
@@ -1298,6 +1329,17 @@ PARAM = THETA + ETA                   # additive
 <tbody>
 <tr><td>BFGS</td><td><code>bfgs</code></td><td>Quasi-Newton with backtracking line search.</td></tr>
 <tr><td>L-BFGS</td><td><code>lbfgs</code></td><td>Memory-efficient BFGS variant.</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="newton-trust-region-argmin"><a class="header" href="#newton-trust-region-argmin">Newton Trust-Region (argmin)</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Algorithm</th><th>Key</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td>Trust region</td><td><code>trust_region</code></td><td>Newton trust-region with Steihaug conjugate-gradient subproblem. Uses a finite-difference Hessian of the OFV-at-fixed-EBEs. Tune the CG budget with <code>steihaug_max_iters</code> (default 50).</td></tr>
 </tbody>
 </table>
 </div>
@@ -2752,6 +2794,23 @@ mu[i] = theta[i]        # for additive patterns
 <p>or, from the Rust API, <code>FitOptions { mu_referencing: false, .. }</code>. The default is <code>true</code>.</p>
 <h3 id="porting-from-nonmem"><a class="header" href="#porting-from-nonmem">Porting from NONMEM</a></h3>
 <p>If you have a NONMEM model that uses an explicit <code>MU_1 = LOG(THETA(1))</code> line, just drop the <code>MU_i</code> intermediate and write the individual parameter directly — ferx will detect the equivalent mu-reference automatically and the fit will be equivalent.</p>
+<h2 id="which-outer-optimizer-should-i-pick"><a class="header" href="#which-outer-optimizer-should-i-pick">Which outer optimizer should I pick?</a></h2>
+<p><code>slsqp</code> (the default) is the right choice for most models — it is fast, handles
+box constraints cleanly, and behaves well on the log-transformed parameter
+scale that ferx uses internally.</p>
+<p>Reach for a different optimizer when SLSQP misbehaves:</p>
+<ul>
+<li><strong><code>bobyqa</code></strong> — derivative-free, good when FOCE’s FD gradients are noisy and
+SLSQP stalls or oscillates. Slower per iteration on smooth problems, but
+often converges when gradient-based methods give up.</li>
+<li><strong><code>trust_region</code></strong> — second-order Newton trust-region. Can be faster near
+convergence because it uses curvature information; tune the CG budget with
+<code>steihaug_max_iters</code> (default 50) if you have more than ~50 packed
+parameters.</li>
+<li><strong><code>lbfgs</code> / <code>bfgs</code></strong> — fall back to these only when NLopt is unavailable.</li>
+</ul>
+<p>See <a href="#optimizer-choices">Fit Options</a> for the full
+list.</p>
 
                     </main>
 

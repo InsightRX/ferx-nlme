@@ -3,6 +3,7 @@ use crate::stats::residual_error::{compute_r_diag, residual_variance};
 use crate::stats::special::log_normal_cdf;
 use crate::types::*;
 use nalgebra::{DMatrix, DVector};
+use rayon::prelude::*;
 
 /// Route predictions through analytical PK or ODE solver depending on model.
 fn model_predictions(model: &CompiledModel, subject: &Subject, pk_params: &PkParams) -> Vec<f64> {
@@ -297,7 +298,7 @@ pub fn foce_population_nll(
 ) -> f64 {
     population
         .subjects
-        .iter()
+        .par_iter()
         .enumerate()
         .map(|(i, subject)| {
             foce_subject_nll(

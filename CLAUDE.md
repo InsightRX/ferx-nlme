@@ -94,6 +94,7 @@ FitResult → io/output.rs → sdtab CSV + fit YAML
 | `ode/solver.rs` | Dormand-Prince RK45 adaptive ODE solver |
 | `ode/predictions.rs` | ODE-based predictions with dose event handling |
 | `estimation/gauss_newton.rs` | Gauss-Newton (BHHH) optimizer with LM damping; pure GN and GN+FOCEI hybrid |
+| `estimation/trust_region.rs` | Newton trust-region outer optimizer (argmin + Steihaug CG); FD gradient & Hessian with fixed EBEs |
 | `estimation/parameterization.rs` | Pack/unpack optimizer vector (log-theta, Cholesky-omega, log-sigma) |
 | `stats/likelihood.rs` | Individual, FOCE, and FOCEI negative log-likelihood computations |
 | `stats/residual_error.rs` | Additive, proportional, combined error models; IWRES/CWRES |

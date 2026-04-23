@@ -102,7 +102,6 @@ pub fn run_foce_gn(
             warnings.push("cancelled by user".to_string());
             break;
         }
-        let params = unpack_params(&x, init_params);
 
         // ---- Build the BHHH system ----
         // Gradient + outer-product Hessian approximation

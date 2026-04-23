@@ -414,6 +414,9 @@ pub struct FitOptions {
     /// See [`BloqMethod`]. Defaults to `Drop` (backward-compatible: no effect
     /// when the data has no CENS column).
     pub bloq_method: BloqMethod,
+    /// Maximum CG iterations for the Steihaug subproblem solver (trust-region only).
+    /// Should be at least n_params; default 50 covers most population PK models.
+    pub steihaug_max_iters: usize,
     /// If true (default), use automatically detected mu-referencing to centre
     /// ETA starting points on the current population mean at each outer step.
     /// Set to false to disable for comparison purposes.
@@ -458,6 +461,7 @@ impl Default for FitOptions {
             sir_resamples: 250,
             sir_seed: None,
             bloq_method: BloqMethod::Drop,
+            steihaug_max_iters: 50,
             mu_referencing: true,
             threads: None,
             cancel: None,
@@ -490,6 +494,10 @@ pub enum Optimizer {
     NloptLbfgs,
     /// NLopt LD_MMA — Method of Moving Asymptotes
     Mma,
+    /// NLopt LN_BOBYQA — derivative-free quadratic interpolation
+    Bobyqa,
+    /// Newton trust-region with Steihaug CG subproblem (via argmin)
+    TrustRegion,
 }
 
 /// Estimation method

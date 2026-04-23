@@ -54,6 +54,7 @@ FOCEI is more accurate when the residual variance depends on the predicted value
 | SLSQP | `slsqp` | Sequential Least Squares Programming. Handles bounds well. **Default and recommended.** |
 | L-BFGS | `nlopt_lbfgs` | Limited-memory BFGS. Good for large parameter spaces. |
 | MMA | `mma` | Method of Moving Asymptotes. Alternative constrained optimizer. |
+| BOBYQA | `bobyqa` | Derivative-free trust-region via quadratic interpolation. Useful when FD gradients are unreliable (e.g. noisy FOCE surface). |
 
 ### Built-in Algorithms
 
@@ -61,6 +62,12 @@ FOCEI is more accurate when the residual variance depends on the predicted value
 |-----------|-----|-------------|
 | BFGS | `bfgs` | Quasi-Newton with backtracking line search. |
 | L-BFGS | `lbfgs` | Memory-efficient BFGS variant. |
+
+### Newton Trust-Region (argmin)
+
+| Algorithm | Key | Description |
+|-----------|-----|-------------|
+| Trust region | `trust_region` | Newton trust-region with Steihaug conjugate-gradient subproblem. Uses a finite-difference Hessian of the OFV-at-fixed-EBEs. Tune the CG budget with `steihaug_max_iters` (default 50). |
 
 ## Global Search
 

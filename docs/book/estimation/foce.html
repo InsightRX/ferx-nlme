@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "ayu";
-            window.path_to_searchindex_js = "../searchindex-2de7f0a2.js";
+            window.path_to_searchindex_js = "../searchindex-4e41e858.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-66605922.js"></script>
@@ -215,6 +215,7 @@
 <tr><td>SLSQP</td><td><code>slsqp</code></td><td>Sequential Least Squares Programming. Handles bounds well. <strong>Default and recommended.</strong></td></tr>
 <tr><td>L-BFGS</td><td><code>nlopt_lbfgs</code></td><td>Limited-memory BFGS. Good for large parameter spaces.</td></tr>
 <tr><td>MMA</td><td><code>mma</code></td><td>Method of Moving Asymptotes. Alternative constrained optimizer.</td></tr>
+<tr><td>BOBYQA</td><td><code>bobyqa</code></td><td>Derivative-free trust-region via quadratic interpolation. Useful when FD gradients are unreliable (e.g. noisy FOCE surface).</td></tr>
 </tbody>
 </table>
 </div>
@@ -227,6 +228,17 @@
 <tbody>
 <tr><td>BFGS</td><td><code>bfgs</code></td><td>Quasi-Newton with backtracking line search.</td></tr>
 <tr><td>L-BFGS</td><td><code>lbfgs</code></td><td>Memory-efficient BFGS variant.</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="newton-trust-region-argmin"><a class="header" href="#newton-trust-region-argmin">Newton Trust-Region (argmin)</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Algorithm</th><th>Key</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td>Trust region</td><td><code>trust_region</code></td><td>Newton trust-region with Steihaug conjugate-gradient subproblem. Uses a finite-difference Hessian of the OFV-at-fixed-EBEs. Tune the CG budget with <code>steihaug_max_iters</code> (default 50).</td></tr>
 </tbody>
 </table>
 </div>
