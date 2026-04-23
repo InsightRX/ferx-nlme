@@ -9,3 +9,5 @@ target
 
 # Rust compiler crash dumps
 rustc-ice-*.txt
+.claude/
+.archive/
