@@ -469,7 +469,7 @@ mod tests {
 
     // ── mu-referencing helpers ──────────────────────────────────────────
 
-    use crate::types::{BloqMethod, CompiledModel, ErrorModel, MuRef, PkModel, PkParams};
+    use crate::types::{BloqMethod, CompiledModel, ErrorModel, GradientMethod, MuRef, PkModel, PkParams};
     use std::collections::HashMap;
 
     /// Build a minimal CompiledModel with the given mu-refs. Only fields
@@ -521,6 +521,7 @@ mod tests {
             ode_spec: None,
             bloq_method: BloqMethod::Drop,
             referenced_covariates: Vec::new(),
+            gradient_method: GradientMethod::default(),
         }
     }
 

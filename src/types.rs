@@ -332,6 +332,26 @@ pub struct CompiledModel {
     /// columns before a fit so that a missing/misspelt covariate fails loudly
     /// instead of silently evaluating to zero.
     pub referenced_covariates: Vec<String>,
+    /// Gradient method for the inner (EBE) optimizer. Set by `fit()` from
+    /// [`FitOptions::gradient_method`] so the inner loop can dispatch at
+    /// runtime without threading it through every call site.
+    pub gradient_method: GradientMethod,
+}
+
+/// Inner-loop gradient method. `Auto` picks FD for small-n_eta analytical
+/// models (where AD overhead dominates) and AD otherwise. Resolved in
+/// `find_ebe` so the heuristic lives next to the code that depends on it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GradientMethod {
+    Auto,
+    Ad,
+    Fd,
+}
+
+impl Default for GradientMethod {
+    fn default() -> Self {
+        Self::Auto
+    }
 }
 
 impl std::fmt::Debug for CompiledModel {
@@ -462,6 +482,9 @@ pub struct FitOptions {
     /// by `parse_fit_options` / `apply_fit_option`. Used by `fit()` to warn
     /// when a key is set that the selected estimation method does not consume.
     pub user_set_keys: Vec<String>,
+    /// Inner-loop gradient method. Default [`GradientMethod::Auto`] dispatches
+    /// between AD and FD at runtime based on model/eta size.
+    pub gradient_method: GradientMethod,
 }
 
 impl Default for FitOptions {
@@ -496,6 +519,7 @@ impl Default for FitOptions {
             threads: None,
             cancel: None,
             user_set_keys: Vec::new(),
+            gradient_method: GradientMethod::default(),
         }
     }
 }
@@ -646,6 +670,8 @@ pub fn framework_keys() -> &'static [&'static str] {
         "bloq",
         "mu_referencing",
         "threads",
+        "gradient",
+        "gradient_method",
     ]
 }
 

@@ -308,6 +308,7 @@ pub fn parse_full_model(content: &str) -> Result<ParsedModel, String> {
         bloq_method: BloqMethod::Drop,
         mu_refs,
         referenced_covariates,
+        gradient_method: GradientMethod::default(),
     };
 
     // ── Optional blocks ──
@@ -553,6 +554,18 @@ pub fn apply_fit_option(opts: &mut FitOptions, key: &str, value: &str) -> Result
                 other => {
                     return Err(format!(
                         "fit option `bloq_method`: unknown value `{other}` — expected 'm3' or 'drop'"
+                    ));
+                }
+            };
+        }
+        "gradient" | "gradient_method" => {
+            opts.gradient_method = match value.to_lowercase().as_str() {
+                "auto" => GradientMethod::Auto,
+                "ad" | "autodiff" => GradientMethod::Ad,
+                "fd" | "finite" | "finite_difference" | "finite-difference" => GradientMethod::Fd,
+                other => {
+                    return Err(format!(
+                        "fit option `gradient`: unknown value `{other}` — expected 'auto', 'ad', or 'fd'"
                     ));
                 }
             };
