@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "ayu";
-            window.path_to_searchindex_js = "../searchindex-1004e87f.js";
+            window.path_to_searchindex_js = "../searchindex-4e41e858.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-678ba3a2.js"></script>
+        <script src="../toc-66605922.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -198,7 +198,12 @@
 <h3 id="1-e-step-metropolis-hastings-sampling"><a class="header" href="#1-e-step-metropolis-hastings-sampling">1. E-Step: Metropolis-Hastings Sampling</a></h3>
 <p>For each subject, run <code>n_mh_steps</code> Metropolis-Hastings iterations to sample from the conditional distribution of random effects:</p>
 <p>\[ p(\eta_i | y_i, \theta, \Omega, \sigma) \]</p>
-<p><strong>Proposal</strong>: \( \eta_{\text{prop}} = \eta_{\text{current}} + \delta_i \cdot L \cdot z \), where \( z \sim N(0, I) \) and \( L = \text{chol}(\Omega) \).</p>
+<p><strong>Proposal</strong>:</p>
+<ul>
+<li><em>Exploration phase</em> (with <code>mu_referencing = true</code>): \( \eta_{\text{prop}} = \mu_k + \delta_i \cdot L \cdot z \), an independence proposal centred on the current population mean \( \mu_k \) — auto-detected from <code>[individual_parameters]</code>. This helps the chain escape the \( \eta = 0 \) basin when <code>THETA</code> is far from the truth.</li>
+<li><em>Convergence phase</em>, and whenever <code>mu_referencing = false</code>: \( \eta_{\text{prop}} = \eta_{\text{current}} + \delta_i \cdot L \cdot z \), a symmetric random walk that preserves detailed balance during stochastic approximation.</li>
+</ul>
+<p>In both cases \( z \sim N(0, I) \) and \( L = \text{chol}(\Omega) \).</p>
 <p><strong>Acceptance</strong>: Accept with probability \( \min(1, \exp(\text{NLL}<em>{\text{current}} - \text{NLL}</em>{\text{prop}})) \).</p>
 <p>The MH sampling is parallelized across subjects using Rayon.</p>
 <h3 id="2-stochastic-approximation-update"><a class="header" href="#2-stochastic-approximation-update">2. Stochastic Approximation Update</a></h3>

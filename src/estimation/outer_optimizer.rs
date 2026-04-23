@@ -1,5 +1,5 @@
 use crate::estimation::inner_optimizer::run_inner_loop_warm;
-use crate::estimation::parameterization::*;
+use crate::estimation::parameterization::{compute_mu_k, *};
 use crate::stats::likelihood::foce_population_nll;
 use crate::types::*;
 use nalgebra::{DMatrix, DVector};
@@ -105,7 +105,18 @@ fn optimize_nlopt(
 
     // NLopt objective: runs inner loop, computes gradient with fixed EBEs
     let objective = |x: &[f64], grad: Option<&mut [f64]>, state: &mut NloptState| -> f64 {
+        // Cooperative cancellation: short-circuit cheaply so NLopt burns through
+        // its remaining iteration budget in microseconds instead of minutes.
+        if crate::cancel::is_cancelled(&options.cancel) {
+            if let Some(g) = grad {
+                for gi in g.iter_mut() {
+                    *gi = 0.0;
+                }
+            }
+            return 1e20;
+        }
         let params = unpack_params(x, init_params);
+        let mu_k = compute_mu_k(model, &params.theta, options.mu_referencing);
 
         // Run inner loop (warm-started)
         let (ehs, hms, _) = run_inner_loop_warm(
@@ -115,6 +126,7 @@ fn optimize_nlopt(
             options.inner_maxiter,
             options.inner_tol,
             Some(&state.cached_etas),
+            Some(&mu_k),
         );
 
         // Compute OFV with fixed EBEs
@@ -227,9 +239,11 @@ fn optimize_nlopt(
 
     drop(opt);
 
-    // Fallback: if L-BFGS failed, retry with SLSQP from current best point
+    // Fallback: if L-BFGS failed, retry with SLSQP from current best point.
+    // Skip the fallback if the user cancelled — no point burning more cycles.
     let already_slsqp = matches!(first_algo, nlopt::Algorithm::Slsqp);
-    if !converged && !already_slsqp {
+    let cancelled = crate::cancel::is_cancelled(&options.cancel);
+    if !converged && !already_slsqp && !cancelled {
         if options.verbose {
             eprintln!("Retrying with NLopt SLSQP from current point...");
         }
@@ -242,7 +256,16 @@ fn optimize_nlopt(
         };
 
         let objective2 = |x: &[f64], grad: Option<&mut [f64]>, state: &mut NloptState| -> f64 {
+            if crate::cancel::is_cancelled(&options.cancel) {
+                if let Some(g) = grad {
+                    for gi in g.iter_mut() {
+                        *gi = 0.0;
+                    }
+                }
+                return 1e20;
+            }
             let params = unpack_params(x, init_params);
+            let mu_k = compute_mu_k(model, &params.theta, options.mu_referencing);
             let (ehs, hms, _) = run_inner_loop_warm(
                 model,
                 population,
@@ -250,6 +273,7 @@ fn optimize_nlopt(
                 options.inner_maxiter,
                 options.inner_tol,
                 Some(&state.cached_etas),
+                Some(&mu_k),
             );
             let nll = foce_population_nll(
                 model,
@@ -347,8 +371,9 @@ fn optimize_nlopt(
     }
 
     let final_params = unpack_params(&x0, init_params);
+    let final_mu_k = compute_mu_k(model, &final_params.theta, options.mu_referencing);
 
-    // Final inner loop at converged parameters (cold start is fine here)
+    // Final inner loop at converged parameters
     let (final_ehs, final_hms, _) = run_inner_loop_warm(
         model,
         population,
@@ -356,6 +381,7 @@ fn optimize_nlopt(
         options.inner_maxiter,
         options.inner_tol,
         None,
+        Some(&final_mu_k),
     );
 
     let final_nll = foce_population_nll(
@@ -374,23 +400,25 @@ fn optimize_nlopt(
         eprintln!("Final OFV = {:.6}", final_ofv);
     }
 
-    // Covariance step
-    let covariance_matrix = if options.run_covariance_step {
-        if options.verbose {
-            eprintln!("Computing covariance matrix...");
-        }
-        compute_covariance(
-            &x0,
-            init_params,
-            model,
-            population,
-            &final_ehs,
-            &final_hms,
-            options,
-        )
-    } else {
-        None
-    };
+    // Covariance step (skip if user cancelled — it's expensive and the result
+    // will be discarded by the top-level fit() anyway).
+    let covariance_matrix =
+        if options.run_covariance_step && !crate::cancel::is_cancelled(&options.cancel) {
+            if options.verbose {
+                eprintln!("Computing covariance matrix...");
+            }
+            compute_covariance(
+                &x0,
+                init_params,
+                model,
+                population,
+                &final_ehs,
+                &final_hms,
+                options,
+            )
+        } else {
+            None
+        };
 
     if !converged {
         warnings.push("Outer optimization did not converge".to_string());
@@ -447,6 +475,7 @@ fn optimize_bfgs(
 
     let f_only = |x: &[f64], prev_etas: &[DVector<f64>]| -> f64 {
         let params = unpack_params(x, init_params);
+        let mu_k = compute_mu_k(model, &params.theta, options.mu_referencing);
         let (ehs, hms, _) = run_inner_loop_warm(
             model,
             population,
@@ -454,6 +483,7 @@ fn optimize_bfgs(
             options.inner_maxiter,
             options.inner_tol,
             Some(prev_etas),
+            Some(&mu_k),
         );
         let ofv = 2.0
             * foce_population_nll(
@@ -477,6 +507,7 @@ fn optimize_bfgs(
                 prev_etas: &[DVector<f64>]|
      -> (f64, Vec<f64>, Vec<DVector<f64>>, Vec<DMatrix<f64>>) {
         let params = unpack_params(x, init_params);
+        let mu_k = compute_mu_k(model, &params.theta, options.mu_referencing);
         let (ehs, hms, _) = run_inner_loop_warm(
             model,
             population,
@@ -484,6 +515,7 @@ fn optimize_bfgs(
             options.inner_maxiter,
             options.inner_tol,
             Some(prev_etas),
+            Some(&mu_k),
         );
         let ofv = ofv_at_fixed(x, &ehs, &hms);
         let g = gradient_cd(x, &bounds, &ehs, &hms, &ofv_at_fixed);
@@ -505,6 +537,11 @@ fn optimize_bfgs(
 
     for iter in 1..=options.outer_maxiter {
         n_iterations = iter;
+
+        if crate::cancel::is_cancelled(&options.cancel) {
+            warnings.push("cancelled by user".to_string());
+            break;
+        }
 
         let g_norm: f64 = g.iter().map(|v| v * v).sum::<f64>().sqrt();
         if g_norm < options.outer_gtol {
@@ -576,6 +613,7 @@ fn optimize_bfgs(
     }
 
     let final_params = unpack_params(&x, init_params);
+    let bfgs_final_mu_k = compute_mu_k(model, &final_params.theta, options.mu_referencing);
     let (final_ehs, final_hms, _) = run_inner_loop_warm(
         model,
         population,
@@ -583,30 +621,35 @@ fn optimize_bfgs(
         options.inner_maxiter,
         options.inner_tol,
         Some(&cached_etas),
+        Some(&bfgs_final_mu_k),
     );
     let final_ofv = ofv_at_fixed(&x, &final_ehs, &final_hms);
 
-    let covariance_matrix = if options.run_covariance_step {
-        if options.verbose {
-            eprintln!("Computing covariance matrix...");
-        }
-        compute_covariance(
-            &x,
-            init_params,
-            model,
-            population,
-            &final_ehs,
-            &final_hms,
-            options,
-        )
-    } else {
-        None
-    };
+    let covariance_matrix =
+        if options.run_covariance_step && !crate::cancel::is_cancelled(&options.cancel) {
+            if options.verbose {
+                eprintln!("Computing covariance matrix...");
+            }
+            compute_covariance(
+                &x,
+                init_params,
+                model,
+                population,
+                &final_ehs,
+                &final_hms,
+                options,
+            )
+        } else {
+            None
+        };
 
     if !converged {
         warnings.push("Outer optimization did not converge".to_string());
     }
-    if covariance_matrix.is_none() && options.run_covariance_step {
+    if covariance_matrix.is_none()
+        && options.run_covariance_step
+        && !crate::cancel::is_cancelled(&options.cancel)
+    {
         warnings.push("Covariance step failed".to_string());
     }
 

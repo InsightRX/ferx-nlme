@@ -35,10 +35,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "ayu";
-            window.path_to_searchindex_js = "searchindex-1004e87f.js";
+            window.path_to_searchindex_js = "searchindex-4e41e858.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-678ba3a2.js"></script>
+        <script src="toc-66605922.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -382,6 +382,11 @@ cargo build --release --no-default-features --features ci
 </code></pre>
 <p>The R package’s build is driven by its <code>Makevars</code>, which invokes <code>cargo</code> and resolves the <code>enzyme</code> toolchain via rustup. Both must be set up correctly in your shell/Renviron before calling <code>install_github</code>.</p>
 <p>See the <a href="https://github.com/InsightRX/ferx">ferx R package README</a> for API usage.</p>
+<h3 id="cancelling-a-running-fit-ctrl-c"><a class="header" href="#cancelling-a-running-fit-ctrl-c">Cancelling a running fit (Ctrl-C)</a></h3>
+<p><code>ferx_fit()</code> runs the estimator on a worker thread and polls for R interrupts on the main thread every ~100 ms, so <strong>Ctrl-C</strong> (or RStudio’s red stop button) aborts the fit cleanly. The worker exits at the next safe checkpoint — typically within a second or two, but up to one inner-loop evaluation for heavy ODE models. The call then returns with an R error:</p>
+<pre><code>Error: ferx_fit: cancelled by user
+</code></pre>
+<p>Ctrl-Z (SIGTSTP) will <em>not</em> abort the fit — it suspends the whole R process to the shell. Use Ctrl-C instead.</p>
 <hr>
 <h2 id="dependencies"><a class="header" href="#dependencies">Dependencies</a></h2>
 <p>FeRx depends on these crates (managed automatically by Cargo):</p>

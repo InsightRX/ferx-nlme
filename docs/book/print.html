@@ -36,10 +36,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "ayu";
-            window.path_to_searchindex_js = "searchindex-1004e87f.js";
+            window.path_to_searchindex_js = "searchindex-4e41e858.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-678ba3a2.js"></script>
+        <script src="toc-66605922.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -444,6 +444,11 @@ cargo build --release --no-default-features --features ci
 </code></pre>
 <p>The R package’s build is driven by its <code>Makevars</code>, which invokes <code>cargo</code> and resolves the <code>enzyme</code> toolchain via rustup. Both must be set up correctly in your shell/Renviron before calling <code>install_github</code>.</p>
 <p>See the <a href="https://github.com/InsightRX/ferx">ferx R package README</a> for API usage.</p>
+<h3 id="cancelling-a-running-fit-ctrl-c"><a class="header" href="#cancelling-a-running-fit-ctrl-c">Cancelling a running fit (Ctrl-C)</a></h3>
+<p><code>ferx_fit()</code> runs the estimator on a worker thread and polls for R interrupts on the main thread every ~100 ms, so <strong>Ctrl-C</strong> (or RStudio’s red stop button) aborts the fit cleanly. The worker exits at the next safe checkpoint — typically within a second or two, but up to one inner-loop evaluation for heavy ODE models. The call then returns with an R error:</p>
+<pre><code>Error: ferx_fit: cancelled by user
+</code></pre>
+<p>Ctrl-Z (SIGTSTP) will <em>not</em> abort the fit — it suspends the whole R process to the shell. Use Ctrl-C instead.</p>
 <hr>
 <h2 id="dependencies"><a class="header" href="#dependencies">Dependencies</a></h2>
 <p>FeRx depends on these crates (managed automatically by Cargo):</p>
@@ -796,6 +801,14 @@ sigma ADD_ERR  ~ 1.0
 [individual_parameters]
   CL = TVCL * (WT/70)^THETA_WT * (CRCL/100)^THETA_CRCL * exp(ETA_CL)
 </code></pre>
+<h2 id="automatic-mu-referencing"><a class="header" href="#automatic-mu-referencing">Automatic MU-referencing</a></h2>
+<p>When a line matches one of the patterns</p>
+<pre><code>PARAM = THETA * exp(ETA)              # multiplicative / log-normal
+PARAM = THETA * &lt;anything&gt; * exp(ETA) # multiplicative with covariate terms
+PARAM = exp(log(THETA) + ETA)         # canonical MU form
+PARAM = THETA + ETA                   # additive
+</code></pre>
+<p>ferx records the <code>(ETA → THETA)</code> mapping and uses it to re-centre the inner-loop ETA search at each outer iteration — reproducing NONMEM / nlmixr2’s MU-referencing behaviour without requiring you to write an explicit <code>MU_i</code> line. See the <a href="#do-i-need-to-use-mu-referencing-in-my-model-definitions-like-in-nonmem--nlmixr2">FAQ</a> for details on which patterns are and are not detected, and for the <code>mu_referencing = false</code> escape hatch.</p>
 <h2 id="covariate-detection"><a class="header" href="#covariate-detection">Covariate Detection</a></h2>
 <p>Any uppercase identifier in the expression that does not match a theta name or eta name is automatically treated as a covariate. The covariate value is read from the corresponding column in the data file.</p>
 <p>For example, in <code>CL = TVCL * (WT/70)^0.75 * exp(ETA_CL)</code>:</p>
@@ -1033,9 +1046,14 @@ sigma ADD_ERR  ~ 1.0
 <tr><td><code>method</code></td><td><code>foce</code>, <code>focei</code>, <code>saem</code></td><td><code>foce</code></td><td>Estimation method</td></tr>
 <tr><td><code>maxiter</code></td><td>integer</td><td><code>500</code></td><td>Maximum outer loop iterations</td></tr>
 <tr><td><code>covariance</code></td><td><code>true</code>, <code>false</code></td><td><code>true</code></td><td>Compute covariance matrix and standard errors</td></tr>
-<tr><td><code>optimizer</code></td><td><code>slsqp</code>, <code>lbfgs</code>, <code>nlopt_lbfgs</code>, <code>mma</code>, <code>bfgs</code></td><td><code>slsqp</code></td><td>Optimization algorithm</td></tr>
+<tr><td><code>optimizer</code></td><td><code>slsqp</code>, <code>lbfgs</code>, <code>nlopt_lbfgs</code>, <code>mma</code>, <code>bfgs</code>, <code>bobyqa</code>, <code>trust_region</code></td><td><code>slsqp</code></td><td>Optimization algorithm</td></tr>
+<tr><td><code>inner_maxiter</code></td><td>integer</td><td><code>200</code></td><td>Max iterations for the inner (per-subject EBE) optimizer</td></tr>
+<tr><td><code>inner_tol</code></td><td>float</td><td><code>1e-8</code></td><td>Gradient-norm convergence tolerance for the inner optimizer</td></tr>
+<tr><td><code>steihaug_max_iters</code></td><td>integer</td><td><code>50</code></td><td>Max CG iterations for the Steihaug subproblem (only used when <code>optimizer = trust_region</code>)</td></tr>
 <tr><td><code>global_search</code></td><td><code>true</code>, <code>false</code></td><td><code>false</code></td><td>Run gradient-free pre-search before local optimization</td></tr>
 <tr><td><code>global_maxeval</code></td><td>integer</td><td>auto</td><td>Max evaluations for global search</td></tr>
+<tr><td><code>bloq_method</code></td><td><code>drop</code>, <code>m3</code></td><td><code>drop</code></td><td>How to handle rows with <code>CENS=1</code>. <code>m3</code> enables Beal’s M3 likelihood (see <a href="#bloq-m3-method">BLOQ example</a>).</td></tr>
+<tr><td><code>mu_referencing</code></td><td><code>true</code>, <code>false</code></td><td><code>true</code></td><td>Re-centre inner-loop ETA estimates on the current population mean (auto-detected from <code>[individual_parameters]</code>). See the <a href="#do-i-need-to-use-mu-referencing-in-my-model-definitions-like-in-nonmem--nlmixr2">FAQ entry</a> for details. Set <code>false</code> to reproduce pre-automatic-mu behaviour.</td></tr>
 </tbody>
 </table>
 </div>
@@ -1095,9 +1113,21 @@ sigma ADD_ERR  ~ 1.0
 <tr><td><code>lbfgs</code></td><td>Limited-memory BFGS</td><td>Large parameter spaces</td></tr>
 <tr><td><code>nlopt_lbfgs</code></td><td>NLopt L-BFGS</td><td>Alternative L-BFGS</td></tr>
 <tr><td><code>mma</code></td><td>Method of Moving Asymptotes (NLopt)</td><td>Constrained problems</td></tr>
+<tr><td><code>bobyqa</code></td><td>NLopt BOBYQA — derivative-free quadratic interpolation</td><td>Noisy or non-smooth objectives where FD gradients are unreliable</td></tr>
+<tr><td><code>trust_region</code></td><td>Newton trust-region with Steihaug CG subproblem (argmin)</td><td>Well-conditioned problems where second-order curvature helps convergence; tune <code>steihaug_max_iters</code></td></tr>
 </tbody>
 </table>
 </div>
+<p>Notes:</p>
+<ul>
+<li><code>bobyqa</code> does not use gradients, so it is robust to small discontinuities in
+the FOCE surface caused by EBE re-estimation, but it converges more slowly
+than gradient-based methods on smooth problems.</li>
+<li><code>trust_region</code> uses a finite-difference Hessian of the OFV-at-fixed-EBEs.
+Each Hessian costs O(n²) OFV evaluations, so it is fastest when the number
+of packed parameters is small. Increase <code>steihaug_max_iters</code> when the
+parameter count exceeds the default of 50.</li>
+</ul>
 <h2 id="global-search"><a class="header" href="#global-search">Global Search</a></h2>
 <p>Setting <code>global_search = true</code> runs a gradient-free pre-search (NLopt CRS2-LM) before the local optimizer. This helps escape local minima on challenging datasets.</p>
 <p>The number of global evaluations is auto-scaled based on the number of parameters and observations, or can be set explicitly with <code>global_maxeval</code>.</p>
@@ -1132,6 +1162,21 @@ sigma ADD_ERR  ~ 1.0
   sir_samples   = 1000
   sir_resamples = 250
   sir_seed      = 42
+</code></pre>
+<p>Derivative-free BOBYQA fit:</p>
+<pre><code>[fit_options]
+  method        = foce
+  optimizer     = bobyqa
+  maxiter       = 300
+  inner_maxiter = 100
+  inner_tol     = 1e-6
+</code></pre>
+<p>Trust-region with tuned CG subproblem:</p>
+<pre><code>[fit_options]
+  method             = foce
+  optimizer          = trust_region
+  maxiter            = 200
+  steihaug_max_iters = 30
 </code></pre>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="simulation"><a class="header" href="#simulation">Simulation</a></h1>
@@ -1271,6 +1316,7 @@ sigma ADD_ERR  ~ 1.0
 <tr><td>SLSQP</td><td><code>slsqp</code></td><td>Sequential Least Squares Programming. Handles bounds well. <strong>Default and recommended.</strong></td></tr>
 <tr><td>L-BFGS</td><td><code>nlopt_lbfgs</code></td><td>Limited-memory BFGS. Good for large parameter spaces.</td></tr>
 <tr><td>MMA</td><td><code>mma</code></td><td>Method of Moving Asymptotes. Alternative constrained optimizer.</td></tr>
+<tr><td>BOBYQA</td><td><code>bobyqa</code></td><td>Derivative-free trust-region via quadratic interpolation. Useful when FD gradients are unreliable (e.g. noisy FOCE surface).</td></tr>
 </tbody>
 </table>
 </div>
@@ -1283,6 +1329,17 @@ sigma ADD_ERR  ~ 1.0
 <tbody>
 <tr><td>BFGS</td><td><code>bfgs</code></td><td>Quasi-Newton with backtracking line search.</td></tr>
 <tr><td>L-BFGS</td><td><code>lbfgs</code></td><td>Memory-efficient BFGS variant.</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="newton-trust-region-argmin"><a class="header" href="#newton-trust-region-argmin">Newton Trust-Region (argmin)</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Algorithm</th><th>Key</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td>Trust region</td><td><code>trust_region</code></td><td>Newton trust-region with Steihaug conjugate-gradient subproblem. Uses a finite-difference Hessian of the OFV-at-fixed-EBEs. Tune the CG budget with <code>steihaug_max_iters</code> (default 50).</td></tr>
 </tbody>
 </table>
 </div>
@@ -1415,7 +1472,12 @@ sigma ADD_ERR  ~ 1.0
 <h3 id="1-e-step-metropolis-hastings-sampling"><a class="header" href="#1-e-step-metropolis-hastings-sampling">1. E-Step: Metropolis-Hastings Sampling</a></h3>
 <p>For each subject, run <code>n_mh_steps</code> Metropolis-Hastings iterations to sample from the conditional distribution of random effects:</p>
 <p>\[ p(\eta_i | y_i, \theta, \Omega, \sigma) \]</p>
-<p><strong>Proposal</strong>: \( \eta_{\text{prop}} = \eta_{\text{current}} + \delta_i \cdot L \cdot z \), where \( z \sim N(0, I) \) and \( L = \text{chol}(\Omega) \).</p>
+<p><strong>Proposal</strong>:</p>
+<ul>
+<li><em>Exploration phase</em> (with <code>mu_referencing = true</code>): \( \eta_{\text{prop}} = \mu_k + \delta_i \cdot L \cdot z \), an independence proposal centred on the current population mean \( \mu_k \) — auto-detected from <code>[individual_parameters]</code>. This helps the chain escape the \( \eta = 0 \) basin when <code>THETA</code> is far from the truth.</li>
+<li><em>Convergence phase</em>, and whenever <code>mu_referencing = false</code>: \( \eta_{\text{prop}} = \eta_{\text{current}} + \delta_i \cdot L \cdot z \), a symmetric random walk that preserves detailed balance during stochastic approximation.</li>
+</ul>
+<p>In both cases \( z \sim N(0, I) \) and \( L = \text{chol}(\Omega) \).</p>
 <p><strong>Acceptance</strong>: Accept with probability \( \min(1, \exp(\text{NLL}<em>{\text{current}} - \text{NLL}</em>{\text{prop}})) \).</p>
 <p>The MH sampling is parallelized across subjects using Rayon.</p>
 <h3 id="2-stochastic-approximation-update"><a class="header" href="#2-stochastic-approximation-update">2. Stochastic Approximation Update</a></h3>
@@ -1574,6 +1636,7 @@ SAEM iterations complete. Computing final EBEs and OFV...
 <tr><td><code>MDV</code></td><td>integer</td><td>0</td><td>Missing DV flag. 1 = DV should be ignored</td></tr>
 <tr><td><code>II</code></td><td>numeric</td><td>0</td><td>Interdose interval for repeated dosing</td></tr>
 <tr><td><code>SS</code></td><td>integer</td><td>0</td><td>Steady-state flag. 1 = assume steady state</td></tr>
+<tr><td><code>CENS</code></td><td>integer</td><td>0</td><td>Censoring flag. 1 = observation is below LLOQ; <code>DV</code> carries the LLOQ value. Paired with <code>bloq_method = m3</code> in <code>[fit_options]</code> to enable likelihood-based handling — see <a href="#bloq-m3-method">BLOQ example</a>.</td></tr>
 </tbody>
 </table>
 </div>
@@ -1821,6 +1884,7 @@ sigma:
 <tr><td><a href="#two-compartment-iv-bolus">Two-Compartment IV</a></td><td>2-cpt</td><td>IV bolus</td><td>Multi-compartment dynamics</td></tr>
 <tr><td><a href="#covariate-model">Covariates</a></td><td>2-cpt</td><td>Oral</td><td>Weight and renal function effects</td></tr>
 <tr><td><a href="#ode-model-michaelis-menten">ODE Model</a></td><td>1-cpt</td><td>Oral</td><td>Michaelis-Menten elimination, ODE solver</td></tr>
+<tr><td><a href="#bloq-m3-method">BLOQ (M3 method)</a></td><td>1-cpt</td><td>Oral</td><td>Likelihood-based handling of censored observations</td></tr>
 </tbody>
 </table>
 </div>
@@ -1839,6 +1903,9 @@ ferx examples/mm_oral.ferx --data data/mm_oral.csv
 
 # SAEM estimation
 ferx examples/warfarin_saem.ferx --data data/warfarin.csv
+
+# BLOQ (M3 method)
+ferx examples/warfarin-bloq.ferx --data data/warfarin-bloq.csv
 </code></pre>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="one-compartment-oral-warfarin"><a class="header" href="#one-compartment-oral-warfarin">One-Compartment Oral (Warfarin)</a></h1>
@@ -2115,6 +2182,102 @@ d/dt(central) = KA * depot / V - VMAX * central / (KM + central)
 <li>The ODE solver uses adaptive step-size control (Dormand-Prince RK45) for accuracy</li>
 <li>For standard first-order kinetics, use the analytical <code>one_cpt_oral</code> model instead – it is much faster</li>
 <li>The <code>central</code> compartment in this model contains the drug amount. If you want concentration as the observed variable, divide by V in the ODE equations (as done here with <code>KA * depot / V</code>)</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="bloq-m3-method"><a class="header" href="#bloq-m3-method">BLOQ (M3 method)</a></h1>
+<p>This example shows how to fit a model to data that contains observations below
+the assay lower limit of quantification (BLOQ) using Beal’s <strong>M3 method</strong>.
+Instead of dropping BLOQ rows — which biases terminal-phase parameter estimates
+— each censored observation contributes
+<code>P(y &lt; LLOQ | θ, η) = Φ((LLOQ − f)/√V)</code> to the likelihood.</p>
+<h2 id="dataset-datawarfarin-bloqcsv"><a class="header" href="#dataset-datawarfarin-bloqcsv">Dataset (<code>data/warfarin-bloq.csv</code>)</a></h2>
+<p>This is the warfarin dataset with an added <code>CENS</code> column. Ten late-time
+observations that originally fell below an assay LLOQ of 2.0 µg/mL have been
+marked <code>CENS=1</code> and their <code>DV</code> cell set to the LLOQ value:</p>
+<pre><code class="language-csv">ID,TIME,DV,EVID,AMT,CMT,RATE,MDV,CENS
+1,0,.,1,100,1,0,1,0
+1,0.5,5.3653,0,.,1,0,0,0
+...
+1,96,2.5019,0,.,1,0,0,0
+1,120,2,0,.,1,0,0,1
+</code></pre>
+<p><strong>NONMEM <code>CENS</code> convention</strong>: when <code>CENS=1</code>, the row is censored and <code>DV</code>
+carries the LLOQ value — not the true (unobserved) concentration. Rows with no
+<code>CENS</code> column, or <code>CENS=0</code>, are treated as ordinary quantified observations.</p>
+<h2 id="model-file-exampleswarfarin-bloqferx"><a class="header" href="#model-file-exampleswarfarin-bloqferx">Model File (<code>examples/warfarin-bloq.ferx</code>)</a></h2>
+<pre><code># One-compartment oral PK model (warfarin) with M3 BLOQ likelihood.
+
+[parameters]
+  theta TVCL(0.2, 0.001, 10.0)
+  theta TVV(10.0, 0.1, 500.0)
+  theta TVKA(1.5, 0.01, 50.0)
+
+  omega ETA_CL ~ 0.09
+  omega ETA_V  ~ 0.04
+  omega ETA_KA ~ 0.30
+
+  sigma PROP_ERR ~ 0.02
+
+[individual_parameters]
+  CL = TVCL * exp(ETA_CL)
+  V  = TVV  * exp(ETA_V)
+  KA = TVKA * exp(ETA_KA)
+
+[structural_model]
+  pk one_cpt_oral(cl=CL, v=V, ka=KA)
+
+[error_model]
+  DV ~ proportional(PROP_ERR)
+
+[fit_options]
+  method       = focei
+  maxiter      = 300
+  covariance   = true
+  bloq_method  = m3
+</code></pre>
+<p>The only two lines that differ from a plain fit are <code>bloq_method = m3</code> in
+<code>[fit_options]</code> and the added <code>CENS</code> column in the CSV. Nothing else in the
+model changes.</p>
+<h2 id="running-4"><a class="header" href="#running-4">Running</a></h2>
+<pre><code class="language-bash">ferx examples/warfarin-bloq.ferx --data data/warfarin-bloq.csv
+</code></pre>
+<h2 id="expected-results-1"><a class="header" href="#expected-results-1">Expected Results</a></h2>
+<pre><code>--- Objective Function ---
+OFV:  -213.9104
+
+--- THETA Estimates ---
+TVCL                 0.126263
+TVV                  7.629401
+TVKA                 1.083302
+
+--- OMEGA Estimates ---
+  OMEGA(1,1) = 0.031381  (CV% = 17.7)
+  OMEGA(2,2) = 0.009723  (CV% = 9.9)
+  OMEGA(3,3) = 0.419327  (CV% = 64.8)
+
+--- SIGMA Estimates ---
+  SIGMA(1) = 0.010766
+</code></pre>
+<p>The diagnostic table (<code>warfarin-bloq-sdtab.csv</code>) gains a <code>CENS</code> column, and the
+<code>IWRES</code> / <code>CWRES</code> cells for censored rows are written as empty (a weighted
+Gaussian residual is undefined when the observed value is censored).</p>
+<h2 id="method-notes"><a class="header" href="#method-notes">Method Notes</a></h2>
+<ul>
+<li><strong>Activation requires both pieces</strong>: the <code>CENS</code> column in the data file <em>and</em>
+<code>bloq_method = m3</code> in <code>[fit_options]</code>. Without the option, <code>CENS=1</code> rows are
+treated as ordinary observations at the LLOQ value, which biases the fit.</li>
+<li><strong>FOCE is auto-promoted to FOCEI on affected subjects.</strong> Mixing linearized
+Gaussian residuals with non-linearized <code>log Φ</code> terms produces inconsistent
+OFVs near the LLOQ boundary, so when <code>method = foce</code> and a subject has any
+<code>CENS=1</code> row, that subject is evaluated with η-interaction. A notice is
+written to <code>FitResult.warnings</code>; set <code>method = focei</code> explicitly to silence
+it.</li>
+<li><strong>Gauss-Newton caveat.</strong> With <code>method = gn</code> or <code>gn_hybrid</code>, the BHHH
+information-matrix approximation degrades as the BLOQ fraction grows (each
+censored row carries less Fisher information than its Gaussian counterpart).
+A warning is emitted; for &gt;20% censoring prefer <code>focei</code>.</li>
+<li><strong>SAEM</strong> optimizes θ/σ with M3 in the M-step directly, so no special handling
+is required beyond setting <code>bloq_method = m3</code>.</li>
 </ul>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="rust-api"><a class="header" href="#rust-api">Rust API</a></h1>
@@ -2591,29 +2754,63 @@ println!("{} subjects, {} observations",
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="frequently-asked-questions"><a class="header" href="#frequently-asked-questions">Frequently Asked Questions</a></h1>
 <h2 id="do-i-need-to-use-mu-referencing-in-my-model-definitions-like-in-nonmem--nlmixr2"><a class="header" href="#do-i-need-to-use-mu-referencing-in-my-model-definitions-like-in-nonmem--nlmixr2">Do I need to use MU-referencing in my model definitions, like in NONMEM / nlmixr2?</a></h2>
-<p><strong>No.</strong> FeRx does not require MU-referencing.</p>
+<p><strong>No.</strong> You do not need to write an explicit <code>MU_i</code> intermediate variable — ferx detects the same structure automatically from the right-hand side of each <code>[individual_parameters]</code> line.</p>
 <p>In NONMEM and nlmixr2, MU-referencing is a convention in which each random effect <code>ETA(i)</code> is linearly associated with a single <code>MU_i</code> term (typically <code>MU_i = LOG(THETA(i))</code>), so individual parameters look like:</p>
 <pre><code>MU_1 = LOG(THETA(1))
-CL = EXP(MU_1 + ETA(1))
+CL   = EXP(MU_1 + ETA(1))
 </code></pre>
-<p>This structure is required by those tools’ SAEM implementations because they rely on conjugate Gibbs updates that are only valid when the <code>MU_i</code> → <code>ETA(i)</code> relationship is strictly linear (and typically on a log scale). If you deviate — for example by writing <code>CL = THETA(1) * EXP(ETA(1))</code> without going through an intermediate <code>MU_1</code>, or by mixing multiple etas into one parameter — NONMEM SAEM will either reject the model or silently produce biased estimates.</p>
-<p>FeRx’s SAEM implementation uses <strong>Metropolis-Hastings sampling</strong> for the E-step rather than Gibbs, which does not require MU-referencing. You can write individual parameters in any form you like:</p>
-<pre><code># All of these work fine in ferx:
-CL = TVCL * exp(ETA_CL)
-CL = TVCL + ETA_CL                              # additive eta
-CL = TVCL * (WT/70)^0.75 * exp(ETA_CL)          # with covariates
-CL = TVCL * exp(ETA_CL + ETA_CL_OCC)            # multiple etas
-VMAX = TVVMAX * exp(ETA_VMAX)
-KM   = TVKM                                      # no eta at all
+<p>This structure is required by NONMEM’s SAEM implementation, whose conjugate-Gibbs E-step is only valid when the <code>MU_i → ETA(i)</code> relationship is strictly linear (typically on a log scale). Deviating from it — for example writing <code>CL = THETA(1) * EXP(ETA(1))</code> without going through an intermediate <code>MU_1</code> — causes NONMEM SAEM to reject the model or silently produce biased estimates.</p>
+<h3 id="how-ferx-handles-it"><a class="header" href="#how-ferx-handles-it">How ferx handles it</a></h3>
+<p>In ferx, you simply write the individual-parameter line in the form that makes sense for your model. The parser inspects each line and records which <code>THETA</code> acts as the “anchor” for each <code>ETA</code>, then uses that information to re-centre the estimation search at every outer iteration. The following patterns are detected automatically:</p>
+<pre><code>CL = TVCL * exp(ETA_CL)              # multiplicative exp — most common
+CL = exp(log(TVCL) + ETA_CL)         # canonical MU form
+CL = TVCL * (WT/70)^0.75 * exp(ETA_CL)   # with covariate adjustment
+CL = TVCL + ETA_CL                   # additive eta (linear shift)
 </code></pre>
-<p>The FOCE / FOCEI estimators have no MU-referencing requirement in any NLME tool — they use MAP optimization over etas regardless of parameterization. This is equally true in ferx.</p>
-<h3 id="performance-implication"><a class="header" href="#performance-implication">Performance implication</a></h3>
-<p>The main tradeoff is that MH sampling is slightly less efficient per iteration than conjugate Gibbs for MU-referenced models. In practice:</p>
+<p>The parser records <code>ETA_CL → (TVCL, log_transformed)</code> and at each outer step computes the shift</p>
+<pre><code>mu[i] = log(theta[i])   # for multiplicative/exp patterns
+mu[i] = theta[i]        # for additive patterns
+</code></pre>
+<p>The inner optimizer (and the SAEM exploration-phase MH proposal) is then centred on this <code>mu</code> shift rather than on <code>eta = 0</code>. This matches the convergence behaviour that NONMEM / nlmixr2 get from an explicit <code>MU_i = LOG(THETA(i))</code> block, without requiring you to write it.</p>
+<p>Patterns that ferx <strong>does not</strong> auto-detect (and therefore falls back to the plain <code>eta = 0</code> start) include:</p>
 <ul>
-<li>For models with a few random effects, the difference is negligible</li>
-<li>For models with many (&gt;10) random effects, conjugate Gibbs would converge in fewer iterations — but in exchange you gain flexibility to write models that don’t fit the MU-referenced mold</li>
+<li>Parameters with two or more free thetas in the product (<code>CL = TVCL * TVSCALE * exp(ETA_CL)</code>) — ambiguous anchor.</li>
+<li>Compound eta expressions inside the <code>exp</code> (<code>CL = TVCL * exp(ETA_CL + ETA_OCC)</code>).</li>
+<li>Non-standard transforms the parser doesn’t recognise.</li>
 </ul>
-<p>If you have a NONMEM model that uses MU-referencing and want to port it to ferx, you can drop the MU intermediate step and write the individual parameters directly — the results will be equivalent.</p>
+<p>Mu-referencing being absent is not an error — it just means that eta for that parameter is initialised to zero at each outer step, same as the pre-automatic behaviour. When a fit runs, ferx records the list of auto-detected mu-referenced ETAs in <code>FitResult.warnings</code> (as a line starting with <code>mu-ref: …</code>) so you can confirm what the parser picked up.</p>
+<h3 id="why-it-matters"><a class="header" href="#why-it-matters">Why it matters</a></h3>
+<p>Mu-referencing mostly affects convergence speed and robustness, not the final MLE:</p>
+<ul>
+<li><strong>FOCE / FOCEI</strong>: each outer step re-optimises ETA by BFGS. With a mu-shift, the warm-started BFGS sees a much better starting point when <code>THETA</code> moves away from the initial estimate, so fewer inner iterations are needed and pathological steps are less likely.</li>
+<li><strong>SAEM</strong>: during the exploration phase, Metropolis–Hastings proposals are centred on <code>mu_k</code> instead of on the current chain state. This helps the chain escape the (incorrect) <code>eta = 0</code> basin when <code>TVCL</code> is still far from the true value. During the convergence phase the proposal reverts to a symmetric random walk so that detailed balance holds.</li>
+</ul>
+<p>Because the estimator is MLE in both cases, models that converge without mu-referencing will converge to the same estimates with it — just (usually) in fewer iterations.</p>
+<h3 id="disabling-it"><a class="header" href="#disabling-it">Disabling it</a></h3>
+<p>If you want to benchmark against the pre-2026 behaviour, set:</p>
+<pre><code>[fit_options]
+  mu_referencing = false
+</code></pre>
+<p>or, from the Rust API, <code>FitOptions { mu_referencing: false, .. }</code>. The default is <code>true</code>.</p>
+<h3 id="porting-from-nonmem"><a class="header" href="#porting-from-nonmem">Porting from NONMEM</a></h3>
+<p>If you have a NONMEM model that uses an explicit <code>MU_1 = LOG(THETA(1))</code> line, just drop the <code>MU_i</code> intermediate and write the individual parameter directly — ferx will detect the equivalent mu-reference automatically and the fit will be equivalent.</p>
+<h2 id="which-outer-optimizer-should-i-pick"><a class="header" href="#which-outer-optimizer-should-i-pick">Which outer optimizer should I pick?</a></h2>
+<p><code>slsqp</code> (the default) is the right choice for most models — it is fast, handles
+box constraints cleanly, and behaves well on the log-transformed parameter
+scale that ferx uses internally.</p>
+<p>Reach for a different optimizer when SLSQP misbehaves:</p>
+<ul>
+<li><strong><code>bobyqa</code></strong> — derivative-free, good when FOCE’s FD gradients are noisy and
+SLSQP stalls or oscillates. Slower per iteration on smooth problems, but
+often converges when gradient-based methods give up.</li>
+<li><strong><code>trust_region</code></strong> — second-order Newton trust-region. Can be faster near
+convergence because it uses curvature information; tune the CG budget with
+<code>steihaug_max_iters</code> (default 50) if you have more than ~50 packed
+parameters.</li>
+<li><strong><code>lbfgs</code> / <code>bfgs</code></strong> — fall back to these only when NLopt is unavailable.</li>
+</ul>
+<p>See <a href="#optimizer-choices">Fit Options</a> for the full
+list.</p>
 
                     </main>
 

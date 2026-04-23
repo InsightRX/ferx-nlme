@@ -15,7 +15,7 @@
 /// converges in 10-30 iterations vs 100+ for first-order methods.
 use crate::estimation::inner_optimizer::run_inner_loop_warm;
 use crate::estimation::outer_optimizer::{compute_covariance, OuterResult};
-use crate::estimation::parameterization::*;
+use crate::estimation::parameterization::{compute_mu_k, *};
 use crate::stats::likelihood::{
     foce_population_nll, foce_subject_nll_interaction, foce_subject_nll_standard,
 };
@@ -65,6 +65,7 @@ pub fn run_foce_gn(
 
     // Initial inner loop
     let params = unpack_params(&x, init_params);
+    let init_mu_k = compute_mu_k(model, &params.theta, options.mu_referencing);
     let (mut eta_hats, mut h_matrices, _) = run_inner_loop_warm(
         model,
         population,
@@ -72,6 +73,7 @@ pub fn run_foce_gn(
         options.inner_maxiter,
         options.inner_tol,
         None,
+        Some(&init_mu_k),
     );
 
     let mut ofv = 2.0
@@ -93,6 +95,14 @@ pub fn run_foce_gn(
     let mut converged = false;
 
     for iter in 1..=maxiter {
+        if crate::cancel::is_cancelled(&options.cancel) {
+            if verbose {
+                eprintln!("  GN iter {:>3}: cancelled by user", iter);
+            }
+            warnings.push("cancelled by user".to_string());
+            break;
+        }
+
         // ---- Build the BHHH system ----
         // Gradient + outer-product Hessian approximation
         let (grad, h_bhhh) = build_gn_system(
@@ -143,6 +153,7 @@ pub fn run_foce_gn(
             let params_try = unpack_params(&x_new, init_params);
 
             // Re-estimate EBEs at new parameters (warm-started)
+            let ls_mu_k = compute_mu_k(model, &params_try.theta, options.mu_referencing);
             let (eh, hm, _) = run_inner_loop_warm(
                 model,
                 population,
@@ -150,6 +161,7 @@ pub fn run_foce_gn(
                 options.inner_maxiter,
                 options.inner_tol,
                 Some(&eta_new),
+                Some(&ls_mu_k),
             );
 
             let nll = foce_population_nll(
@@ -238,26 +250,27 @@ pub fn run_foce_gn(
 
     if !do_polish {
         // Pure GN — skip FOCEI polish, go directly to covariance step
-        let covariance_matrix = if options.run_covariance_step {
-            if verbose {
-                eprintln!("Running covariance step...");
-            }
-            let cov = compute_covariance(
-                &x,
-                &gn_params,
-                model,
-                population,
-                &eta_hats,
-                &h_matrices,
-                options,
-            );
-            if cov.is_none() {
-                warnings.push("Covariance step failed".to_string());
-            }
-            cov
-        } else {
-            None
-        };
+        let covariance_matrix =
+            if options.run_covariance_step && !crate::cancel::is_cancelled(&options.cancel) {
+                if verbose {
+                    eprintln!("Running covariance step...");
+                }
+                let cov = compute_covariance(
+                    &x,
+                    &gn_params,
+                    model,
+                    population,
+                    &eta_hats,
+                    &h_matrices,
+                    options,
+                );
+                if cov.is_none() {
+                    warnings.push("Covariance step failed".to_string());
+                }
+                cov
+            } else {
+                None
+            };
 
         if verbose {
             eprintln!("FOCE-GN completed. Final OFV = {:.4}", ofv);

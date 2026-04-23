@@ -1,3 +1,4 @@
+
 use crate::pk;
 use crate::stats::likelihood::individual_nll;
 use crate::types::*;
@@ -16,8 +17,14 @@ pub struct EbeResult {
 
 /// Find Empirical Bayes Estimates (EBEs) for a single subject via BFGS.
 ///
-/// Minimizes individual_nll(eta | theta, Omega, sigma) starting from eta_init
-/// (warm-start from previous iteration's EBEs when available).
+/// When `mu_k` is provided (mu-referencing active), the inner optimizer works
+/// in psi-space where `psi = eta_true + mu_k`.  The objective is evaluated as
+/// `individual_nll(psi - mu_k)`, so the model always receives `eta_true`.
+/// Warm starts (in `eta_true` space) are converted to psi-space on entry;
+/// the returned EbeResult always holds `eta_true = psi - mu_k`.
+///
+/// When `mu_k` is None every shift is zero and the behaviour is identical to
+/// the original (eta-space) implementation.
 pub fn find_ebe(
     model: &CompiledModel,
     subject: &Subject,
@@ -25,25 +32,37 @@ pub fn find_ebe(
     max_iter: usize,
     tol: f64,
     eta_init: Option<&[f64]>,
+    mu_k: Option<&[f64]>,
 ) -> EbeResult {
     let n_eta = model.n_eta;
-    let mut eta = match eta_init {
-        Some(init) => init.to_vec(),
-        None => vec![0.0; n_eta],
+
+    // mu: shift vector (zeros when no mu-referencing)
+    let mu: Vec<f64> = mu_k
+        .map(|m| m.to_vec())
+        .unwrap_or_else(|| vec![0.0; n_eta]);
+
+    // psi_init: warm start converted to psi-space, or prior mode (psi = mu, eta_true = 0)
+    let mut psi: Vec<f64> = match eta_init {
+        Some(warm) => warm.iter().zip(mu.iter()).map(|(e, m)| e + m).collect(),
+        None => mu.clone(),
     };
 
-    let obj = |e: &[f64]| -> f64 {
+    // Objective in psi-space: model always receives eta_true = psi - mu
+    let obj = |p: &[f64]| -> f64 {
+        let eta_t: Vec<f64> = p.iter().zip(mu.iter()).map(|(pi, mi)| pi - mi).collect();
         individual_nll(
             model,
             subject,
             &params.theta,
-            e,
+            &eta_t,
             &params.omega,
             &params.sigma.values,
         )
     };
 
-    // Try BFGS — use AD gradient when available, FD otherwise
+    // Try BFGS — use AD gradient when available, FD otherwise.
+    // The AD gradient of individual_nll w.r.t. psi equals the gradient w.r.t.
+    // eta_true (chain rule: d/dpsi = d/d(eta_true), since psi = eta_true + mu).
     #[cfg(feature = "autodiff")]
     let result = if let Some(ref tv_fn) = model.tv_fn {
         let tv_adjusted = tv_fn(&params.theta, &subject.covariates);
@@ -88,9 +107,13 @@ pub fn find_ebe(
         } else {
             vec![0.0; subject.observations.len()]
         };
-        let grad_fn = |e: &[f64]| -> Vec<f64> {
+        let mu_ad = mu.clone();
+        let grad_fn = |p: &[f64]| -> Vec<f64> {
+            // Gradient w.r.t. psi = gradient w.r.t. eta_true at eta_true = psi - mu
+            let eta_t: Vec<f64> =
+                p.iter().zip(mu_ad.iter()).map(|(pi, mi)| pi - mi).collect();
             let (_, g) = ad_gradients::compute_nll_gradient_ad(
-                e,
+                &eta_t,
                 &tv_adjusted,
                 &omega_inv_flat,
                 log_det_omega,
@@ -105,29 +128,32 @@ pub fn find_ebe(
             );
             g
         };
-        bfgs_minimize_with_grad(&obj, &grad_fn, &mut eta, n_eta, max_iter, tol)
+        bfgs_minimize_with_grad(&obj, &grad_fn, &mut psi, n_eta, max_iter, tol)
     } else {
-        bfgs_minimize(&obj, &mut eta, n_eta, max_iter, tol)
+        bfgs_minimize(&obj, &mut psi, n_eta, max_iter, tol)
     };
 
     #[cfg(not(feature = "autodiff"))]
-    let result = bfgs_minimize(&obj, &mut eta, n_eta, max_iter, tol);
+    let result = bfgs_minimize(&obj, &mut psi, n_eta, max_iter, tol);
 
-    // If BFGS failed, try Nelder-Mead from zero
+    // If BFGS failed, try Nelder-Mead from the prior mode (psi = mu, eta_true = 0)
     if !result {
-        eta = vec![0.0; n_eta];
-        nelder_mead_minimize(&obj, &mut eta, n_eta, max_iter * 5, tol);
+        psi = mu.clone();
+        nelder_mead_minimize(&obj, &mut psi, n_eta, max_iter * 5, tol);
     }
 
-    let nll = obj(&eta);
+    let nll = obj(&psi);
 
-    // Compute Jacobian — use AD when available
+    // Recover eta_true = psi - mu (mean-zero, NONMEM-compatible output)
+    let eta_true: Vec<f64> = psi.iter().zip(mu.iter()).map(|(p, m)| p - m).collect();
+
+    // Compute Jacobian at eta_true — use AD when available
     #[cfg(feature = "autodiff")]
     let h_matrix = if let Some(ref tv_fn) = model.tv_fn {
         let tv_adjusted = tv_fn(&params.theta, &subject.covariates);
         let dose_data = FlatDoseData::from_subject(subject);
         ad_gradients::compute_jacobian_ad(
-            &eta,
+            &eta_true,
             &tv_adjusted,
             &dose_data,
             &subject.obs_times,
@@ -136,16 +162,14 @@ pub fn find_ebe(
             &model.pk_indices,
         )
     } else {
-        compute_jacobian_fd(model, subject, &params.theta, &eta)
+        compute_jacobian_fd(model, subject, &params.theta, &eta_true)
     };
 
     #[cfg(not(feature = "autodiff"))]
-    let h_matrix = compute_jacobian_fd(model, subject, &params.theta, &eta);
-
-    let eta_vec = DVector::from_column_slice(&eta);
+    let h_matrix = compute_jacobian_fd(model, subject, &params.theta, &eta_true);
 
     EbeResult {
-        eta: eta_vec,
+        eta: DVector::from_column_slice(&eta_true),
         h_matrix,
         converged: nll.is_finite(),
         nll,
@@ -510,10 +534,13 @@ pub fn run_inner_loop(
     max_iter: usize,
     tol: f64,
 ) -> (Vec<DVector<f64>>, Vec<DMatrix<f64>>, bool) {
-    run_inner_loop_warm(model, population, params, max_iter, tol, None)
+    run_inner_loop_warm(model, population, params, max_iter, tol, None, None)
 }
 
-/// Run inner loop with optional warm-start EBEs.
+/// Run inner loop with optional warm-start EBEs and optional mu-referencing shift.
+///
+/// `prev_etas`: previous-iteration EBEs in eta_true space (used as warm starts).
+/// `mu_k`: mu shift vector from `compute_mu_k`; `None` means no mu-referencing.
 pub fn run_inner_loop_warm(
     model: &CompiledModel,
     population: &Population,
@@ -521,6 +548,7 @@ pub fn run_inner_loop_warm(
     max_iter: usize,
     tol: f64,
     prev_etas: Option<&[DVector<f64>]>,
+    mu_k: Option<&[f64]>,
 ) -> (Vec<DVector<f64>>, Vec<DMatrix<f64>>, bool) {
     use rayon::prelude::*;
 
@@ -530,7 +558,7 @@ pub fn run_inner_loop_warm(
         .enumerate()
         .map(|(i, subject)| {
             let init = prev_etas.map(|pe| pe[i].as_slice());
-            find_ebe(model, subject, params, max_iter, tol, init)
+            find_ebe(model, subject, params, max_iter, tol, init, mu_k)
         })
         .collect();
 

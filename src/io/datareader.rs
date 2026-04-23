@@ -20,46 +20,52 @@ pub fn read_nonmem_csv(
         .from_path(path)
         .map_err(|e| format!("Failed to open CSV: {}", e))?;
 
-    // Normalize headers to lowercase
+    // Preserve original header casing for covariate names. Standard NONMEM
+    // columns are matched case-insensitively so that legacy CSVs (e.g. `Id`,
+    // `TIME`) keep working; covariate lookups remain case-sensitive.
     let headers: Vec<String> = rdr
         .headers()
         .map_err(|e| format!("Failed to read headers: {}", e))?
         .iter()
-        .map(|h| h.trim().to_lowercase())
+        .map(|h| h.trim().to_string())
         .collect();
 
-    let col_idx = |name: &str| -> Option<usize> { headers.iter().position(|h| h == name) };
+    let col_idx_ci = |name: &str| -> Option<usize> {
+        headers
+            .iter()
+            .position(|h| h.eq_ignore_ascii_case(name))
+    };
+    let col_idx_cs = |name: &str| -> Option<usize> { headers.iter().position(|h| h == name) };
 
-    let id_col = col_idx("id").ok_or("Missing ID column")?;
-    let time_col = col_idx("time").ok_or("Missing TIME column")?;
-    let dv_col = col_idx("dv").ok_or("Missing DV column")?;
-    let evid_col = col_idx("evid");
-    let amt_col = col_idx("amt");
-    let cmt_col = col_idx("cmt");
-    let rate_col = col_idx("rate");
-    let mdv_col = col_idx("mdv");
-    let ii_col = col_idx("ii");
-    let ss_col = col_idx("ss");
-    let cens_col = col_idx("cens");
+    let id_col = col_idx_ci("id").ok_or("Missing ID column")?;
+    let time_col = col_idx_ci("time").ok_or("Missing TIME column")?;
+    let dv_col = col_idx_ci("dv").ok_or("Missing DV column")?;
+    let evid_col = col_idx_ci("evid");
+    let amt_col = col_idx_ci("amt");
+    let cmt_col = col_idx_ci("cmt");
+    let rate_col = col_idx_ci("rate");
+    let mdv_col = col_idx_ci("mdv");
+    let ii_col = col_idx_ci("ii");
+    let ss_col = col_idx_ci("ss");
+    let cens_col = col_idx_ci("cens");
 
-    // Identify covariate columns
+    const STANDARD_COLS: &[&str] = &[
+        "id", "time", "dv", "evid", "amt", "cmt", "rate", "mdv", "ii", "ss", "cens",
+    ];
+    let is_standard = |h: &str| STANDARD_COLS.iter().any(|s| h.eq_ignore_ascii_case(s));
+
+    // Identify covariate columns (names preserved in their original case).
     let cov_names: Vec<String> = match covariate_columns {
-        Some(cols) => cols.iter().map(|c| c.to_lowercase()).collect(),
-        None => {
-            // Auto-detect: columns not in standard set
-            let standard = [
-                "id", "time", "dv", "evid", "amt", "cmt", "rate", "mdv", "ii", "ss", "cens",
-            ];
-            headers
-                .iter()
-                .filter(|h| !standard.contains(&h.as_str()))
-                .cloned()
-                .collect()
-        }
+        Some(cols) => cols.iter().map(|c| c.to_string()).collect(),
+        None => headers
+            .iter()
+            .filter(|h| !is_standard(h))
+            .cloned()
+            .collect(),
     };
     let cov_indices: Vec<(String, usize)> = cov_names
         .iter()
-        .filter_map(|name| col_idx(name).map(|idx| (name.clone(), idx)))
+        .filter_map(|name| col_idx_cs(name).map(|idx| (name.clone(), idx)))
         .collect();
 
     // Parse rows grouped by ID

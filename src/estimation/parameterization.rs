@@ -1,4 +1,4 @@
-use crate::types::{ModelParameters, OmegaMatrix, SigmaVector};
+use crate::types::{CompiledModel, ModelParameters, OmegaMatrix, SigmaVector};
 use nalgebra::DMatrix;
 
 /// Bounds for the packed parameter vector
@@ -168,6 +168,51 @@ pub fn compute_bounds(template: &ModelParameters) -> PackedBounds {
     }
 
     PackedBounds { lower, upper }
+}
+
+/// Return initial ETA vector: warm-start if available, else mu_refs, else zeros.
+pub fn get_eta_init(
+    n_eta: usize,
+    warm_start: Option<&[f64]>,
+    mu_refs: Option<&[f64]>,
+) -> Vec<f64> {
+    if let Some(ws) = warm_start {
+        ws.to_vec()
+    } else if let Some(mu) = mu_refs {
+        mu.to_vec()
+    } else {
+        vec![0.0; n_eta]
+    }
+}
+
+/// Compute the mu_k shift vector from current theta for mu-referenced ETAs.
+///
+/// For each ETA that has a detected mu-reference, mu[i] = log(theta) or theta
+/// depending on whether the relationship is log-transformed.  ETAs without a
+/// mu-reference get mu[i] = 0 (no shift), preserving the standard behaviour.
+/// When `enabled` is false, returns a zero vector (disables mu-referencing).
+pub fn compute_mu_k(model: &CompiledModel, theta: &[f64], enabled: bool) -> Vec<f64> {
+    if !enabled {
+        return vec![0.0; model.n_eta];
+    }
+    let mut mu = vec![0.0; model.n_eta];
+    for (eta_idx, eta_name) in model.eta_names.iter().enumerate() {
+        if let Some(mu_ref) = model.mu_refs.get(eta_name) {
+            if let Some(theta_idx) = model
+                .theta_names
+                .iter()
+                .position(|n| n == &mu_ref.theta_name)
+            {
+                let theta_val = theta[theta_idx];
+                mu[eta_idx] = if mu_ref.log_transformed {
+                    theta_val.max(1e-10).ln()
+                } else {
+                    theta_val
+                };
+            }
+        }
+    }
+    mu
 }
 
 /// Clamp a vector to box constraints
@@ -358,6 +403,158 @@ mod tests {
     fn test_block_omega_not_diagonal() {
         let template = make_block_template();
         assert!(!template.omega.diagonal);
+    }
+
+    // ── mu-referencing helpers ──────────────────────────────────────────
+
+    use crate::types::{BloqMethod, CompiledModel, ErrorModel, MuRef, PkModel, PkParams};
+    use std::collections::HashMap;
+
+    /// Build a minimal CompiledModel with the given mu-refs. Only fields
+    /// that `compute_mu_k` actually reads need to be meaningful; the rest
+    /// are filled with defaults.
+    fn make_model_with_mu_refs(mu_refs: Vec<(&str, &str, bool)>) -> CompiledModel {
+        let theta_names: Vec<String> = vec!["TVCL".into(), "TVV".into(), "TVKA".into()];
+        let eta_names: Vec<String> = vec!["ETA_CL".into(), "ETA_V".into(), "ETA_KA".into()];
+        let mut refs = HashMap::new();
+        for (eta, theta, log_t) in mu_refs {
+            refs.insert(
+                eta.to_string(),
+                MuRef {
+                    theta_name: theta.to_string(),
+                    log_transformed: log_t,
+                },
+            );
+        }
+        let omega = OmegaMatrix::from_diagonal(
+            &[0.09, 0.04, 0.30],
+            eta_names.clone(),
+        );
+        let sigma = SigmaVector {
+            values: vec![0.02],
+            names: vec!["PROP_ERR".into()],
+        };
+        let default_params = ModelParameters {
+            theta: vec![0.2, 10.0, 1.5],
+            theta_names: theta_names.clone(),
+            theta_lower: vec![0.001, 0.1, 0.01],
+            theta_upper: vec![10.0, 500.0, 50.0],
+            omega,
+            sigma,
+        };
+        CompiledModel {
+            name: "test".into(),
+            pk_model: PkModel::OneCptIvBolus,
+            error_model: ErrorModel::Proportional,
+            pk_param_fn: Box::new(|_, _, _| PkParams::default()),
+            n_theta: 3,
+            n_eta: 3,
+            n_epsilon: 1,
+            theta_names,
+            eta_names,
+            default_params,
+            mu_refs: refs,
+            tv_fn: None,
+            pk_indices: vec![0, 1, 4],
+            ode_spec: None,
+            bloq_method: BloqMethod::Drop,
+            referenced_covariates: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn test_compute_mu_k_no_refs_returns_zeros() {
+        // Model with no detected mu-refs → every shift is zero, even when enabled.
+        let model = make_model_with_mu_refs(vec![]);
+        let mu = compute_mu_k(&model, &[0.2, 10.0, 1.5], true);
+        assert_eq!(mu.len(), 3);
+        for v in &mu {
+            assert_eq!(*v, 0.0);
+        }
+    }
+
+    #[test]
+    fn test_compute_mu_k_disabled_returns_zeros() {
+        // `enabled = false` must short-circuit even if mu-refs exist.
+        let model = make_model_with_mu_refs(vec![
+            ("ETA_CL", "TVCL", true),
+            ("ETA_V", "TVV", true),
+        ]);
+        let mu = compute_mu_k(&model, &[0.2, 10.0, 1.5], false);
+        assert_eq!(mu, vec![0.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn test_compute_mu_k_log_transformed() {
+        // log-transformed mu-ref (exp / multiplicative pattern) → mu = ln(theta).
+        let model = make_model_with_mu_refs(vec![
+            ("ETA_CL", "TVCL", true),
+            ("ETA_V", "TVV", true),
+        ]);
+        let theta = vec![0.2_f64, 10.0_f64, 1.5_f64];
+        let mu = compute_mu_k(&model, &theta, true);
+        assert_relative_eq!(mu[0], 0.2_f64.ln(), epsilon = 1e-12);
+        assert_relative_eq!(mu[1], 10.0_f64.ln(), epsilon = 1e-12);
+        // ETA_KA has no mu-ref → zero shift.
+        assert_eq!(mu[2], 0.0);
+    }
+
+    #[test]
+    fn test_compute_mu_k_additive_uses_theta_directly() {
+        // Additive pattern (THETA + ETA) → mu = theta (no log).
+        let model = make_model_with_mu_refs(vec![("ETA_CL", "TVCL", false)]);
+        let mu = compute_mu_k(&model, &[0.2, 10.0, 1.5], true);
+        assert_relative_eq!(mu[0], 0.2, epsilon = 1e-12);
+    }
+
+    #[test]
+    fn test_compute_mu_k_clamps_log_of_nonpositive_theta() {
+        // ln() of a non-positive theta would be -inf or NaN — the
+        // implementation clamps to 1e-10 first. Verify that guard holds.
+        let model = make_model_with_mu_refs(vec![("ETA_CL", "TVCL", true)]);
+        let mu = compute_mu_k(&model, &[0.0, 10.0, 1.5], true);
+        assert!(mu[0].is_finite());
+        assert_relative_eq!(mu[0], 1e-10_f64.ln(), epsilon = 1e-6);
+    }
+
+    #[test]
+    fn test_compute_mu_k_unknown_theta_name_is_ignored() {
+        // If the recorded theta_name doesn't exist in theta_names
+        // (shouldn't happen in practice, but guard is real), shift stays zero.
+        let mut model = make_model_with_mu_refs(vec![]);
+        model.mu_refs.insert(
+            "ETA_CL".into(),
+            MuRef {
+                theta_name: "NON_EXISTENT".into(),
+                log_transformed: true,
+            },
+        );
+        let mu = compute_mu_k(&model, &[0.2, 10.0, 1.5], true);
+        assert_eq!(mu, vec![0.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn test_get_eta_init_warm_start_preferred() {
+        // Warm start wins over mu_refs.
+        let warm = vec![0.5, -0.1, 0.2];
+        let mu = vec![1.0, 1.0, 1.0];
+        let out = get_eta_init(3, Some(&warm), Some(&mu));
+        assert_eq!(out, warm);
+    }
+
+    #[test]
+    fn test_get_eta_init_falls_back_to_mu_refs() {
+        // No warm start → use mu_refs.
+        let mu = vec![0.1, 0.2, 0.3];
+        let out = get_eta_init(3, None, Some(&mu));
+        assert_eq!(out, mu);
+    }
+
+    #[test]
+    fn test_get_eta_init_falls_back_to_zeros() {
+        // Nothing provided → zeros of the requested length.
+        let out = get_eta_init(4, None, None);
+        assert_eq!(out, vec![0.0; 4]);
     }
 
     #[test]

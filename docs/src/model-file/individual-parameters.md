@@ -62,6 +62,19 @@ Use additional theta parameters for covariate coefficients:
   CL = TVCL * (WT/70)^THETA_WT * (CRCL/100)^THETA_CRCL * exp(ETA_CL)
 ```
 
+## Automatic MU-referencing
+
+When a line matches one of the patterns
+
+```
+PARAM = THETA * exp(ETA)              # multiplicative / log-normal
+PARAM = THETA * <anything> * exp(ETA) # multiplicative with covariate terms
+PARAM = exp(log(THETA) + ETA)         # canonical MU form
+PARAM = THETA + ETA                   # additive
+```
+
+ferx records the `(ETA → THETA)` mapping and uses it to re-centre the inner-loop ETA search at each outer iteration — reproducing NONMEM / nlmixr2's MU-referencing behaviour without requiring you to write an explicit `MU_i` line. See the [FAQ](../faq.md#do-i-need-to-use-mu-referencing-in-my-model-definitions-like-in-nonmem--nlmixr2) for details on which patterns are and are not detected, and for the `mu_referencing = false` escape hatch.
+
 ## Covariate Detection
 
 Any uppercase identifier in the expression that does not match a theta name or eta name is automatically treated as a covariate. The covariate value is read from the corresponding column in the data file.

@@ -23,6 +23,7 @@ The optional `[fit_options]` block configures the estimation method and optimize
 | `global_search` | `true`, `false` | `false` | Run gradient-free pre-search before local optimization |
 | `global_maxeval` | integer | auto | Max evaluations for global search |
 | `bloq_method` | `drop`, `m3` | `drop` | How to handle rows with `CENS=1`. `m3` enables Beal's M3 likelihood (see [BLOQ example](../examples/bloq.md)). |
+| `mu_referencing` | `true`, `false` | `true` | Re-centre inner-loop ETA estimates on the current population mean (auto-detected from `[individual_parameters]`). See the [FAQ entry](../faq.md#do-i-need-to-use-mu-referencing-in-my-model-definitions-like-in-nonmem--nlmixr2) for details. Set `false` to reproduce pre-automatic-mu behaviour. |
 
 ## Estimation Methods
 

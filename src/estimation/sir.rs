@@ -8,7 +8,7 @@
 //! more robust than the asymptotic covariance matrix.
 
 use crate::estimation::inner_optimizer::run_inner_loop_warm;
-use crate::estimation::parameterization::{compute_bounds, pack_params, unpack_params};
+use crate::estimation::parameterization::{compute_bounds, compute_mu_k, pack_params, unpack_params};
 use crate::stats::likelihood::foce_population_nll;
 use crate::types::*;
 use nalgebra::{DMatrix, DVector};
@@ -140,6 +140,9 @@ pub fn run_sir(
         .par_iter()
         .zip(z_vectors.par_iter())
         .map(|(x_k, z)| {
+            if crate::cancel::is_cancelled(&options.cancel) {
+                return f64::NEG_INFINITY;
+            }
             // Reject samples outside parameter bounds (avoids wasting inner-loop work)
             let out_of_bounds = x_k
                 .iter()
@@ -169,6 +172,7 @@ pub fn run_sir(
             }
 
             // Run inner loop warm-started from ML EBEs
+            let sir_mu_k = compute_mu_k(model, &params_k.theta, options.mu_referencing);
             let (ehs, hms, _) = run_inner_loop_warm(
                 model,
                 population,
@@ -176,6 +180,7 @@ pub fn run_sir(
                 inner_maxiter,
                 inner_tol,
                 Some(eta_hats),
+                Some(&sir_mu_k),
             );
 
             // Compute OFV

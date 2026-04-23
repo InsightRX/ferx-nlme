@@ -8,7 +8,7 @@
 ///   Phase 2 (convergence, k > K1):  γₖ = 1/(k−K1)   — almost-sure convergence to MLE
 use crate::estimation::inner_optimizer::run_inner_loop_warm;
 use crate::estimation::outer_optimizer::{compute_covariance, OuterResult};
-use crate::estimation::parameterization::*;
+use crate::estimation::parameterization::{compute_mu_k, *};
 use crate::stats::likelihood::{foce_population_nll, individual_nll};
 use crate::stats::residual_error::residual_variance;
 use crate::stats::special::log_normal_cdf;
@@ -50,6 +50,10 @@ struct SaemState {
 
 /// Run `n_steps` MH iterations for one subject in-place.
 /// Returns (n_accepted, updated_nll).
+///
+/// During the exploration phase (`mu_k` is `Some`), proposals are centred on
+/// `mu_k` rather than the current eta, which helps the chain escape the
+/// (incorrect) eta = 0 basin when TVCL is far from the true value.
 fn mh_steps(
     eta: &mut [f64],
     nll_current: f64,
@@ -61,6 +65,7 @@ fn mh_steps(
     step_scale: f64,
     rng: &mut impl Rng,
     n_steps: usize,
+    mu_k: Option<&[f64]>,
 ) -> (usize, f64) {
     let n_eta = eta.len();
     let l = &omega.chol;
@@ -68,14 +73,22 @@ fn mh_steps(
     let mut n_accepted = 0;
 
     for _ in 0..n_steps {
-        // Propose: eta_prop = eta + step_scale * L * z, z ~ N(0,I)
+        // Propose: during exploration centre on mu_k; during convergence random-walk from current eta
         let z: Vec<f64> = (0..n_eta).map(|_| rng.sample(StandardNormal)).collect();
         let z_vec = DVector::from_column_slice(&z);
         let perturbation = l * z_vec;
 
-        let eta_prop: Vec<f64> = (0..n_eta)
-            .map(|j| eta[j] + step_scale * perturbation[j])
-            .collect();
+        let eta_prop: Vec<f64> = if let Some(mu) = mu_k {
+            // Exploration: centred proposal from prior mode
+            (0..n_eta)
+                .map(|j| mu[j] + step_scale * perturbation[j])
+                .collect()
+        } else {
+            // Convergence: random walk from current position
+            (0..n_eta)
+                .map(|j| eta[j] + step_scale * perturbation[j])
+                .collect()
+        };
 
         let nll_prop = individual_nll(model, subject, theta, &eta_prop, omega, sigma_values);
 
@@ -254,7 +267,9 @@ pub fn run_saem(
     let sigma_cur = init_params.sigma.values.clone();
     let s2 = omega_cur.clone();
 
-    let etas: Vec<Vec<f64>> = vec![vec![0.0; n_eta]; n_subjects];
+    let etas: Vec<Vec<f64>> = (0..n_subjects)
+        .map(|_| get_eta_init(n_eta, None, None))
+        .collect();
     let step_scales = vec![0.3; n_subjects];
 
     // Initial NLL cache
@@ -306,6 +321,12 @@ pub fn run_saem(
 
     // Main loop
     for k in 1..=n_iter {
+        if crate::cancel::is_cancelled(&options.cancel) {
+            if verbose {
+                eprintln!("SAEM: cancelled at iteration {}", k);
+            }
+            break;
+        }
         let gamma = if k <= k1 { 1.0 } else { 1.0 / (k - k1) as f64 };
 
         // Rebuild omega for this iteration
@@ -316,11 +337,20 @@ pub fn run_saem(
         );
 
         // ---- Step 1: MH simulation (parallelized) ----
+        // During exploration (k <= k1) centre proposals on mu_k to help the
+        // chain find the posterior mode when theta is still far from the truth.
+        let is_exploration = k <= k1;
+        let saem_mu_k_vec = if is_exploration {
+            Some(compute_mu_k(model, &state.theta, options.mu_referencing))
+        } else {
+            None
+        };
         {
             use rayon::prelude::*;
             let theta_ref = &state.theta;
             let sigma_ref = &state.sigma_vals;
             let omega_ref = &omega_k;
+            let mu_k_ref = saem_mu_k_vec.as_deref();
 
             let results: Vec<(Vec<f64>, f64, usize)> = state
                 .etas
@@ -347,6 +377,7 @@ pub fn run_saem(
                         scale,
                         &mut rng,
                         n_mh_steps,
+                        mu_k_ref,
                     );
                     (eta_work, nll_new, n_acc)
                 })
@@ -477,6 +508,7 @@ pub fn run_saem(
         .iter()
         .map(|e| DVector::from_column_slice(e))
         .collect();
+    let saem_final_mu_k = compute_mu_k(model, &final_params.theta, options.mu_referencing);
     let (eta_hats, h_matrices, _) = run_inner_loop_warm(
         model,
         population,
@@ -484,6 +516,7 @@ pub fn run_saem(
         options.inner_maxiter,
         options.inner_tol,
         Some(&warm_etas),
+        Some(&saem_final_mu_k),
     );
 
     // ---- Final OFV via FOCE approximation (for AIC/BIC comparability) ----
@@ -501,27 +534,28 @@ pub fn run_saem(
 
     // ---- Covariance step ----
     let mut warnings = Vec::new();
-    let covariance_matrix = if options.run_covariance_step {
-        if verbose {
-            eprintln!("Running covariance step...");
-        }
-        let packed = pack_params(&final_params);
-        let cov = compute_covariance(
-            &packed,
-            &final_params,
-            model,
-            population,
-            &eta_hats,
-            &h_matrices,
-            options,
-        );
-        if cov.is_none() {
-            warnings.push("Covariance step failed — SEs not available".to_string());
-        }
-        cov
-    } else {
-        None
-    };
+    let covariance_matrix =
+        if options.run_covariance_step && !crate::cancel::is_cancelled(&options.cancel) {
+            if verbose {
+                eprintln!("Running covariance step...");
+            }
+            let packed = pack_params(&final_params);
+            let cov = compute_covariance(
+                &packed,
+                &final_params,
+                model,
+                population,
+                &eta_hats,
+                &h_matrices,
+                options,
+            );
+            if cov.is_none() {
+                warnings.push("Covariance step failed — SEs not available".to_string());
+            }
+            cov
+        } else {
+            None
+        };
 
     if verbose {
         eprintln!("SAEM completed. Final OFV = {:.4}", ofv);
