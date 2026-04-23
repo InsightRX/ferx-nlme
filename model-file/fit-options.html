@@ -1,0 +1,364 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Fit Options - FeRx-NLME Documentation</title>
+
+
+        <!-- Custom HTML head -->
+        
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="../favicon.svg">
+        <link rel="shortcut icon" href="../favicon.png">
+        <link rel="stylesheet" href="../css/variables.css">
+        <link rel="stylesheet" href="../css/general.css">
+        <link rel="stylesheet" href="../css/chrome.css">
+        <link rel="stylesheet" href="../css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="../fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" href="../highlight.css">
+        <link rel="stylesheet" href="../tomorrow-night.css">
+        <link rel="stylesheet" href="../ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+
+    </head>
+    <body class="sidebar-visible no-js">
+    <div id="body-container">
+        <!-- Provide site root to javascript -->
+        <script>
+            var path_to_root = "../";
+            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "ayu" : "light";
+        </script>
+
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                var theme = localStorage.getItem('mdbook-theme');
+                var sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            var theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            var html = document.querySelector('html');
+            html.classList.remove('light')
+            html.classList.add(theme);
+            var body = document.querySelector('body');
+            body.classList.remove('no-js')
+            body.classList.add('js');
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            var body = document.querySelector('body');
+            var sidebar = null;
+            var sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+            }
+            sidebar_toggle.checked = sidebar === 'visible';
+            body.classList.remove('sidebar-visible');
+            body.classList.add("sidebar-" + sidebar);
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <div class="sidebar-scrollbox">
+                <ol class="chapter"><li class="chapter-item expanded "><a href="../introduction.html"><strong aria-hidden="true">1.</strong> Introduction</a></li><li class="chapter-item expanded "><a href="../getting-started.html"><strong aria-hidden="true">2.</strong> Getting Started</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../installation.html"><strong aria-hidden="true">2.1.</strong> Installation</a></li><li class="chapter-item expanded "><a href="../quick-start.html"><strong aria-hidden="true">2.2.</strong> Quick Start</a></li></ol></li><li class="chapter-item expanded "><a href="../model-file/index.html"><strong aria-hidden="true">3.</strong> Model File Reference</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../model-file/parameters.html"><strong aria-hidden="true">3.1.</strong> Parameters</a></li><li class="chapter-item expanded "><a href="../model-file/individual-parameters.html"><strong aria-hidden="true">3.2.</strong> Individual Parameters</a></li><li class="chapter-item expanded "><a href="../model-file/structural-model.html"><strong aria-hidden="true">3.3.</strong> Structural Model</a></li><li class="chapter-item expanded "><a href="../model-file/error-model.html"><strong aria-hidden="true">3.4.</strong> Error Model</a></li><li class="chapter-item expanded "><a href="../model-file/ode-models.html"><strong aria-hidden="true">3.5.</strong> ODE Models</a></li><li class="chapter-item expanded "><a href="../model-file/fit-options.html" class="active"><strong aria-hidden="true">3.6.</strong> Fit Options</a></li><li class="chapter-item expanded "><a href="../model-file/simulation.html"><strong aria-hidden="true">3.7.</strong> Simulation</a></li></ol></li><li class="chapter-item expanded "><a href="../estimation/index.html"><strong aria-hidden="true">4.</strong> Estimation Methods</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../estimation/foce.html"><strong aria-hidden="true">4.1.</strong> FOCE / FOCEI</a></li><li class="chapter-item expanded "><a href="../estimation/gauss-newton.html"><strong aria-hidden="true">4.2.</strong> Gauss-Newton (BHHH)</a></li><li class="chapter-item expanded "><a href="../estimation/saem.html"><strong aria-hidden="true">4.3.</strong> SAEM</a></li><li class="chapter-item expanded "><a href="../estimation/sir.html"><strong aria-hidden="true">4.4.</strong> SIR</a></li></ol></li><li class="chapter-item expanded "><a href="../data-format.html"><strong aria-hidden="true">5.</strong> Data Format</a></li><li class="chapter-item expanded "><a href="../cli.html"><strong aria-hidden="true">6.</strong> CLI Reference</a></li><li class="chapter-item expanded "><a href="../output.html"><strong aria-hidden="true">7.</strong> Output Files</a></li><li class="chapter-item expanded "><a href="../examples/index.html"><strong aria-hidden="true">8.</strong> Examples</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../examples/one-cpt-oral.html"><strong aria-hidden="true">8.1.</strong> One-Compartment Oral</a></li><li class="chapter-item expanded "><a href="../examples/two-cpt-iv.html"><strong aria-hidden="true">8.2.</strong> Two-Compartment IV</a></li><li class="chapter-item expanded "><a href="../examples/covariates.html"><strong aria-hidden="true">8.3.</strong> Covariates</a></li><li class="chapter-item expanded "><a href="../examples/ode-model.html"><strong aria-hidden="true">8.4.</strong> ODE Model</a></li><li class="chapter-item expanded "><a href="../examples/bloq.html"><strong aria-hidden="true">8.5.</strong> BLOQ (M3 method)</a></li></ol></li><li class="chapter-item expanded "><a href="../api/index.html"><strong aria-hidden="true">9.</strong> Rust API</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../api/types.html"><strong aria-hidden="true">9.1.</strong> Core Types</a></li><li class="chapter-item expanded "><a href="../api/fitting.html"><strong aria-hidden="true">9.2.</strong> Fitting Functions</a></li><li class="chapter-item expanded "><a href="../api/simulation.html"><strong aria-hidden="true">9.3.</strong> Simulation</a></li><li class="chapter-item expanded "><a href="../api/parsing.html"><strong aria-hidden="true">9.4.</strong> Parsing</a></li></ol></li><li class="chapter-item expanded "><a href="../faq.html"><strong aria-hidden="true">10.</strong> FAQ</a></li></ol>
+            </div>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <!-- Track and set sidebar scroll position -->
+        <script>
+            var sidebarScrollbox = document.querySelector('#sidebar .sidebar-scrollbox');
+            sidebarScrollbox.addEventListener('click', function(e) {
+                if (e.target.tagName === 'A') {
+                    sessionStorage.setItem('sidebar-scroll', sidebarScrollbox.scrollTop);
+                }
+            }, { passive: true });
+            var sidebarScrollTop = sessionStorage.getItem('sidebar-scroll');
+            sessionStorage.removeItem('sidebar-scroll');
+            if (sidebarScrollTop) {
+                // preserve sidebar scroll position when navigating via links within sidebar
+                sidebarScrollbox.scrollTop = sidebarScrollTop;
+            } else {
+                // scroll sidebar to current active section when navigating via "next/previous chapter" buttons
+                var activeSection = document.querySelector('#sidebar .active');
+                if (activeSection) {
+                    activeSection.scrollIntoView({ block: 'center' });
+                }
+            }
+        </script>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">FeRx-NLME Documentation</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+                        <a href="https://github.com/insightrx/ferx-nlme" title="Git repository" aria-label="Git repository">
+                            <i id="git-repository-button" class="fa fa-github"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="fit-options"><a class="header" href="#fit-options">Fit Options</a></h1>
+<p>The optional <code>[fit_options]</code> block configures the estimation method and optimizer settings.</p>
+<h2 id="syntax"><a class="header" href="#syntax">Syntax</a></h2>
+<pre><code>[fit_options]
+  key = value
+</code></pre>
+<h2 id="general-options"><a class="header" href="#general-options">General Options</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Key</th><th>Values</th><th>Default</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>method</code></td><td><code>foce</code>, <code>focei</code>, <code>saem</code></td><td><code>foce</code></td><td>Estimation method</td></tr>
+<tr><td><code>maxiter</code></td><td>integer</td><td><code>500</code></td><td>Maximum outer loop iterations</td></tr>
+<tr><td><code>covariance</code></td><td><code>true</code>, <code>false</code></td><td><code>true</code></td><td>Compute covariance matrix and standard errors</td></tr>
+<tr><td><code>optimizer</code></td><td><code>slsqp</code>, <code>lbfgs</code>, <code>nlopt_lbfgs</code>, <code>mma</code>, <code>bfgs</code>, <code>bobyqa</code>, <code>trust_region</code></td><td><code>slsqp</code></td><td>Optimization algorithm</td></tr>
+<tr><td><code>inner_maxiter</code></td><td>integer</td><td><code>200</code></td><td>Max iterations for the inner (per-subject EBE) optimizer</td></tr>
+<tr><td><code>inner_tol</code></td><td>float</td><td><code>1e-8</code></td><td>Gradient-norm convergence tolerance for the inner optimizer</td></tr>
+<tr><td><code>steihaug_max_iters</code></td><td>integer</td><td><code>50</code></td><td>Max CG iterations for the Steihaug subproblem (only used when <code>optimizer = trust_region</code>)</td></tr>
+<tr><td><code>global_search</code></td><td><code>true</code>, <code>false</code></td><td><code>false</code></td><td>Run gradient-free pre-search before local optimization</td></tr>
+<tr><td><code>global_maxeval</code></td><td>integer</td><td>auto</td><td>Max evaluations for global search</td></tr>
+<tr><td><code>bloq_method</code></td><td><code>drop</code>, <code>m3</code></td><td><code>drop</code></td><td>How to handle rows with <code>CENS=1</code>. <code>m3</code> enables Beal's M3 likelihood (see <a href="../examples/bloq.html">BLOQ example</a>).</td></tr>
+<tr><td><code>mu_referencing</code></td><td><code>true</code>, <code>false</code></td><td><code>true</code></td><td>Re-centre inner-loop ETA estimates on the current population mean (auto-detected from <code>[individual_parameters]</code>). See the <a href="../faq.html#do-i-need-to-use-mu-referencing-in-my-model-definitions-like-in-nonmem--nlmixr2">FAQ entry</a> for details. Set <code>false</code> to reproduce pre-automatic-mu behaviour.</td></tr>
+</tbody></table>
+</div>
+<h2 id="estimation-methods"><a class="header" href="#estimation-methods">Estimation Methods</a></h2>
+<h3 id="foce-default"><a class="header" href="#foce-default">FOCE (default)</a></h3>
+<pre><code>method = foce
+</code></pre>
+<p>First-Order Conditional Estimation. Linearizes the model around the empirical Bayes estimates. Fast and reliable for most models.</p>
+<h3 id="focei"><a class="header" href="#focei">FOCEI</a></h3>
+<pre><code>method = focei
+</code></pre>
+<p>FOCE with Interaction. Includes the dependence of the residual error on random effects. More accurate than FOCE when the error model depends on individual predictions, but slightly slower.</p>
+<h3 id="saem"><a class="header" href="#saem">SAEM</a></h3>
+<pre><code>method = saem
+</code></pre>
+<p>Stochastic Approximation EM. Uses Metropolis-Hastings sampling instead of MAP optimization for random effects. More robust to local minima; recommended for complex models with many random effects.</p>
+<h2 id="saem-specific-options"><a class="header" href="#saem-specific-options">SAEM-Specific Options</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Key</th><th>Default</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>n_exploration</code></td><td><code>150</code></td><td>Phase 1 iterations (step size = 1)</td></tr>
+<tr><td><code>n_convergence</code></td><td><code>250</code></td><td>Phase 2 iterations (step size = 1/k)</td></tr>
+<tr><td><code>n_mh_steps</code></td><td><code>3</code></td><td>Metropolis-Hastings steps per subject per iteration</td></tr>
+<tr><td><code>adapt_interval</code></td><td><code>50</code></td><td>Iterations between MH step-size adaptation</td></tr>
+<tr><td><code>seed</code></td><td><code>12345</code></td><td>RNG seed for reproducibility</td></tr>
+</tbody></table>
+</div>
+<h2 id="sir-sampling-importance-resampling"><a class="header" href="#sir-sampling-importance-resampling">SIR (Sampling Importance Resampling)</a></h2>
+<p>SIR provides non-parametric parameter uncertainty estimates as an optional post-estimation step. Requires <code>covariance = true</code>.</p>
+<div class="table-wrapper"><table><thead><tr><th>Key</th><th>Default</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>sir</code></td><td><code>false</code></td><td>Enable SIR uncertainty estimation</td></tr>
+<tr><td><code>sir_samples</code></td><td><code>1000</code></td><td>Number of proposal samples (M)</td></tr>
+<tr><td><code>sir_resamples</code></td><td><code>250</code></td><td>Number of resampled vectors (m)</td></tr>
+<tr><td><code>sir_seed</code></td><td><code>12345</code></td><td>RNG seed for reproducibility</td></tr>
+</tbody></table>
+</div>
+<p>See <a href="../estimation/sir.html">SIR documentation</a> for details.</p>
+<h2 id="optimizer-choices"><a class="header" href="#optimizer-choices">Optimizer Choices</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Optimizer</th><th>Description</th><th>Recommended For</th></tr></thead><tbody>
+<tr><td><code>slsqp</code></td><td>Sequential Least Squares Programming (NLopt)</td><td>General use (default)</td></tr>
+<tr><td><code>bfgs</code></td><td>Built-in BFGS quasi-Newton</td><td>When NLopt is unavailable</td></tr>
+<tr><td><code>lbfgs</code></td><td>Limited-memory BFGS</td><td>Large parameter spaces</td></tr>
+<tr><td><code>nlopt_lbfgs</code></td><td>NLopt L-BFGS</td><td>Alternative L-BFGS</td></tr>
+<tr><td><code>mma</code></td><td>Method of Moving Asymptotes (NLopt)</td><td>Constrained problems</td></tr>
+<tr><td><code>bobyqa</code></td><td>NLopt BOBYQA — derivative-free quadratic interpolation</td><td>Noisy or non-smooth objectives where FD gradients are unreliable</td></tr>
+<tr><td><code>trust_region</code></td><td>Newton trust-region with Steihaug CG subproblem (argmin)</td><td>Well-conditioned problems where second-order curvature helps convergence; tune <code>steihaug_max_iters</code></td></tr>
+</tbody></table>
+</div>
+<p>Notes:</p>
+<ul>
+<li><code>bobyqa</code> does not use gradients, so it is robust to small discontinuities in
+the FOCE surface caused by EBE re-estimation, but it converges more slowly
+than gradient-based methods on smooth problems.</li>
+<li><code>trust_region</code> uses a finite-difference Hessian of the OFV-at-fixed-EBEs.
+Each Hessian costs O(n²) OFV evaluations, so it is fastest when the number
+of packed parameters is small. Increase <code>steihaug_max_iters</code> when the
+parameter count exceeds the default of 50.</li>
+</ul>
+<h2 id="options-that-dont-apply-to-the-selected-method"><a class="header" href="#options-that-dont-apply-to-the-selected-method">Options That Don't Apply to the Selected Method</a></h2>
+<p>If you set an option that the chosen estimation method doesn't consume
+(e.g. <code>n_convergence</code> with <code>method = focei</code>, or <code>optimizer</code> with
+<code>method = saem</code>), <code>fit()</code> emits a warning listing the option, the selected
+method, and the keys that <em>are</em> available for that method. The option is
+ignored — the fit still proceeds.</p>
+<p>For a chained fit (<code>method = [saem, focei]</code>), an option is kept if it applies
+to <em>any</em> stage in the chain, so SAEM and FOCEI keys can be mixed without
+warnings.</p>
+<h2 id="global-search"><a class="header" href="#global-search">Global Search</a></h2>
+<p>Setting <code>global_search = true</code> runs a gradient-free pre-search (NLopt CRS2-LM) before the local optimizer. This helps escape local minima on challenging datasets.</p>
+<p>The number of global evaluations is auto-scaled based on the number of parameters and observations, or can be set explicitly with <code>global_maxeval</code>.</p>
+<h2 id="examples"><a class="header" href="#examples">Examples</a></h2>
+<p>Standard FOCE with defaults:</p>
+<pre><code>[fit_options]
+  method     = foce
+  maxiter    = 300
+  covariance = true
+</code></pre>
+<p>FOCEI with global search:</p>
+<pre><code>[fit_options]
+  method        = focei
+  maxiter       = 500
+  covariance    = true
+  global_search = true
+</code></pre>
+<p>SAEM with custom settings:</p>
+<pre><code>[fit_options]
+  method        = saem
+  n_exploration = 200
+  n_convergence = 300
+  n_mh_steps    = 5
+  seed          = 42
+  covariance    = true
+</code></pre>
+<p>FOCEI with SIR uncertainty:</p>
+<pre><code>[fit_options]
+  method        = focei
+  covariance    = true
+  sir           = true
+  sir_samples   = 1000
+  sir_resamples = 250
+  sir_seed      = 42
+</code></pre>
+<p>Derivative-free BOBYQA fit:</p>
+<pre><code>[fit_options]
+  method        = foce
+  optimizer     = bobyqa
+  maxiter       = 300
+  inner_maxiter = 100
+  inner_tol     = 1e-6
+</code></pre>
+<p>Trust-region with tuned CG subproblem:</p>
+<pre><code>[fit_options]
+  method             = foce
+  optimizer          = trust_region
+  maxiter            = 200
+  steihaug_max_iters = 30
+</code></pre>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../model-file/ode-models.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+
+                            <a rel="next prefetch" href="../model-file/simulation.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../model-file/ode-models.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+
+                    <a rel="next prefetch" href="../model-file/simulation.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="../elasticlunr.min.js"></script>
+        <script src="../mark.min.js"></script>
+        <script src="../searcher.js"></script>
+
+        <script src="../clipboard.min.js"></script>
+        <script src="../highlight.js"></script>
+        <script src="../book.js"></script>
+
+        <!-- Custom JS scripts -->
+        <script src="../mathjax-config.js"></script>
+
+
+    </div>
+    </body>
+</html>
