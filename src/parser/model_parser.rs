@@ -406,92 +406,110 @@ fn parse_fit_options(lines: &[String]) -> Result<FitOptions, String> {
         if parts.len() != 2 {
             continue;
         }
-        match parts[0] {
-            "method" => {
-                let raw = parts[1].trim();
-                // List form: `method = [a, b, c]` — chain of stages.
-                if raw.starts_with('[') {
-                    let inner = raw.trim_start_matches('[').trim_end_matches(']');
-                    let chain: Vec<EstimationMethod> = inner
-                        .split(',')
-                        .map(|s| s.trim())
-                        .filter(|s| !s.is_empty())
-                        .map(parse_method_token)
-                        .collect::<Result<_, _>>()?;
-                    if chain.is_empty() {
-                        return Err("method = [] is empty; provide at least one method".into());
-                    }
-                    // Interaction flag follows the final stage of the chain.
-                    opts.interaction = *chain.last().unwrap() == EstimationMethod::FoceI;
-                    opts.method = *chain.last().unwrap();
-                    opts.methods = chain;
-                } else {
-                    let m = parse_method_token(raw)?;
-                    opts.method = m;
-                    opts.methods.clear();
-                    if m == EstimationMethod::FoceI {
-                        opts.interaction = true;
-                    }
-                }
-            }
-            "maxiter" => opts.outer_maxiter = parts[1].parse().unwrap_or(500),
-            "covariance" => opts.run_covariance_step = parts[1].trim() == "true",
-            "optimizer" => {
-                opts.optimizer = match parts[1].to_lowercase().as_str() {
-                    "slsqp" => Optimizer::Slsqp,
-                    "lbfgs" | "nlopt_lbfgs" => Optimizer::NloptLbfgs,
-                    "mma" => Optimizer::Mma,
-                    "bfgs" => Optimizer::Bfgs,
-                    _ => Optimizer::Slsqp,
-                };
-            }
-            "global_search" => opts.global_search = parts[1].trim() == "true",
-            "global_maxeval" => opts.global_maxeval = parts[1].parse().unwrap_or(0),
-            "n_exploration" => opts.saem_n_exploration = parts[1].trim().parse().unwrap_or(150),
-            "n_convergence" => opts.saem_n_convergence = parts[1].trim().parse().unwrap_or(250),
-            "n_mh_steps" => opts.saem_n_mh_steps = parts[1].trim().parse().unwrap_or(3),
-            "adapt_interval" => opts.saem_adapt_interval = parts[1].trim().parse().unwrap_or(50),
-            "seed" => opts.saem_seed = parts[1].trim().parse().ok(),
-            "sir" => opts.sir = parts[1].trim() == "true",
-            "sir_samples" => opts.sir_samples = parts[1].trim().parse().unwrap_or(1000),
-            "sir_resamples" => opts.sir_resamples = parts[1].trim().parse().unwrap_or(250),
-            "sir_seed" => opts.sir_seed = parts[1].trim().parse().ok(),
-            "bloq_method" | "bloq" => {
-                opts.bloq_method = match parts[1].trim().to_lowercase().as_str() {
-                    "m3" => BloqMethod::M3,
-                    "drop" | "none" | "ignore" => BloqMethod::Drop,
-                    other => {
-                        return Err(format!(
-                            "Unknown bloq_method '{}' — expected 'm3' or 'drop'",
-                            other
-                        ));
-                    }
-                };
-            }
-            "threads" => {
-                let raw = parts[1].trim();
-                if raw.eq_ignore_ascii_case("auto") || raw == "0" {
-                    opts.threads = None;
-                } else {
-                    opts.threads = raw.parse::<usize>().ok().filter(|&n| n > 0);
-                }
-            }
-            "mu_referencing" => {
-                opts.mu_referencing = match parts[1].trim().to_lowercase().as_str() {
-                    "true" | "1" | "yes" | "on" => true,
-                    "false" | "0" | "no" | "off" => false,
-                    other => {
-                        return Err(format!(
-                            "Unknown mu_referencing value '{}' — expected true or false",
-                            other
-                        ));
-                    }
-                };
-            }
-            _ => {}
-        }
+        // .ferx files tolerate unknown keys silently — they may be forward-
+        // compatibility placeholders or comments from older tool versions.
+        // Only validation failures (bad values for known keys) propagate.
+        apply_fit_option(&mut opts, parts[0], parts[1])?;
     }
     Ok(opts)
+}
+
+/// Apply a single `key = value` pair to a `FitOptions`.
+///
+/// Returns:
+/// - `Ok(true)` — key recognised and applied.
+/// - `Ok(false)` — key unknown; caller decides whether to error or ignore.
+/// - `Err(msg)` — key recognised but value failed validation.
+///
+/// This is the single source of truth for `[fit_options]` key semantics.
+/// The .ferx parser loops over it ignoring `Ok(false)` (forward compat);
+/// the R binding forwards it and errors on `Ok(false)` so that typos in
+/// `ferx_fit(settings = list(...))` surface loudly.
+pub fn apply_fit_option(opts: &mut FitOptions, key: &str, value: &str) -> Result<bool, String> {
+    let trimmed = value.trim();
+    match key.trim() {
+        "method" => {
+            // List form: `method = [a, b, c]` — chain of stages.
+            if trimmed.starts_with('[') {
+                let inner = trimmed.trim_start_matches('[').trim_end_matches(']');
+                let chain: Vec<EstimationMethod> = inner
+                    .split(',')
+                    .map(|s| s.trim())
+                    .filter(|s| !s.is_empty())
+                    .map(parse_method_token)
+                    .collect::<Result<_, _>>()?;
+                if chain.is_empty() {
+                    return Err("method = [] is empty; provide at least one method".into());
+                }
+                opts.interaction = *chain.last().unwrap() == EstimationMethod::FoceI;
+                opts.method = *chain.last().unwrap();
+                opts.methods = chain;
+            } else {
+                let m = parse_method_token(trimmed)?;
+                opts.method = m;
+                opts.methods.clear();
+                if m == EstimationMethod::FoceI {
+                    opts.interaction = true;
+                }
+            }
+        }
+        "maxiter" => opts.outer_maxiter = trimmed.parse().unwrap_or(500),
+        "covariance" => opts.run_covariance_step = trimmed == "true",
+        "optimizer" => {
+            opts.optimizer = match trimmed.to_lowercase().as_str() {
+                "slsqp" => Optimizer::Slsqp,
+                "lbfgs" | "nlopt_lbfgs" => Optimizer::NloptLbfgs,
+                "mma" => Optimizer::Mma,
+                "bfgs" => Optimizer::Bfgs,
+                _ => Optimizer::Slsqp,
+            };
+        }
+        "global_search" => opts.global_search = trimmed == "true",
+        "global_maxeval" => opts.global_maxeval = trimmed.parse().unwrap_or(0),
+        "n_exploration" => opts.saem_n_exploration = trimmed.parse().unwrap_or(150),
+        "n_convergence" => opts.saem_n_convergence = trimmed.parse().unwrap_or(250),
+        "n_mh_steps" => opts.saem_n_mh_steps = trimmed.parse().unwrap_or(3),
+        "adapt_interval" => opts.saem_adapt_interval = trimmed.parse().unwrap_or(50),
+        "seed" => opts.saem_seed = trimmed.parse().ok(),
+        "gn_lambda" => opts.gn_lambda = trimmed.parse().unwrap_or(0.01),
+        "sir" => opts.sir = trimmed == "true",
+        "sir_samples" => opts.sir_samples = trimmed.parse().unwrap_or(1000),
+        "sir_resamples" => opts.sir_resamples = trimmed.parse().unwrap_or(250),
+        "sir_seed" => opts.sir_seed = trimmed.parse().ok(),
+        "bloq_method" | "bloq" => {
+            opts.bloq_method = match trimmed.to_lowercase().as_str() {
+                "m3" => BloqMethod::M3,
+                "drop" | "none" | "ignore" => BloqMethod::Drop,
+                other => {
+                    return Err(format!(
+                        "Unknown bloq_method '{}' — expected 'm3' or 'drop'",
+                        other
+                    ));
+                }
+            };
+        }
+        "threads" => {
+            if trimmed.eq_ignore_ascii_case("auto") || trimmed == "0" {
+                opts.threads = None;
+            } else {
+                opts.threads = trimmed.parse::<usize>().ok().filter(|&n| n > 0);
+            }
+        }
+        "mu_referencing" => {
+            opts.mu_referencing = match trimmed.to_lowercase().as_str() {
+                "true" | "1" | "yes" | "on" => true,
+                "false" | "0" | "no" | "off" => false,
+                other => {
+                    return Err(format!(
+                        "Unknown mu_referencing value '{}' — expected true or false",
+                        other
+                    ));
+                }
+            };
+        }
+        _ => return Ok(false),
+    }
+    Ok(true)
 }
 
 // ── [structural_model] ODE variant parser ───────────────────────────────────
@@ -1516,6 +1534,50 @@ mod tests {
     #[test]
     fn test_parse_mu_referencing_invalid_rejected() {
         assert!(parse_fit_options(&["mu_referencing = wibble".to_string()]).is_err());
+    }
+
+    // ── apply_fit_option dispatcher (used by the R binding too) ───────────
+
+    #[test]
+    fn test_apply_fit_option_known_key_returns_true() {
+        let mut opts = FitOptions::default();
+        let applied = apply_fit_option(&mut opts, "n_exploration", "200").unwrap();
+        assert!(applied);
+        assert_eq!(opts.saem_n_exploration, 200);
+    }
+
+    #[test]
+    fn test_apply_fit_option_unknown_key_returns_false() {
+        // Unknown keys don't error — callers decide. parse_fit_options silently
+        // ignores them for forward-compat; the R binding errors on Ok(false).
+        let mut opts = FitOptions::default();
+        let applied = apply_fit_option(&mut opts, "completely_made_up", "42").unwrap();
+        assert!(!applied);
+    }
+
+    #[test]
+    fn test_apply_fit_option_invalid_value_errors() {
+        let mut opts = FitOptions::default();
+        let res = apply_fit_option(&mut opts, "bloq_method", "wibble");
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_apply_fit_option_gn_lambda() {
+        // gn_lambda was advertised in the R binding's settings docs but had
+        // no parser case before the dispatcher refactor.
+        let mut opts = FitOptions::default();
+        apply_fit_option(&mut opts, "gn_lambda", "0.005").unwrap();
+        assert!((opts.gn_lambda - 0.005).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_apply_fit_option_tolerates_whitespace() {
+        // R stringifies without extra whitespace, but .ferx lines often have
+        // it — the dispatcher must trim both key and value.
+        let mut opts = FitOptions::default();
+        apply_fit_option(&mut opts, "  mu_referencing ", "  false  ").unwrap();
+        assert!(!opts.mu_referencing);
     }
 
     // ── mu-referencing pattern detection ─────────────────────────────────
