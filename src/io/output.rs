@@ -151,6 +151,30 @@ pub fn print_results(result: &FitResult) {
         }
     }
 
+    // Shrinkage
+    if !result.shrinkage_eta.is_empty() {
+        eprintln!("\n--- Shrinkage ---");
+        for (k, &sh) in result.shrinkage_eta.iter().enumerate() {
+            if sh.is_finite() {
+                eprintln!("  ETA{} shrinkage: {:.1}%", k + 1, sh * 100.0);
+            }
+        }
+        if result.shrinkage_eps.is_finite() {
+            eprintln!("  EPS shrinkage:  {:.1}%", result.shrinkage_eps * 100.0);
+        }
+    }
+
+    // Run info
+    eprintln!("\n--- Run Info ---");
+    let cov_str = match result.covariance_status {
+        crate::types::CovarianceStatus::Computed => "computed",
+        crate::types::CovarianceStatus::Failed => "FAILED",
+        crate::types::CovarianceStatus::NotRequested => "not requested",
+    };
+    eprintln!("  Covariance: {}", cov_str);
+    eprintln!("  Wall time:  {:.1}s", result.wall_time_secs);
+    eprintln!("  ferx v{}", result.ferx_version);
+
     // Warnings
     if !result.warnings.is_empty() {
         eprintln!("\n--- Warnings ---");
@@ -184,6 +208,8 @@ pub fn sdtab(result: &FitResult, population: &Population) -> Vec<(String, Vec<f6
     let mut ipreds = Vec::with_capacity(n_total);
     let mut cwres_vec = Vec::with_capacity(n_total);
     let mut iwres_vec = Vec::with_capacity(n_total);
+    let mut ebe_ofv_col = Vec::with_capacity(n_total);
+    let mut n_obs_col = Vec::with_capacity(n_total);
     let mut eta_cols: Vec<Vec<f64>> = (0..n_eta).map(|_| Vec::with_capacity(n_total)).collect();
 
     for (si, sr) in result.subjects.iter().enumerate() {
@@ -197,6 +223,8 @@ pub fn sdtab(result: &FitResult, population: &Population) -> Vec<(String, Vec<f6
             ipreds.push(sr.ipred[j]);
             cwres_vec.push(sr.cwres[j]);
             iwres_vec.push(sr.iwres[j]);
+            ebe_ofv_col.push(sr.ofv_contribution);
+            n_obs_col.push(sr.n_obs as f64);
             for k in 0..n_eta {
                 eta_cols[k].push(sr.eta[k]);
             }
@@ -216,6 +244,8 @@ pub fn sdtab(result: &FitResult, population: &Population) -> Vec<(String, Vec<f6
         ("IPRED".to_string(), ipreds),
         ("CWRES".to_string(), cwres_vec),
         ("IWRES".to_string(), iwres_vec),
+        ("EBE_OFV".to_string(), ebe_ofv_col),
+        ("N_OBS".to_string(), n_obs_col),
     ]);
     for k in 0..n_eta {
         cols.push((format!("ETA{}", k + 1), eta_cols[k].clone()));
