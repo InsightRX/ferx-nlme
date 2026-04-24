@@ -84,6 +84,7 @@ pub fn run_foce_gn(
         options.inner_tol,
         None,
         Some(&init_mu_k),
+        options.min_obs_for_convergence_check as usize,
     );
 
     let mut ofv = 2.0
@@ -208,6 +209,7 @@ pub fn run_foce_gn(
                 options.inner_tol,
                 Some(&eta_new),
                 Some(&ls_mu_k),
+                options.min_obs_for_convergence_check as usize,
             );
 
             let nll = foce_population_nll(
@@ -240,7 +242,7 @@ pub fn run_foce_gn(
             if crate::estimation::trace::is_active() {
                 let (gn_method, gn_phase) = gn_trace_method_phase(options.method);
                 crate::estimation::trace::write_gn(
-                    iter, gn_method, gn_phase, ofv, lambda, 0.0, false,
+                    iter, gn_method, gn_phase, ofv, lambda, 0.0, false, None, None,
                 );
             }
 
@@ -284,6 +286,8 @@ pub fn run_foce_gn(
                 lambda,
                 ofv - prev_ofv,
                 true,
+                None,
+                None,
             );
         }
 
@@ -355,6 +359,9 @@ pub fn run_foce_gn(
             h_matrices,
             covariance_matrix,
             warnings,
+            ebe_convergence_warnings: 0,
+            max_unconverged_subjects: 0,
+            total_ebe_fallbacks: 0,
         };
     }
 
@@ -441,6 +448,9 @@ pub fn run_foce_gn(
         h_matrices: final_h_mats,
         covariance_matrix,
         warnings,
+        ebe_convergence_warnings: 0,
+        max_unconverged_subjects: 0,
+        total_ebe_fallbacks: 0,
     }
 }
 

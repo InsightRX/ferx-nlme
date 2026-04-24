@@ -28,7 +28,8 @@ impl TraceWriter {
         writeln!(
             writer,
             "iter,method,phase,ofv,wall_ms,grad_norm,step_norm,inner_iter_count,\
-             optimizer,lm_lambda,ofv_delta,step_accepted,cond_nll,gamma,mh_accept_rate"
+             optimizer,lm_lambda,ofv_delta,step_accepted,cond_nll,gamma,mh_accept_rate,\
+             n_ebe_unconverged,n_ebe_fallback"
         )?;
         Ok(Self {
             path,
@@ -51,11 +52,13 @@ impl TraceWriter {
         grad_norm: Option<f64>,
         step_norm: Option<f64>,
         optimizer: &str,
+        n_ebe_unconverged: Option<usize>,
+        n_ebe_fallback: Option<usize>,
     ) {
         let wall_ms = self.elapsed_ms();
         let _ = writeln!(
             self.writer,
-            "{},{},{},{:.6},{},{},{},NA,{},NA,NA,NA,NA,NA,NA",
+            "{},{},{},{:.6},{},{},{},NA,{},NA,NA,NA,NA,NA,NA,{},{}",
             iter,
             method,
             phase,
@@ -63,7 +66,9 @@ impl TraceWriter {
             wall_ms,
             fmt_opt(grad_norm),
             fmt_opt(step_norm),
-            optimizer
+            optimizer,
+            fmt_opt_usize(n_ebe_unconverged),
+            fmt_opt_usize(n_ebe_fallback),
         );
     }
 
@@ -77,11 +82,13 @@ impl TraceWriter {
         lm_lambda: f64,
         ofv_delta: f64,
         step_accepted: bool,
+        n_ebe_unconverged: Option<usize>,
+        n_ebe_fallback: Option<usize>,
     ) {
         let wall_ms = self.elapsed_ms();
         let _ = writeln!(
             self.writer,
-            "{},{},{},{:.6},{},NA,NA,NA,NA,{:.6},{:.6},{},NA,NA,NA",
+            "{},{},{},{:.6},{},NA,NA,NA,NA,{:.6},{:.6},{},NA,NA,NA,{},{}",
             iter,
             method,
             phase,
@@ -89,7 +96,9 @@ impl TraceWriter {
             wall_ms,
             lm_lambda,
             ofv_delta,
-            i32::from(step_accepted)
+            i32::from(step_accepted),
+            fmt_opt_usize(n_ebe_unconverged),
+            fmt_opt_usize(n_ebe_fallback),
         );
     }
 
@@ -106,7 +115,7 @@ impl TraceWriter {
         // use condNLL as the ofv-column proxy (documented in PR1).
         let _ = writeln!(
             self.writer,
-            "{},saem,{},{:.6},{},NA,NA,NA,NA,NA,NA,NA,{:.6},{:.6},{:.4}",
+            "{},saem,{},{:.6},{},NA,NA,NA,NA,NA,NA,NA,{:.6},{:.6},{:.4},NA,NA",
             iter, phase, cond_nll, wall_ms, cond_nll, gamma, mh_accept_rate
         );
     }
@@ -120,6 +129,13 @@ fn fmt_opt(v: Option<f64>) -> String {
     match v {
         Some(f) if f.is_finite() => format!("{:.6}", f),
         _ => "NA".to_string(),
+    }
+}
+
+fn fmt_opt_usize(v: Option<usize>) -> String {
+    match v {
+        Some(n) => n.to_string(),
+        None => "NA".to_string(),
     }
 }
 
@@ -188,11 +204,14 @@ pub fn finish() -> Option<String> {
 
 /// Write one FOCE/FOCEI trace row.
 ///
-/// `method`   — "foce" or "focei" (may be overridden by `set_overrides`)
-/// `ofv`      — current OFV
-/// `grad_norm`— L2 norm of the gradient (None for derivative-free optimizers)
-/// `step_norm`— L2 norm of the parameter step (None when unavailable)
-/// `optimizer`— optimizer name string, e.g. "slsqp", "bobyqa", "bfgs"
+/// `method`           — "foce" or "focei" (may be overridden by `set_overrides`)
+/// `ofv`              — current OFV
+/// `grad_norm`        — L2 norm of the gradient (None for derivative-free optimizers)
+/// `step_norm`        — L2 norm of the parameter step (None when unavailable)
+/// `optimizer`        — optimizer name string, e.g. "slsqp", "bobyqa", "bfgs"
+/// `n_ebe_unconverged`— subjects that did not meet EBE tolerance (None = unavailable)
+/// `n_ebe_fallback`   — subjects that used Nelder-Mead fallback (None = unavailable)
+#[allow(clippy::too_many_arguments)]
 pub fn write_foce(
     iter: usize,
     method: &str,
@@ -200,22 +219,29 @@ pub fn write_foce(
     grad_norm: Option<f64>,
     step_norm: Option<f64>,
     optimizer: &str,
+    n_ebe_unconverged: Option<usize>,
+    n_ebe_fallback: Option<usize>,
 ) {
     TRACE.with(|t| {
         let mut s = t.borrow_mut();
         let method = s.method_override.unwrap_or(method);
         let phase = s.phase_override.unwrap_or("");
         if let Some(ref mut w) = s.writer {
-            w.write_foce_row(iter, method, phase, ofv, grad_norm, step_norm, optimizer);
+            w.write_foce_row(
+                iter, method, phase, ofv, grad_norm, step_norm, optimizer,
+                n_ebe_unconverged, n_ebe_fallback,
+            );
         }
     });
 }
 
 /// Write one GN/GN-hybrid trace row.
 ///
-/// `method` — "gn" or "gn_hybrid"
-/// `phase`  — "" for pure GN, "gn" for GN phase of hybrid (may be further
-///             overridden by `set_overrides`)
+/// `method`           — "gn" or "gn_hybrid"
+/// `phase`            — "" for pure GN, "gn" for GN phase of hybrid
+/// `n_ebe_unconverged`— subjects that did not meet EBE tolerance (None = unavailable)
+/// `n_ebe_fallback`   — subjects that used Nelder-Mead fallback (None = unavailable)
+#[allow(clippy::too_many_arguments)]
 pub fn write_gn(
     iter: usize,
     method: &str,
@@ -224,6 +250,8 @@ pub fn write_gn(
     lm_lambda: f64,
     ofv_delta: f64,
     step_accepted: bool,
+    n_ebe_unconverged: Option<usize>,
+    n_ebe_fallback: Option<usize>,
 ) {
     TRACE.with(|t| {
         let mut s = t.borrow_mut();
@@ -231,7 +259,10 @@ pub fn write_gn(
         // GN rows always carry the caller-supplied phase; phase_override is
         // reserved for the FOCEI polish phase and doesn't apply here.
         if let Some(ref mut w) = s.writer {
-            w.write_gn_row(iter, method, phase, ofv, lm_lambda, ofv_delta, step_accepted);
+            w.write_gn_row(
+                iter, method, phase, ofv, lm_lambda, ofv_delta, step_accepted,
+                n_ebe_unconverged, n_ebe_fallback,
+            );
         }
     });
 }
@@ -274,7 +305,7 @@ mod tests {
     fn test_foce_row_format() {
         let path = format!("/tmp/ferx_trace_foce_{}.csv", std::process::id());
         let mut w = TraceWriter::new(path.clone()).unwrap();
-        w.write_foce_row(1, "foce", "", 100.5, Some(0.25), Some(0.01), "slsqp");
+        w.write_foce_row(1, "foce", "", 100.5, Some(0.25), Some(0.01), "slsqp", None, None);
         w.flush();
         let contents = read_file(&path);
         let lines: Vec<&str> = contents.lines().collect();
@@ -288,7 +319,7 @@ mod tests {
     fn test_na_for_missing_grad() {
         let path = format!("/tmp/ferx_trace_na_{}.csv", std::process::id());
         let mut w = TraceWriter::new(path.clone()).unwrap();
-        w.write_foce_row(1, "focei", "", 99.0, None, None, "bobyqa");
+        w.write_foce_row(1, "focei", "", 99.0, None, None, "bobyqa", None, None);
         w.flush();
         let contents = read_file(&path);
         // grad_norm and step_norm should be NA
@@ -303,7 +334,7 @@ mod tests {
     fn test_gn_row_format() {
         let path = format!("/tmp/ferx_trace_gn_{}.csv", std::process::id());
         let mut w = TraceWriter::new(path.clone()).unwrap();
-        w.write_gn_row(3, "gn", "", 200.0, 0.01, -5.0, true);
+        w.write_gn_row(3, "gn", "", 200.0, 0.01, -5.0, true, None, None);
         w.flush();
         let contents = read_file(&path);
         let row = contents.lines().nth(1).unwrap();

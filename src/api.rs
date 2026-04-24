@@ -478,6 +478,9 @@ fn fit_inner(
         sir_ci_sigma: sir_result.as_ref().map(|s| s.ci_sigma.clone()),
         sir_ess: sir_result.as_ref().map(|s| s.effective_sample_size),
         trace_path,
+        ebe_convergence_warnings: result.ebe_convergence_warnings,
+        max_unconverged_subjects: result.max_unconverged_subjects,
+        total_ebe_fallbacks: result.total_ebe_fallbacks,
     };
 
     if options.verbose {

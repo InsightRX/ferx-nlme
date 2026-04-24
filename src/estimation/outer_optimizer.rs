@@ -4,7 +4,7 @@ use crate::stats::likelihood::foce_population_nll;
 use crate::types::*;
 use nalgebra::{DMatrix, DVector};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 /// Result of outer optimization
 pub struct OuterResult {
@@ -16,6 +16,9 @@ pub struct OuterResult {
     pub h_matrices: Vec<DMatrix<f64>>,
     pub covariance_matrix: Option<DMatrix<f64>>,
     pub warnings: Vec<String>,
+    pub ebe_convergence_warnings: u32,
+    pub max_unconverged_subjects: u32,
+    pub total_ebe_fallbacks: u32,
 }
 
 /// Run the outer optimization loop (population parameter estimation).
@@ -114,6 +117,16 @@ fn optimize_nlopt(
     let n_evals_outer = Arc::new(AtomicUsize::new(0));
     let n_evals_cl = Arc::clone(&n_evals_outer);
 
+    // EBE stats accumulator: tracks worst unconverged count and total fallbacks.
+    #[derive(Default)]
+    struct EbeAccum {
+        max_unconverged: usize,
+        total_fallback: usize,
+        n_convergence_warnings: usize,
+    }
+    let ebe_accum: Arc<Mutex<EbeAccum>> = Arc::new(Mutex::new(EbeAccum::default()));
+    let ebe_accum_cl = Arc::clone(&ebe_accum);
+
     // Select NLopt algorithm
     let algo = match options.optimizer {
         Optimizer::Slsqp => nlopt::Algorithm::Slsqp,
@@ -144,7 +157,7 @@ fn optimize_nlopt(
         let mu_k = compute_mu_k(model, &params.theta, options.mu_referencing);
 
         // Run inner loop (warm-started)
-        let (ehs, hms, _) = run_inner_loop_warm(
+        let (ehs, hms, ebe_stats) = run_inner_loop_warm(
             model,
             population,
             &params,
@@ -152,6 +165,7 @@ fn optimize_nlopt(
             options.inner_tol,
             Some(&state.cached_etas),
             Some(&mu_k),
+            options.min_obs_for_convergence_check as usize,
         );
 
         // Compute OFV with fixed EBEs
@@ -166,7 +180,30 @@ fn optimize_nlopt(
             options.interaction,
         );
         let raw_ofv = 2.0 * nll;
-        let ofv = if raw_ofv.is_finite() { raw_ofv } else { 1e20 };
+
+        // EBE convergence guard: reject step when too many subjects unconverged.
+        let unconverged_frac = ebe_stats.n_unconverged as f64 / (n_subj as f64).max(1.0);
+        let ebe_guard_triggered = raw_ofv.is_finite()
+            && unconverged_frac > options.max_unconverged_frac
+            && options.max_unconverged_frac >= 0.0;
+        {
+            let mut acc = ebe_accum_cl.lock().unwrap();
+            if acc.max_unconverged < ebe_stats.n_unconverged {
+                acc.max_unconverged = ebe_stats.n_unconverged;
+            }
+            acc.total_fallback += ebe_stats.n_fallback;
+            if ebe_guard_triggered {
+                acc.n_convergence_warnings += 1;
+            }
+        }
+
+        let ofv = if ebe_guard_triggered {
+            1e20
+        } else if raw_ofv.is_finite() {
+            raw_ofv
+        } else {
+            1e20
+        };
 
         // Compute gradient if requested (central FD with fixed EBEs)
         let mut grad_norm_for_trace: Option<f64> = None;
@@ -242,6 +279,8 @@ fn optimize_nlopt(
                 grad_norm_for_trace,
                 step_norm,
                 optimizer_str,
+                Some(ebe_stats.n_unconverged),
+                Some(ebe_stats.n_fallback),
             );
         }
         state.prev_x = xs.to_vec();
@@ -314,6 +353,7 @@ fn optimize_nlopt(
         };
 
         let n_evals_cl2 = Arc::clone(&n_evals_outer);
+        let ebe_accum_cl2 = Arc::clone(&ebe_accum);
         // SLSQP fallback also operates in scaled xs space (same scale as primary opt).
         let objective2 = |xs: &[f64], grad: Option<&mut [f64]>, state: &mut NloptState| -> f64 {
             if crate::cancel::is_cancelled(&options.cancel) {
@@ -327,7 +367,7 @@ fn optimize_nlopt(
             let x: Vec<f64> = (0..n).map(|i| xs[i] * scale[i]).collect();
             let params = unpack_params(&x, init_params);
             let mu_k = compute_mu_k(model, &params.theta, options.mu_referencing);
-            let (ehs, hms, _) = run_inner_loop_warm(
+            let (ehs, hms, ebe_stats2) = run_inner_loop_warm(
                 model,
                 population,
                 &params,
@@ -335,6 +375,7 @@ fn optimize_nlopt(
                 options.inner_tol,
                 Some(&state.cached_etas),
                 Some(&mu_k),
+                options.min_obs_for_convergence_check as usize,
             );
             let nll = foce_population_nll(
                 model,
@@ -347,7 +388,28 @@ fn optimize_nlopt(
                 options.interaction,
             );
             let raw_ofv = 2.0 * nll;
-            let ofv = if raw_ofv.is_finite() { raw_ofv } else { 1e20 };
+
+            let unconverged_frac2 = ebe_stats2.n_unconverged as f64 / (n_subj as f64).max(1.0);
+            let ebe_guard2 = raw_ofv.is_finite()
+                && unconverged_frac2 > options.max_unconverged_frac
+                && options.max_unconverged_frac >= 0.0;
+            {
+                let mut acc = ebe_accum_cl2.lock().unwrap();
+                if acc.max_unconverged < ebe_stats2.n_unconverged {
+                    acc.max_unconverged = ebe_stats2.n_unconverged;
+                }
+                acc.total_fallback += ebe_stats2.n_fallback;
+                if ebe_guard2 {
+                    acc.n_convergence_warnings += 1;
+                }
+            }
+            let ofv = if ebe_guard2 {
+                1e20
+            } else if raw_ofv.is_finite() {
+                raw_ofv
+            } else {
+                1e20
+            };
 
             let mut grad_norm_for_trace: Option<f64> = None;
             if let Some(g) = grad {
@@ -412,6 +474,8 @@ fn optimize_nlopt(
                     grad_norm_for_trace,
                     step_norm,
                     "slsqp",
+                    Some(ebe_stats2.n_unconverged),
+                    Some(ebe_stats2.n_fallback),
                 );
             }
             state.prev_x = xs.to_vec();
@@ -474,6 +538,7 @@ fn optimize_nlopt(
         options.inner_tol,
         None,
         Some(&final_mu_k),
+        options.min_obs_for_convergence_check as usize,
     );
 
     let final_nll = foce_population_nll(
@@ -519,6 +584,7 @@ fn optimize_nlopt(
         warnings.push("Covariance step failed".to_string());
     }
 
+    let ebe_final = ebe_accum.lock().unwrap();
     OuterResult {
         params: final_params,
         ofv: final_ofv,
@@ -533,6 +599,9 @@ fn optimize_nlopt(
         h_matrices: final_hms,
         covariance_matrix,
         warnings,
+        ebe_convergence_warnings: ebe_final.n_convergence_warnings as u32,
+        max_unconverged_subjects: ebe_final.max_unconverged as u32,
+        total_ebe_fallbacks: ebe_final.total_fallback as u32,
     }
 }
 
@@ -582,6 +651,7 @@ fn optimize_bfgs(
             options.inner_tol,
             Some(prev_etas),
             Some(&mu_k),
+            options.min_obs_for_convergence_check as usize,
         );
         let ofv = 2.0
             * foce_population_nll(
@@ -614,6 +684,7 @@ fn optimize_bfgs(
             options.inner_tol,
             Some(prev_etas),
             Some(&mu_k),
+            options.min_obs_for_convergence_check as usize,
         );
         let ofv = ofv_at_fixed(x, &ehs, &hms);
         let g = gradient_cd(x, &bounds, &ehs, &hms, &ofv_at_fixed);
@@ -746,6 +817,8 @@ fn optimize_bfgs(
                 Some(g_norm),
                 Some(step_norm),
                 optimizer_str,
+                None,
+                None,
             );
         }
 
@@ -775,6 +848,7 @@ fn optimize_bfgs(
         options.inner_tol,
         Some(&cached_etas),
         Some(&bfgs_final_mu_k),
+        options.min_obs_for_convergence_check as usize,
     );
     let final_ofv = ofv_at_fixed(&x_final, &final_ehs, &final_hms);
 
@@ -815,6 +889,9 @@ fn optimize_bfgs(
         h_matrices: final_hms,
         covariance_matrix,
         warnings,
+        ebe_convergence_warnings: 0,
+        max_unconverged_subjects: 0,
+        total_ebe_fallbacks: 0,
     }
 }
 

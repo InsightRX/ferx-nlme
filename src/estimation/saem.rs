@@ -593,6 +593,7 @@ pub fn run_saem(
         options.inner_tol,
         Some(&warm_etas),
         Some(&saem_final_mu_k),
+        0, // SAEM: no EBE convergence tracking
     );
 
     // ---- Final OFV via FOCE approximation (for AIC/BIC comparability) ----
@@ -646,5 +647,8 @@ pub fn run_saem(
         h_matrices,
         covariance_matrix,
         warnings,
+        ebe_convergence_warnings: 0,
+        max_unconverged_subjects: 0,
+        total_ebe_fallbacks: 0,
     })
 }
