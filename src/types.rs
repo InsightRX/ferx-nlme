@@ -486,6 +486,17 @@ pub struct FitResult {
     pub sir_ci_omega: Option<Vec<(f64, f64)>>,
     pub sir_ci_sigma: Option<Vec<(f64, f64)>>,
     pub sir_ess: Option<f64>,
+    /// Path to the per-iteration optimizer trace CSV, present when
+    /// `FitOptions::optimizer_trace = true`.
+    pub trace_path: Option<String>,
+    /// Number of outer iterations in which at least one subject had an
+    /// unconverged EBE.  Always `0` for SAEM (which uses MH sampling).
+    pub ebe_convergence_warnings: u32,
+    /// Worst-case number of unconverged subjects in a single outer iteration.
+    pub max_unconverged_subjects: u32,
+    /// Total number of times the Nelder-Mead fallback was invoked across all
+    /// subjects and all outer iterations.  Always `0` for SAEM.
+    pub total_ebe_fallbacks: u32,
 }
 
 /// Options for fit()
@@ -557,6 +568,24 @@ pub struct FitOptions {
     /// model has an analytical PK path (`tv_fn` populated); otherwise falls
     /// back to FD. See [`GradientMethod`] for the full contract.
     pub gradient_method: GradientMethod,
+    /// When `true`, write a per-iteration optimizer trace CSV to a temp file
+    /// and store its path in `FitResult::trace_path`. Default: `false`.
+    pub optimizer_trace: bool,
+    /// Apply an additional scaling layer on top of the existing log/Cholesky
+    /// parameterization so that all transformed parameters are O(1) when
+    /// passed to the outer optimizer.  Scaling is mathematically transparent
+    /// (identical OFV and estimates by design); it only changes the internal
+    /// coordinate system seen by NLopt / BFGS / GN.  Default: `true`.
+    pub scale_params: bool,
+    /// Fraction of subjects allowed to have unconverged EBEs before the outer
+    /// optimizer rejects the current parameter step (returns OFV = ∞).  Set to
+    /// `1.0` to disable the guard (old behaviour).  Default: `0.1`.
+    pub max_unconverged_frac: f64,
+    /// Minimum number of observations a subject must have for its EBE to count
+    /// toward `max_unconverged_frac`.  Subjects below this threshold are
+    /// excluded from the convergence fraction but still run normally.
+    /// Default: `2`.
+    pub min_obs_for_convergence_check: u32,
 }
 
 impl Default for FitOptions {
@@ -592,6 +621,10 @@ impl Default for FitOptions {
             cancel: None,
             user_set_keys: Vec::new(),
             gradient_method: GradientMethod::default(),
+            optimizer_trace: false,
+            scale_params: true,
+            max_unconverged_frac: 0.1,
+            min_obs_for_convergence_check: 2,
         }
     }
 }
@@ -748,6 +781,10 @@ pub fn framework_keys() -> &'static [&'static str] {
         "threads",
         "gradient",
         "gradient_method",
+        "optimizer_trace",
+        "scale_params",
+        "max_unconverged_frac",
+        "min_obs_for_convergence_check",
     ]
 }
 

@@ -43,6 +43,15 @@ pub fn run_foce_gn(
     let n_packed = x.len();
     let fixed_mask = packed_fixed_mask(init_params);
 
+    // Scaling: computed once from initial x; x itself stays in real packed space
+    // throughout the GN loop. Scaling only affects the linear system solve so
+    // the Hessian is better conditioned when log-space values differ in magnitude.
+    let gn_scale: Vec<f64> = if options.scale_params {
+        compute_scale(&x)
+    } else {
+        vec![1.0; n_packed]
+    };
+
     let mut warnings = Vec::new();
 
     // BHHH Information-matrix approximation degrades as the censoring fraction
@@ -75,6 +84,7 @@ pub fn run_foce_gn(
         options.inner_tol,
         None,
         Some(&init_mu_k),
+        options.min_obs_for_convergence_check as usize,
     );
 
     let mut ofv = 2.0
@@ -133,17 +143,32 @@ pub fn run_foce_gn(
             }
         }
 
-        // ---- Levenberg-Marquardt damping ----
-        let mut h_lm = h_bhhh.clone();
+        // ---- Scale the linear system (better Hessian conditioning) ----
+        // g_s[i] = g[i] * scale[i],  H_s[i,j] = H[i,j] * scale[i] * scale[j]
+        // Solve H_s_lm * delta_s = -g_s, then delta[i] = delta_s[i] * scale[i].
+        // With identity scale (scale_params=false) this is a no-op.
+        let grad_s: DVector<f64> = DVector::from_iterator(
+            n_packed,
+            (0..n_packed).map(|i| grad[i] * gn_scale[i]),
+        );
+        let mut h_s = DMatrix::zeros(n_packed, n_packed);
         for i in 0..n_packed {
-            h_lm[(i, i)] += lambda * h_bhhh[(i, i)].max(1e-8);
+            for j in 0..n_packed {
+                h_s[(i, j)] = h_bhhh[(i, j)] * gn_scale[i] * gn_scale[j];
+            }
         }
 
-        // ---- Solve for step: H_lm * delta = -grad ----
-        let neg_grad = -&grad;
-        let chol = h_lm.clone().cholesky();
-        let delta = match chol {
-            Some(c) => c.solve(&neg_grad),
+        // ---- Levenberg-Marquardt damping (in scaled space) ----
+        let mut h_s_lm = h_s.clone();
+        for i in 0..n_packed {
+            h_s_lm[(i, i)] += lambda * h_s[(i, i)].max(1e-8);
+        }
+
+        // ---- Solve for step: H_s_lm * delta_s = -grad_s ----
+        let neg_grad_s = -&grad_s;
+        let chol = h_s_lm.clone().cholesky();
+        let delta_s = match chol {
+            Some(c) => c.solve(&neg_grad_s),
             None => {
                 // Fall back to regularized pseudo-inverse
                 if verbose {
@@ -153,6 +178,11 @@ pub fn run_foce_gn(
                 continue;
             }
         };
+        // Convert step back to real (unscaled) space
+        let delta = DVector::from_iterator(
+            n_packed,
+            (0..n_packed).map(|i| delta_s[i] * gn_scale[i]),
+        );
 
         // ---- Line search with backtracking ----
         let mut alpha = 1.0;
@@ -179,6 +209,7 @@ pub fn run_foce_gn(
                 options.inner_tol,
                 Some(&eta_new),
                 Some(&ls_mu_k),
+                options.min_obs_for_convergence_check as usize,
             );
 
             let nll = foce_population_nll(
@@ -206,6 +237,15 @@ pub fn run_foce_gn(
         if ofv_new >= ofv {
             // Step failed — increase damping and retry
             lambda *= 10.0;
+
+            // Trace: rejected step
+            if crate::estimation::trace::is_active() {
+                let (gn_method, gn_phase) = gn_trace_method_phase(options.method);
+                crate::estimation::trace::write_gn(
+                    iter, gn_method, gn_phase, ofv, lambda, 0.0, false, None, None,
+                );
+            }
+
             if lambda > 1e6 {
                 if verbose {
                     eprintln!("  GN iter {:>3}: lambda too large, stopping", iter);
@@ -227,12 +267,29 @@ pub fn run_foce_gn(
         let rel_change = ofv_change / ofv.abs().max(1.0);
 
         x = x_new;
+        let prev_ofv = ofv;
         ofv = ofv_new;
         eta_hats = eta_new;
         h_matrices = h_new;
 
         // Decrease damping on success
         lambda = (lambda * 0.3).max(1e-6);
+
+        // Trace: accepted step
+        if crate::estimation::trace::is_active() {
+            let (gn_method, gn_phase) = gn_trace_method_phase(options.method);
+            crate::estimation::trace::write_gn(
+                iter,
+                gn_method,
+                gn_phase,
+                ofv,
+                lambda,
+                ofv - prev_ofv,
+                true,
+                None,
+                None,
+            );
+        }
 
         if verbose {
             eprintln!(
@@ -302,6 +359,9 @@ pub fn run_foce_gn(
             h_matrices,
             covariance_matrix,
             warnings,
+            ebe_convergence_warnings: 0,
+            max_unconverged_subjects: 0,
+            total_ebe_fallbacks: 0,
         };
     }
 
@@ -312,6 +372,9 @@ pub fn run_foce_gn(
     polish_options.global_search = false;
     polish_options.run_covariance_step = false; // defer to after polish
 
+    // Tell the trace that the following NLopt rows belong to the focei polish
+    // phase of gn_hybrid, not a standalone foce/focei run.
+    crate::estimation::trace::set_overrides(Some("gn_hybrid"), Some("focei"));
     let polish_result = crate::estimation::outer_optimizer::optimize_population_warm(
         model,
         population,
@@ -320,6 +383,7 @@ pub fn run_foce_gn(
         &eta_hats,
         &h_matrices,
     );
+    crate::estimation::trace::set_overrides(None, None);
 
     let final_ofv;
     let final_params;
@@ -384,6 +448,19 @@ pub fn run_foce_gn(
         h_matrices: final_h_mats,
         covariance_matrix,
         warnings,
+        ebe_convergence_warnings: 0,
+        max_unconverged_subjects: 0,
+        total_ebe_fallbacks: 0,
+    }
+}
+
+/// Returns the (method, phase) strings for GN trace rows.
+/// gn_hybrid rows use method="gn_hybrid" and phase="gn" during the GN loop.
+/// Pure gn rows use method="gn" and phase="".
+fn gn_trace_method_phase(method: EstimationMethod) -> (&'static str, &'static str) {
+    match method {
+        EstimationMethod::FoceGnHybrid => ("gn_hybrid", "gn"),
+        _ => ("gn", ""),
     }
 }
 

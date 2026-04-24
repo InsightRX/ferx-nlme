@@ -123,6 +123,7 @@ fn theta_sigma_mstep_light(
     n_theta: usize,
     n_sigma: usize,
     maxiter: u32,
+    scale_params: bool,
 ) -> (Vec<f64>, Vec<f64>) {
     let n = n_theta + n_sigma;
 
@@ -141,6 +142,7 @@ fn theta_sigma_mstep_light(
         x[i] = x[i].clamp(lower[i], upper[i]);
     }
 
+    // Objective operating on unscaled log-space parameters.
     let obj = |xv: &[f64], grad: Option<&mut [f64]>, _: &mut ()| -> f64 {
         let th: Vec<f64> = xv[..n_theta].iter().map(|&v| v.exp()).collect();
         let sg: Vec<f64> = xv[n_theta..].iter().map(|&v| v.exp()).collect();
@@ -173,18 +175,49 @@ fn theta_sigma_mstep_light(
         }
     };
 
-    let mut opt = nlopt::Nlopt::new(nlopt::Algorithm::Slsqp, n, obj, nlopt::Target::Minimize, ());
-    opt.set_lower_bounds(&lower).unwrap();
-    opt.set_upper_bounds(&upper).unwrap();
+    // Compute per-element scale factors from the initial point.
+    let scale: Vec<f64> = if scale_params {
+        compute_scale(&x)
+    } else {
+        vec![1.0; n]
+    };
+
+    // Scaled starting point and bounds: xs[i] = x[i] / scale[i].
+    let mut xs: Vec<f64> = (0..n).map(|i| x[i] / scale[i]).collect();
+    let lower_s: Vec<f64> = (0..n).map(|i| lower[i] / scale[i]).collect();
+    let upper_s: Vec<f64> = (0..n).map(|i| upper[i] / scale[i]).collect();
+
+    // Wrapper objective: receives scaled xs, unscales before evaluating obj,
+    // then scales the gradient back: d(OFV)/d(xs[i]) = d(OFV)/d(x[i]) * scale[i].
+    let obj_s = |xv_s: &[f64], grad: Option<&mut [f64]>, data: &mut ()| -> f64 {
+        let xv: Vec<f64> = (0..n).map(|i| xv_s[i] * scale[i]).collect();
+        if let Some(g) = grad {
+            let mut g_raw = vec![0.0_f64; n];
+            let val = obj(&xv, Some(&mut g_raw), data);
+            for i in 0..n {
+                g[i] = g_raw[i] * scale[i];
+            }
+            val
+        } else {
+            obj(&xv, None, data)
+        }
+    };
+
+    let mut opt = nlopt::Nlopt::new(nlopt::Algorithm::Slsqp, n, obj_s, nlopt::Target::Minimize, ());
+    opt.set_lower_bounds(&lower_s).unwrap();
+    opt.set_upper_bounds(&upper_s).unwrap();
     opt.set_maxeval(maxiter * (n as u32 + 1)).unwrap();
     opt.set_ftol_rel(1e-4).unwrap();
 
-    match opt.optimize(&mut x) {
+    match opt.optimize(&mut xs) {
         Ok(_) | Err(_) => {}
     }
 
-    let log_theta_new = x[..n_theta].to_vec();
-    let log_sigma_new = x[n_theta..].to_vec();
+    // Unscale back to log-space.
+    let x_final: Vec<f64> = (0..n).map(|i| xs[i] * scale[i]).collect();
+
+    let log_theta_new = x_final[..n_theta].to_vec();
+    let log_sigma_new = x_final[n_theta..].to_vec();
     (log_theta_new, log_sigma_new)
 }
 
@@ -452,6 +485,7 @@ pub fn run_saem(
                 n_theta,
                 n_sigma,
                 mstep_maxiter,
+                options.scale_params,
             );
             log_theta = theta_new;
             log_sigma = sigma_new;
@@ -499,14 +533,23 @@ pub fn run_saem(
             state.steps_since_adapt = 0;
         }
 
-        // ---- Verbose output (lightweight: use cached NLL sum) ----
-        if verbose && (k == 1 || k % 50 == 0 || k == n_iter) {
+        // ---- Verbose output + optimizer trace ----
+        {
             let phase = if k <= k1 { "explore" } else { "converge" };
             let cond_nll: f64 = state.nll_cache.iter().sum();
-            eprintln!(
-                "  SAEM iter {:>4}/{} [{}] gamma={:.3}  condNLL={:.3}",
-                k, n_iter, phase, gamma, cond_nll
-            );
+            // Rolling MH accept rate since the last adapt reset.
+            let steps_so_far = state.steps_since_adapt.max(1);
+            let mh_accept_rate: f64 = state.accept_counts.iter().sum::<usize>() as f64
+                / (n_subjects * n_mh_steps * steps_so_far) as f64;
+
+            if verbose && (k == 1 || k % 50 == 0 || k == n_iter) {
+                eprintln!(
+                    "  SAEM iter {:>4}/{} [{}] gamma={:.3}  condNLL={:.3}",
+                    k, n_iter, phase, gamma, cond_nll
+                );
+            }
+
+            crate::estimation::trace::write_saem(k, phase, cond_nll, gamma, mh_accept_rate);
         }
     }
 
@@ -550,6 +593,7 @@ pub fn run_saem(
         options.inner_tol,
         Some(&warm_etas),
         Some(&saem_final_mu_k),
+        0, // SAEM: no EBE convergence tracking
     );
 
     // ---- Final OFV via FOCE approximation (for AIC/BIC comparability) ----
@@ -603,5 +647,8 @@ pub fn run_saem(
         h_matrices,
         covariance_matrix,
         warnings,
+        ebe_convergence_warnings: 0,
+        max_unconverged_subjects: 0,
+        total_ebe_fallbacks: 0,
     })
 }
