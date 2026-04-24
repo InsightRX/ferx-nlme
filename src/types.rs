@@ -486,6 +486,9 @@ pub struct FitResult {
     pub sir_ci_omega: Option<Vec<(f64, f64)>>,
     pub sir_ci_sigma: Option<Vec<(f64, f64)>>,
     pub sir_ess: Option<f64>,
+    /// Path to the per-iteration optimizer trace CSV, present when
+    /// `FitOptions::optimizer_trace = true`.
+    pub trace_path: Option<String>,
 }
 
 /// Options for fit()
@@ -557,6 +560,9 @@ pub struct FitOptions {
     /// model has an analytical PK path (`tv_fn` populated); otherwise falls
     /// back to FD. See [`GradientMethod`] for the full contract.
     pub gradient_method: GradientMethod,
+    /// When `true`, write a per-iteration optimizer trace CSV to a temp file
+    /// and store its path in `FitResult::trace_path`. Default: `false`.
+    pub optimizer_trace: bool,
 }
 
 impl Default for FitOptions {
@@ -592,6 +598,7 @@ impl Default for FitOptions {
             cancel: None,
             user_set_keys: Vec::new(),
             gradient_method: GradientMethod::default(),
+            optimizer_trace: false,
         }
     }
 }
@@ -748,6 +755,7 @@ pub fn framework_keys() -> &'static [&'static str] {
         "threads",
         "gradient",
         "gradient_method",
+        "optimizer_trace",
     ]
 }
 
