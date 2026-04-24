@@ -186,6 +186,7 @@ pub fn fit_from_files(
     let population = read_nonmem_csv(Path::new(data_path), covariate_columns)?;
     let opts = options.unwrap_or_default();
     model.bloq_method = opts.bloq_method;
+    model.gradient_method = opts.gradient_method;
     fit(&model, &population, &model.default_params, &opts)
 }
 
@@ -225,6 +226,15 @@ fn fit_inner(
     // starts (a long-running fit shouldn't bury a "this option is unused"
     // notice at the end) and carry them through into FitResult.warnings.
     let unsupported_warnings = options.unsupported_keys_warnings();
+
+    // Reset gradient timing counters for this fit so FERX_TIME_GRADIENTS
+    // readouts are per-call rather than cumulative across a long R session.
+    let time_gradients = std::env::var("FERX_TIME_GRADIENTS")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    if time_gradients {
+        crate::estimation::inner_optimizer::GRADIENT_TIMINGS.reset();
+    }
     if options.verbose {
         let chain_str: Vec<&str> = chain.iter().map(|m| m.label()).collect();
         // rayon::current_num_threads() reports whichever pool par_iter would use
@@ -453,6 +463,44 @@ fn fit_inner(
 
     if options.verbose {
         output::print_results(&fit_result);
+    }
+
+    if time_gradients {
+        let (ad_c, ad_n, fd_c, fd_n, jac_ad_c, jac_ad_n, jac_fd_c, jac_fd_n) =
+            crate::estimation::inner_optimizer::GRADIENT_TIMINGS.snapshot();
+        let ms = |n: u64| (n as f64) / 1_000_000.0;
+        let avg_us = |n: u64, c: u64| {
+            if c == 0 {
+                0.0
+            } else {
+                (n as f64) / (c as f64) / 1_000.0
+            }
+        };
+        eprintln!("--- Gradient timings (FERX_TIME_GRADIENTS=1) ---");
+        eprintln!(
+            "  BFGS (AD):  {:>8} calls, {:>10.2} ms total, {:>8.2} µs/call",
+            ad_c,
+            ms(ad_n),
+            avg_us(ad_n, ad_c)
+        );
+        eprintln!(
+            "  BFGS (FD):  {:>8} calls, {:>10.2} ms total, {:>8.2} µs/call",
+            fd_c,
+            ms(fd_n),
+            avg_us(fd_n, fd_c)
+        );
+        eprintln!(
+            "  Jac  (AD):  {:>8} calls, {:>10.2} ms total, {:>8.2} µs/call",
+            jac_ad_c,
+            ms(jac_ad_n),
+            avg_us(jac_ad_n, jac_ad_c)
+        );
+        eprintln!(
+            "  Jac  (FD):  {:>8} calls, {:>10.2} ms total, {:>8.2} µs/call",
+            jac_fd_c,
+            ms(jac_fd_n),
+            avg_us(jac_fd_n, jac_fd_c)
+        );
     }
 
     Ok(fit_result)

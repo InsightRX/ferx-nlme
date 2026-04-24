@@ -33,6 +33,36 @@ fn find_exp_eta_in_mul(expr: &Expression) -> Option<usize> {
     }
 }
 
+/// Collect all eta indices referenced by an expression (e.g. `Eta(2)` appears
+/// inside `TVQ * exp(ETA_V2)` → `[2]`). Used to build the AD path's per-tv
+/// eta-index map so parameters without etas (e.g. `Q = TVQ`) are handled
+/// correctly — otherwise the AD loop would misalign `eta[i]` with `pk[i]`
+/// and either apply the wrong eta or leave a pk slot at 0.
+fn extract_eta_indices(expr: &Expression) -> Vec<usize> {
+    let mut out = Vec::new();
+    fn walk(e: &Expression, out: &mut Vec<usize>) {
+        match e {
+            Expression::Eta(i) => {
+                if !out.contains(i) {
+                    out.push(*i);
+                }
+            }
+            Expression::BinOp(l, _, r) => {
+                walk(l, out);
+                walk(r, out);
+            }
+            Expression::UnaryFn(_, a) => walk(a, out),
+            Expression::Power(b, e) => {
+                walk(b, out);
+                walk(e, out);
+            }
+            _ => {}
+        }
+    }
+    walk(expr, &mut out);
+    out
+}
+
 /// Detect mu-referencing patterns in one assignment expression.
 /// Returns `Some((eta_idx, theta_idx, log_transformed))` or `None`.
 fn detect_pattern(expr: &Expression) -> Option<(usize, usize, bool)> {
@@ -291,6 +321,45 @@ pub fn parse_full_model(content: &str) -> Result<ParsedModel, String> {
         (0..n_eta).collect()
     };
 
+    // Per-tv eta index: for each [individual_parameters] line, find which eta
+    // its expression references (or -1 for none). Used by the AD path so
+    // `pk[pk_indices[i]] = tv[i] * exp(eta[eta_map[i]])` stays correct even
+    // when some params are eta-free (e.g. `Q = TVQ`). If a line references
+    // multiple etas (unusual), pick the first.
+    let eta_map: Vec<i32> = indiv_lines
+        .iter()
+        .map(|line| {
+            let parts: Vec<&str> = line.splitn(2, '=').collect();
+            if parts.len() != 2 {
+                return -1i32;
+            }
+            let ctx = ParseCtx::new(&theta_names, &eta_names, &[]);
+            match parse_expression(parts[1].trim(), ctx) {
+                Ok(expr) => extract_eta_indices(&expr)
+                    .first()
+                    .copied()
+                    .map(|i| i as i32)
+                    .unwrap_or(-1),
+                Err(_) => -1,
+            }
+        })
+        .collect();
+
+    let pk_idx_f64: Vec<f64> = pk_indices.iter().map(|&i| i as f64).collect();
+    // sel_flat is n_tv × n_eta (n_tv = eta_map.len() = number of
+    // individual_parameters lines). pk_indices.len() can differ from
+    // eta_map.len() for ODE models (where pk_indices is synthesized as
+    // `(0..n_eta).collect()`), so size from eta_map to avoid an OOB panic
+    // when the two disagree. The AD path is only taken when tv_fn is
+    // populated (analytical models), where the two lengths match.
+    let n_tv = eta_map.len();
+    let mut sel_flat = vec![0.0f64; n_tv * n_eta];
+    for (i, &em) in eta_map.iter().enumerate() {
+        if em >= 0 && (em as usize) < n_eta {
+            sel_flat[i * n_eta + em as usize] = 1.0;
+        }
+    }
+
     let model = CompiledModel {
         name,
         pk_model,
@@ -304,10 +373,14 @@ pub fn parse_full_model(content: &str) -> Result<ParsedModel, String> {
         default_params,
         tv_fn,
         pk_indices,
+        eta_map,
+        pk_idx_f64,
+        sel_flat,
         ode_spec,
         bloq_method: BloqMethod::Drop,
         mu_refs,
         referenced_covariates,
+        gradient_method: GradientMethod::default(),
     };
 
     // ── Optional blocks ──
@@ -553,6 +626,18 @@ pub fn apply_fit_option(opts: &mut FitOptions, key: &str, value: &str) -> Result
                 other => {
                     return Err(format!(
                         "fit option `bloq_method`: unknown value `{other}` — expected 'm3' or 'drop'"
+                    ));
+                }
+            };
+        }
+        "gradient" | "gradient_method" => {
+            opts.gradient_method = match value.to_lowercase().as_str() {
+                "auto" => GradientMethod::Auto,
+                "ad" | "autodiff" => GradientMethod::Ad,
+                "fd" | "finite" | "finite_difference" | "finite-difference" => GradientMethod::Fd,
+                other => {
+                    return Err(format!(
+                        "fit option `gradient`: unknown value `{other}` — expected 'auto', 'ad', or 'fd'"
                     ));
                 }
             };
@@ -1796,11 +1881,9 @@ mod tests {
 
     #[test]
     fn test_unsupported_focei_key_under_saem_warns() {
-        let opts = parse_fit_options(&[
-            "method = saem".to_string(),
-            "optimizer = lbfgs".to_string(),
-        ])
-        .unwrap();
+        let opts =
+            parse_fit_options(&["method = saem".to_string(), "optimizer = lbfgs".to_string()])
+                .unwrap();
         let warnings = opts.unsupported_keys_warnings();
         assert_eq!(warnings.len(), 1, "got: {:?}", warnings);
         let w = &warnings[0];
@@ -1881,11 +1964,9 @@ mod tests {
 
     #[test]
     fn test_gn_lambda_under_focei_warns() {
-        let opts = parse_fit_options(&[
-            "method = focei".to_string(),
-            "gn_lambda = 0.05".to_string(),
-        ])
-        .unwrap();
+        let opts =
+            parse_fit_options(&["method = focei".to_string(), "gn_lambda = 0.05".to_string()])
+                .unwrap();
         let warnings = opts.unsupported_keys_warnings();
         assert_eq!(warnings.len(), 1, "got: {:?}", warnings);
         assert!(warnings[0].contains("gn_lambda"));
@@ -1936,6 +2017,26 @@ mod tests {
         // `bloq_method` was already strict in the old inline parser; the
         // new strict dispatch must preserve that (not silently default).
         assert!(parse_fit_options(&["bloq_method = nope".to_string()]).is_err());
+    }
+
+    #[test]
+    fn test_parse_fit_options_gradient_method() {
+        // Accepted aliases resolve to the expected GradientMethod variant.
+        for (input, expected) in [
+            ("gradient = auto", GradientMethod::Auto),
+            ("gradient = ad", GradientMethod::Ad),
+            ("gradient = autodiff", GradientMethod::Ad),
+            ("gradient = fd", GradientMethod::Fd),
+            ("gradient = finite", GradientMethod::Fd),
+            ("gradient_method = ad", GradientMethod::Ad),
+        ] {
+            let opts = parse_fit_options(&[input.to_string()]).unwrap();
+            assert_eq!(opts.gradient_method, expected, "input: {input}");
+        }
+
+        // Unknown values must fail loudly — silently defaulting would hide
+        // typos like `gradient = auo` that a user probably intended as `auto`.
+        assert!(parse_fit_options(&["gradient = nope".to_string()]).is_err());
     }
 
     #[test]
@@ -2534,11 +2635,11 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_optimizer_defaults_to_slsqp() {
+    fn test_parse_optimizer_defaults_to_bobyqa() {
         // No [fit_options] block → default optimizer.
         let content = minimal_model_with_fit_options("  maxiter = 100");
         let parsed = parse_full_model(&content).unwrap();
-        assert_eq!(parsed.fit_options.optimizer, Optimizer::Slsqp);
+        assert_eq!(parsed.fit_options.optimizer, Optimizer::Bobyqa);
     }
 
     #[test]
@@ -2569,10 +2670,10 @@ mod tests {
     #[test]
     fn test_fit_options_defaults() {
         // Guard against accidental drift in defaults — documented as:
-        //   optimizer = slsqp, inner_maxiter = 200, inner_tol = 1e-8,
+        //   optimizer = bobyqa, inner_maxiter = 200, inner_tol = 1e-8,
         //   steihaug_max_iters = 50.
         let opts = FitOptions::default();
-        assert_eq!(opts.optimizer, Optimizer::Slsqp);
+        assert_eq!(opts.optimizer, Optimizer::Bobyqa);
         assert_eq!(opts.inner_maxiter, 200);
         assert!((opts.inner_tol - 1e-8).abs() < 1e-20);
         assert_eq!(opts.steihaug_max_iters, 50);

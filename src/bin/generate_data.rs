@@ -180,10 +180,27 @@ fn build_warfarin_model() -> CompiledModel {
         default_params,
         tv_fn: None,
         pk_indices: vec![PK_IDX_CL, PK_IDX_V, PK_IDX_KA],
+
+        eta_map: (0..3).map(|i| i as i32).collect(),
+
+        pk_idx_f64: [PK_IDX_CL, PK_IDX_V, PK_IDX_KA]
+            .iter()
+            .map(|&i| i as f64)
+            .collect(),
+
+        sel_flat: {
+            // n_tv = 3, n_eta = 3, each tv uses its positional eta.
+            let mut v = vec![0.0f64; 3 * 3];
+            for i in 0..3 {
+                v[i * 3 + i] = 1.0;
+            }
+            v
+        },
         ode_spec: None,
         bloq_method: BloqMethod::Drop,
         mu_refs: HashMap::new(),
         referenced_covariates: Vec::new(),
+        gradient_method: GradientMethod::default(),
     }
 }
 
@@ -256,10 +273,26 @@ fn generate_two_cpt_iv() {
         default_params: params.clone(),
         tv_fn: None,
         pk_indices: vec![PK_IDX_CL, PK_IDX_V, PK_IDX_Q, PK_IDX_V2],
+
+        eta_map: (0..4).map(|i| i as i32).collect(),
+
+        pk_idx_f64: [PK_IDX_CL, PK_IDX_V, PK_IDX_Q, PK_IDX_V2]
+            .iter()
+            .map(|&i| i as f64)
+            .collect(),
+
+        sel_flat: {
+            let mut v = vec![0.0f64; 4 * 4];
+            for i in 0..4 {
+                v[i * 4 + i] = 1.0;
+            }
+            v
+        },
         ode_spec: None,
         bloq_method: BloqMethod::Drop,
         mu_refs: HashMap::new(),
         referenced_covariates: Vec::new(),
+        gradient_method: GradientMethod::default(),
     };
     let obs_times = vec![0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 12.0, 24.0, 48.0, 72.0];
     let subjects = simulate_subjects(&model, &params, 15, 100.0, 1, &obs_times, 123, None);
@@ -333,10 +366,26 @@ fn generate_two_cpt_oral_cov() {
         default_params: params.clone(),
         tv_fn: None,
         pk_indices: vec![PK_IDX_CL, PK_IDX_V, PK_IDX_Q, PK_IDX_V2, PK_IDX_KA],
+
+        eta_map: (0..5).map(|i| i as i32).collect(),
+
+        pk_idx_f64: [PK_IDX_CL, PK_IDX_V, PK_IDX_Q, PK_IDX_V2, PK_IDX_KA]
+            .iter()
+            .map(|&i| i as f64)
+            .collect(),
+
+        sel_flat: {
+            let mut v = vec![0.0f64; 5 * 5];
+            for i in 0..5 {
+                v[i * 5 + i] = 1.0;
+            }
+            v
+        },
         ode_spec: None,
         bloq_method: BloqMethod::Drop,
         mu_refs: HashMap::new(),
         referenced_covariates: Vec::new(),
+        gradient_method: GradientMethod::default(),
     };
 
     // Generate random covariates (matching Julia seed 456)
@@ -453,10 +502,23 @@ fn generate_mm_oral() {
         default_params: params.clone(),
         tv_fn: None,
         pk_indices: vec![0, 2],
+
+        eta_map: (0..2).map(|i| i as i32).collect(),
+
+        pk_idx_f64: vec![0.0, 2.0],
+
+        sel_flat: {
+            let mut v = vec![0.0f64; 2 * 2];
+            for i in 0..2 {
+                v[i * 2 + i] = 1.0;
+            }
+            v
+        },
         ode_spec: Some(ode_spec),
         bloq_method: BloqMethod::Drop,
         mu_refs: HashMap::new(),
         referenced_covariates: Vec::new(),
+        gradient_method: GradientMethod::default(),
     };
     let obs_times = vec![
         0.25, 0.5, 1.0, 2.0, 3.0, 4.0, 6.0, 8.0, 12.0, 24.0, 36.0, 48.0,

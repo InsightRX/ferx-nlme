@@ -2,9 +2,115 @@ use crate::pk;
 use crate::stats::likelihood::individual_nll;
 use crate::types::*;
 use nalgebra::{DMatrix, DVector};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 #[cfg(feature = "autodiff")]
 use crate::ad::ad_gradients::{self, FlatDoseData};
+
+/// Resolve [`GradientMethod::Auto`] to a concrete AD/FD choice for this model.
+/// Returns `true` for AD, `false` for FD.
+///
+/// Policy (`Auto` case): prefer AD whenever it is available. Empirically
+/// (`FERX_TIME_GRADIENTS=1` on 1-cpt oral, 2-cpt infusion, 3-cpt infusion)
+/// reverse-mode AD is 1.5-5x faster per BFGS gradient call than central FD
+/// across the tested range of models — the tape/backward overhead is
+/// dominated by the savings from one gradient call vs `2·n_eta` forward
+/// perturbations, even at small `n_eta`.
+///
+/// AD requires (a) the crate compiled with `feature = "autodiff"` and
+/// (b) the model to have `tv_fn` populated (analytical PK path only).
+/// ODE models have no AD path, so `Auto` resolves to FD there.
+fn resolve_gradient_method(model: &CompiledModel) -> bool {
+    #[cfg(not(feature = "autodiff"))]
+    {
+        let _ = model;
+        return false;
+    }
+    #[cfg(feature = "autodiff")]
+    {
+        if model.tv_fn.is_none() {
+            return false;
+        }
+        match model.gradient_method {
+            GradientMethod::Ad => true,
+            GradientMethod::Fd => false,
+            GradientMethod::Auto => true,
+        }
+    }
+}
+
+/// Global per-fit timing counters for gradient/Jacobian calls. Printed by
+/// [`fit_inner`] when `FERX_TIME_GRADIENTS=1` in the environment. Atomics so
+/// multiple rayon workers can update concurrently without locking.
+pub(crate) struct GradientTimings {
+    pub ad_calls: AtomicU64,
+    pub ad_nanos: AtomicU64,
+    pub fd_calls: AtomicU64,
+    pub fd_nanos: AtomicU64,
+    pub jac_ad_calls: AtomicU64,
+    pub jac_ad_nanos: AtomicU64,
+    pub jac_fd_calls: AtomicU64,
+    pub jac_fd_nanos: AtomicU64,
+}
+
+impl GradientTimings {
+    const fn new() -> Self {
+        Self {
+            ad_calls: AtomicU64::new(0),
+            ad_nanos: AtomicU64::new(0),
+            fd_calls: AtomicU64::new(0),
+            fd_nanos: AtomicU64::new(0),
+            jac_ad_calls: AtomicU64::new(0),
+            jac_ad_nanos: AtomicU64::new(0),
+            jac_fd_calls: AtomicU64::new(0),
+            jac_fd_nanos: AtomicU64::new(0),
+        }
+    }
+    #[inline]
+    fn record_ad(&self, ns: u64) {
+        self.ad_calls.fetch_add(1, Ordering::Relaxed);
+        self.ad_nanos.fetch_add(ns, Ordering::Relaxed);
+    }
+    #[inline]
+    fn record_fd(&self, ns: u64) {
+        self.fd_calls.fetch_add(1, Ordering::Relaxed);
+        self.fd_nanos.fetch_add(ns, Ordering::Relaxed);
+    }
+    #[inline]
+    fn record_jac_ad(&self, ns: u64) {
+        self.jac_ad_calls.fetch_add(1, Ordering::Relaxed);
+        self.jac_ad_nanos.fetch_add(ns, Ordering::Relaxed);
+    }
+    #[inline]
+    fn record_jac_fd(&self, ns: u64) {
+        self.jac_fd_calls.fetch_add(1, Ordering::Relaxed);
+        self.jac_fd_nanos.fetch_add(ns, Ordering::Relaxed);
+    }
+    pub(crate) fn reset(&self) {
+        self.ad_calls.store(0, Ordering::Relaxed);
+        self.ad_nanos.store(0, Ordering::Relaxed);
+        self.fd_calls.store(0, Ordering::Relaxed);
+        self.fd_nanos.store(0, Ordering::Relaxed);
+        self.jac_ad_calls.store(0, Ordering::Relaxed);
+        self.jac_ad_nanos.store(0, Ordering::Relaxed);
+        self.jac_fd_calls.store(0, Ordering::Relaxed);
+        self.jac_fd_nanos.store(0, Ordering::Relaxed);
+    }
+    pub(crate) fn snapshot(&self) -> (u64, u64, u64, u64, u64, u64, u64, u64) {
+        (
+            self.ad_calls.load(Ordering::Relaxed),
+            self.ad_nanos.load(Ordering::Relaxed),
+            self.fd_calls.load(Ordering::Relaxed),
+            self.fd_nanos.load(Ordering::Relaxed),
+            self.jac_ad_calls.load(Ordering::Relaxed),
+            self.jac_ad_nanos.load(Ordering::Relaxed),
+            self.jac_fd_calls.load(Ordering::Relaxed),
+            self.jac_fd_nanos.load(Ordering::Relaxed),
+        )
+    }
+}
+
+pub(crate) static GRADIENT_TIMINGS: GradientTimings = GradientTimings::new();
 
 /// Result of inner optimization for a single subject
 pub struct EbeResult {
@@ -57,11 +163,20 @@ pub fn find_ebe(
         )
     };
 
-    // Try BFGS — use AD gradient when available, FD otherwise.
-    // The AD gradient of individual_nll w.r.t. psi equals the gradient w.r.t.
-    // eta_true (chain rule: d/dpsi = d/d(eta_true), since psi = eta_true + mu).
+    // Resolve Auto → concrete method based on model/eta characteristics.
+    // Autodiff is only available when the crate was compiled with the feature
+    // and the model provides tv_fn (the parser attaches it for analytical PK).
+    let use_ad = resolve_gradient_method(model);
+
+    // Try BFGS — AD gradient if `use_ad`, FD otherwise. The AD gradient of
+    // individual_nll w.r.t. psi equals the gradient w.r.t. eta_true (chain
+    // rule: d/dpsi = d/d(eta_true), since psi = eta_true + mu).
     #[cfg(feature = "autodiff")]
-    let result = if let Some(ref tv_fn) = model.tv_fn {
+    let result = if use_ad {
+        let tv_fn = model
+            .tv_fn
+            .as_ref()
+            .expect("resolve_gradient_method guarantees tv_fn");
         let tv_adjusted = tv_fn(&params.theta, &subject.covariates);
         let dose_data = FlatDoseData::from_subject(subject);
         let omega_inv = params
@@ -95,7 +210,6 @@ pub fn find_ebe(
             2.0 * ld
         };
 
-        let pk_indices = &model.pk_indices;
         // Under M3, feed actual CENS flags so the AD path applies -log Φ to
         // censored rows. Otherwise pass zeros — Enzyme will trace the Gaussian
         // branch for every observation, identical to the pre-M3 behavior.
@@ -106,8 +220,8 @@ pub fn find_ebe(
         };
         let mu_ad = mu.clone();
         let grad_fn = |p: &[f64]| -> Vec<f64> {
-            // Gradient w.r.t. psi = gradient w.r.t. eta_true at eta_true = psi - mu
             let eta_t: Vec<f64> = p.iter().zip(mu_ad.iter()).map(|(pi, mi)| pi - mi).collect();
+            let t0 = std::time::Instant::now();
             let (_, g) = ad_gradients::compute_nll_gradient_ad(
                 &eta_t,
                 &tv_adjusted,
@@ -120,8 +234,10 @@ pub fn find_ebe(
                 &cens_f64,
                 model.pk_model,
                 model.error_model,
-                pk_indices,
+                &model.pk_idx_f64,
+                &model.sel_flat,
             );
+            GRADIENT_TIMINGS.record_ad(t0.elapsed().as_nanos() as u64);
             g
         };
         bfgs_minimize_with_grad(&obj, &grad_fn, &mut psi, n_eta, max_iter, tol)
@@ -130,7 +246,10 @@ pub fn find_ebe(
     };
 
     #[cfg(not(feature = "autodiff"))]
-    let result = bfgs_minimize(&obj, &mut psi, n_eta, max_iter, tol);
+    let result = {
+        let _ = use_ad; // silence unused warning on stable builds
+        bfgs_minimize(&obj, &mut psi, n_eta, max_iter, tol)
+    };
 
     // If BFGS failed, try Nelder-Mead from the prior mode (psi = mu, eta_true = 0)
     if !result {
@@ -143,26 +262,42 @@ pub fn find_ebe(
     // Recover eta_true = psi - mu (mean-zero, NONMEM-compatible output)
     let eta_true: Vec<f64> = psi.iter().zip(mu.iter()).map(|(p, m)| p - m).collect();
 
-    // Compute Jacobian at eta_true — use AD when available
+    // Compute Jacobian at eta_true — use AD when available and chosen.
     #[cfg(feature = "autodiff")]
-    let h_matrix = if let Some(ref tv_fn) = model.tv_fn {
+    let h_matrix = if use_ad {
+        let tv_fn = model
+            .tv_fn
+            .as_ref()
+            .expect("resolve_gradient_method guarantees tv_fn");
         let tv_adjusted = tv_fn(&params.theta, &subject.covariates);
         let dose_data = FlatDoseData::from_subject(subject);
-        ad_gradients::compute_jacobian_ad(
+        let t0 = std::time::Instant::now();
+        let j = ad_gradients::compute_jacobian_ad(
             &eta_true,
             &tv_adjusted,
             &dose_data,
             &subject.obs_times,
             subject.obs_times.len(),
             model.pk_model,
-            &model.pk_indices,
-        )
+            &model.pk_idx_f64,
+            &model.sel_flat,
+        );
+        GRADIENT_TIMINGS.record_jac_ad(t0.elapsed().as_nanos() as u64);
+        j
     } else {
-        compute_jacobian_fd(model, subject, &params.theta, &eta_true)
+        let t0 = std::time::Instant::now();
+        let j = compute_jacobian_fd(model, subject, &params.theta, &eta_true);
+        GRADIENT_TIMINGS.record_jac_fd(t0.elapsed().as_nanos() as u64);
+        j
     };
 
     #[cfg(not(feature = "autodiff"))]
-    let h_matrix = compute_jacobian_fd(model, subject, &params.theta, &eta_true);
+    let h_matrix = {
+        let t0 = std::time::Instant::now();
+        let j = compute_jacobian_fd(model, subject, &params.theta, &eta_true);
+        GRADIENT_TIMINGS.record_jac_fd(t0.elapsed().as_nanos() as u64);
+        j
+    };
 
     EbeResult {
         eta: DVector::from_column_slice(&eta_true),
@@ -463,6 +598,7 @@ fn backtracking_line_search(
 
 /// Central finite difference gradient (optimized step size)
 fn gradient_fd(obj: &dyn Fn(&[f64]) -> f64, x: &[f64], n: usize) -> Vec<f64> {
+    let t0 = std::time::Instant::now();
     let mut g = vec![0.0; n];
     let mut x_work = x.to_vec();
     for i in 0..n {
@@ -474,6 +610,7 @@ fn gradient_fd(obj: &dyn Fn(&[f64]) -> f64, x: &[f64], n: usize) -> Vec<f64> {
         g[i] = (fp - fm) / (2.0 * h);
         x_work[i] = x[i];
     }
+    GRADIENT_TIMINGS.record_fd(t0.elapsed().as_nanos() as u64);
     g
 }
 
