@@ -447,6 +447,19 @@ pub struct SubjectResult {
     pub cwres: Vec<f64>,
     pub ofv_contribution: f64,
     pub cens: Vec<u8>,
+    /// Number of observations for this subject (MDV=0 rows).
+    pub n_obs: usize,
+}
+
+/// Outcome of the post-estimation covariance step.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CovarianceStatus {
+    /// User set `covariance = false`; step was not attempted.
+    NotRequested,
+    /// Covariance matrix was successfully computed.
+    Computed,
+    /// Step was attempted but failed (e.g. singular Hessian).
+    Failed,
 }
 
 /// Full fit result
@@ -497,6 +510,19 @@ pub struct FitResult {
     /// Total number of times the Nelder-Mead fallback was invoked across all
     /// subjects and all outer iterations.  Always `0` for SAEM.
     pub total_ebe_fallbacks: u32,
+    /// Outcome of the post-estimation covariance step.
+    pub covariance_status: CovarianceStatus,
+    /// ETA shrinkage per random effect: `1 - SD(eta_hat_k) / sqrt(omega_kk)`.
+    /// `NaN` when `omega_kk` is zero.
+    pub shrinkage_eta: Vec<f64>,
+    /// EPS shrinkage: `1 - SD(IWRES)`.  `NaN` when fewer than 2 valid residuals.
+    pub shrinkage_eps: f64,
+    /// Wall-clock time for the complete fit in seconds.
+    pub wall_time_secs: f64,
+    /// Model name (from the `.ferx` file or "Unnamed").
+    pub model_name: String,
+    /// ferx-nlme library version (from Cargo.toml at compile time).
+    pub ferx_version: String,
 }
 
 /// Options for fit()
