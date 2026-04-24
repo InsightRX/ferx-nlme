@@ -87,6 +87,19 @@ fn optimize_nlopt(
 
     let mut warnings = Vec::new();
 
+    // Per-element scale factors: present O(1) coordinates to NLopt.
+    let scale: Vec<f64> = if options.scale_params {
+        compute_scale(&x0)
+    } else {
+        vec![1.0; n]
+    };
+    let lower_s: Vec<f64> = (0..n).map(|i| bounds.lower[i] / scale[i]).collect();
+    let upper_s: Vec<f64> = (0..n).map(|i| bounds.upper[i] / scale[i]).collect();
+    // Scale x0 into optimizer space: xs[i] = x[i] / scale[i].
+    for i in 0..n {
+        x0[i] /= scale[i];
+    }
+
     let state = NloptState {
         cached_etas: vec![DVector::zeros(n_eta); n_subj],
         cached_h_mats: Vec::new(),
@@ -112,8 +125,9 @@ fn optimize_nlopt(
 
     let verbose = options.verbose;
 
-    // NLopt objective: runs inner loop, computes gradient with fixed EBEs
-    let objective = |x: &[f64], grad: Option<&mut [f64]>, state: &mut NloptState| -> f64 {
+    // NLopt objective: receives xs (scaled), unscales before running inner loop.
+    // Gradient: d(OFV)/d(xs[i]) = d(OFV)/d(x[i]) * scale[i] (chain rule).
+    let objective = |xs: &[f64], grad: Option<&mut [f64]>, state: &mut NloptState| -> f64 {
         // Cooperative cancellation: short-circuit cheaply so NLopt burns through
         // its remaining iteration budget in microseconds instead of minutes.
         if crate::cancel::is_cancelled(&options.cancel) {
@@ -124,7 +138,9 @@ fn optimize_nlopt(
             }
             return 1e20;
         }
-        let params = unpack_params(x, init_params);
+        // Unscale from optimizer space to real (log/Cholesky) space.
+        let x: Vec<f64> = (0..n).map(|i| xs[i] * scale[i]).collect();
+        let params = unpack_params(&x, init_params);
         let mu_k = compute_mu_k(model, &params.theta, options.mu_referencing);
 
         // Run inner loop (warm-started)
@@ -159,8 +175,8 @@ fn optimize_nlopt(
             // toward center of bounds to nudge optimizer back
             if !raw_ofv.is_finite() {
                 for i in 0..g.len() {
-                    let center = (bounds.lower[i] + bounds.upper[i]) / 2.0;
-                    g[i] = 100.0 * (x[i] - center); // gradient points away from center
+                    let center_s = (lower_s[i] + upper_s[i]) / 2.0;
+                    g[i] = 100.0 * (xs[i] - center_s);
                 }
                 state.n_evals += 1;
                 n_evals_cl.fetch_add(1, Ordering::Relaxed);
@@ -179,10 +195,11 @@ fn optimize_nlopt(
                     options.interaction,
                 )
             };
-            let grad_vec = gradient_cd(x, &bounds, &ehs, &hms, &ofv_fn);
+            // FD gradient in unscaled space; multiply by scale for scaled gradient.
+            let grad_vec = gradient_cd(&x, &bounds, &ehs, &hms, &ofv_fn);
             let mut sq = 0.0_f64;
             for i in 0..g.len() {
-                let gi = if grad_vec[i].is_finite() { grad_vec[i] } else { 0.0 };
+                let gi = if grad_vec[i].is_finite() { grad_vec[i] * scale[i] } else { 0.0 };
                 g[i] = gi;
                 sq += gi * gi;
             }
@@ -201,10 +218,10 @@ fn optimize_nlopt(
             }
         }
 
-        // Optimizer trace
+        // Optimizer trace (step_norm in scaled space)
         if crate::estimation::trace::is_active() {
             let step_norm = {
-                let sq: f64 = x.iter().zip(&state.prev_x).map(|(a, b)| (a - b).powi(2)).sum();
+                let sq: f64 = xs.iter().zip(&state.prev_x).map(|(a, b)| (a - b).powi(2)).sum();
                 let n = sq.sqrt();
                 if n > 0.0 { Some(n) } else { None }
             };
@@ -227,15 +244,15 @@ fn optimize_nlopt(
                 optimizer_str,
             );
         }
-        state.prev_x = x.to_vec();
+        state.prev_x = xs.to_vec();
 
         ofv
     };
 
-    // Create NLopt optimizer with state
+    // Create NLopt optimizer with state (operates in scaled xs space)
     let mut opt = nlopt::Nlopt::new(algo, n, objective, nlopt::Target::Minimize, state);
-    opt.set_lower_bounds(&bounds.lower).unwrap();
-    opt.set_upper_bounds(&bounds.upper).unwrap();
+    opt.set_lower_bounds(&lower_s).unwrap();
+    opt.set_upper_bounds(&upper_s).unwrap();
     opt.set_maxeval(options.outer_maxiter as u32 * (n as u32 + 1))
         .unwrap();
     // Use very loose tolerances — FOCE objective is noisy from EBE re-estimation.
@@ -297,7 +314,8 @@ fn optimize_nlopt(
         };
 
         let n_evals_cl2 = Arc::clone(&n_evals_outer);
-        let objective2 = |x: &[f64], grad: Option<&mut [f64]>, state: &mut NloptState| -> f64 {
+        // SLSQP fallback also operates in scaled xs space (same scale as primary opt).
+        let objective2 = |xs: &[f64], grad: Option<&mut [f64]>, state: &mut NloptState| -> f64 {
             if crate::cancel::is_cancelled(&options.cancel) {
                 if let Some(g) = grad {
                     for gi in g.iter_mut() {
@@ -306,7 +324,8 @@ fn optimize_nlopt(
                 }
                 return 1e20;
             }
-            let params = unpack_params(x, init_params);
+            let x: Vec<f64> = (0..n).map(|i| xs[i] * scale[i]).collect();
+            let params = unpack_params(&x, init_params);
             let mu_k = compute_mu_k(model, &params.theta, options.mu_referencing);
             let (ehs, hms, _) = run_inner_loop_warm(
                 model,
@@ -334,8 +353,8 @@ fn optimize_nlopt(
             if let Some(g) = grad {
                 if !raw_ofv.is_finite() {
                     for i in 0..g.len() {
-                        let center = (bounds.lower[i] + bounds.upper[i]) / 2.0;
-                        g[i] = 100.0 * (x[i] - center);
+                        let center_s = (lower_s[i] + upper_s[i]) / 2.0;
+                        g[i] = 100.0 * (xs[i] - center_s);
                     }
                     state.n_evals += 1;
                     n_evals_cl2.fetch_add(1, Ordering::Relaxed);
@@ -354,10 +373,10 @@ fn optimize_nlopt(
                         options.interaction,
                     )
                 };
-                let grad_vec = gradient_cd(x, &bounds, &ehs, &hms, &ofv_fn);
+                let grad_vec = gradient_cd(&x, &bounds, &ehs, &hms, &ofv_fn);
                 let mut sq = 0.0_f64;
                 for i in 0..g.len() {
-                    let gi = if grad_vec[i].is_finite() { grad_vec[i] } else { 0.0 };
+                    let gi = if grad_vec[i].is_finite() { grad_vec[i] * scale[i] } else { 0.0 };
                     g[i] = gi;
                     sq += gi * gi;
                 }
@@ -375,10 +394,10 @@ fn optimize_nlopt(
                 }
             }
 
-            // Optimizer trace (SLSQP fallback)
+            // Optimizer trace (SLSQP fallback, step_norm in scaled space)
             if crate::estimation::trace::is_active() {
                 let step_norm = {
-                    let sq: f64 = x.iter().zip(&state.prev_x).map(|(a, b)| (a - b).powi(2)).sum();
+                    let sq: f64 = xs.iter().zip(&state.prev_x).map(|(a, b)| (a - b).powi(2)).sum();
                     let n = sq.sqrt();
                     if n > 0.0 { Some(n) } else { None }
                 };
@@ -395,7 +414,7 @@ fn optimize_nlopt(
                     "slsqp",
                 );
             }
-            state.prev_x = x.to_vec();
+            state.prev_x = xs.to_vec();
 
             ofv
         };
@@ -407,8 +426,8 @@ fn optimize_nlopt(
             nlopt::Target::Minimize,
             state2,
         );
-        opt2.set_lower_bounds(&bounds.lower).unwrap();
-        opt2.set_upper_bounds(&bounds.upper).unwrap();
+        opt2.set_lower_bounds(&lower_s).unwrap();
+        opt2.set_upper_bounds(&upper_s).unwrap();
         opt2.set_maxeval(options.outer_maxiter as u32 * (n as u32 + 1))
             .unwrap();
         opt2.set_xtol_rel(1e-12).unwrap();
@@ -436,6 +455,11 @@ fn optimize_nlopt(
             }
         };
         drop(opt2);
+    }
+
+    // Unscale x0 back from optimizer space to real (log/Cholesky) space.
+    for i in 0..n {
+        x0[i] *= scale[i];
     }
 
     let final_params = unpack_params(&x0, init_params);
@@ -532,6 +556,7 @@ fn optimize_bfgs(
     let mut warnings = Vec::new();
     let mut cached_etas: Vec<DVector<f64>> = vec![DVector::zeros(n_eta); n_subj];
 
+    // Closures operating on unscaled real (log/Cholesky) space.
     let ofv_at_fixed = |x: &[f64], eta_hats: &[DVector<f64>], h_matrices: &[DMatrix<f64>]| -> f64 {
         let params = unpack_params(x, init_params);
         2.0 * foce_population_nll(
@@ -596,7 +621,35 @@ fn optimize_bfgs(
         (f, g, ehs, hms)
     };
 
-    let (mut f_val, mut g, ehs, _) = fdfg(&x, &cached_etas);
+    // Per-element scale factors for the BFGS outer loop.
+    let scale: Vec<f64> = if options.scale_params {
+        compute_scale(&x)
+    } else {
+        vec![1.0; n]
+    };
+    let lower_s: Vec<f64> = (0..n).map(|i| bounds.lower[i] / scale[i]).collect();
+    let upper_s: Vec<f64> = (0..n).map(|i| bounds.upper[i] / scale[i]).collect();
+    let bounds_s = PackedBounds { lower: lower_s, upper: upper_s };
+
+    // Wrappers that operate in scaled space; unscale before calling base closures.
+    let fdfg_s = |xs: &[f64],
+                  prev_etas: &[DVector<f64>]|
+     -> (f64, Vec<f64>, Vec<DVector<f64>>, Vec<DMatrix<f64>>) {
+        let x_r: Vec<f64> = (0..n).map(|i| xs[i] * scale[i]).collect();
+        let (f, g_r, ehs, hms) = fdfg(&x_r, prev_etas);
+        let g_s: Vec<f64> = (0..n).map(|i| g_r[i] * scale[i]).collect();
+        (f, g_s, ehs, hms)
+    };
+
+    let f_only_s = |xs: &[f64], prev_etas: &[DVector<f64>]| -> f64 {
+        let x_r: Vec<f64> = (0..n).map(|i| xs[i] * scale[i]).collect();
+        f_only(&x_r, prev_etas)
+    };
+
+    // Scale initial x into optimizer space.
+    let mut xs: Vec<f64> = (0..n).map(|i| x[i] / scale[i]).collect();
+
+    let (mut f_val, mut g, ehs, _) = fdfg_s(&xs, &cached_etas);
     cached_etas = ehs;
 
     if options.verbose {
@@ -636,7 +689,7 @@ fn optimize_bfgs(
         }
 
         let alpha =
-            backtracking_line_search_warm(&x, &d, &g, f_val, &bounds, &cached_etas, &f_only);
+            backtracking_line_search_warm(&xs, &d, &g, f_val, &bounds_s, &cached_etas, &f_only_s);
 
         if alpha < 1e-18 {
             stall_count += 1;
@@ -651,15 +704,15 @@ fn optimize_bfgs(
         }
         stall_count = 0;
 
-        let x_old = x.clone();
+        let xs_old = xs.clone();
         for i in 0..n {
-            x[i] = (x[i] + alpha * d[i]).clamp(bounds.lower[i], bounds.upper[i]);
+            xs[i] = (xs[i] + alpha * d[i]).clamp(bounds_s.lower[i], bounds_s.upper[i]);
         }
 
-        let (f_new, g_new, ehs, _) = fdfg(&x, &cached_etas);
+        let (f_new, g_new, ehs, _) = fdfg_s(&xs, &cached_etas);
         cached_etas = ehs;
 
-        bfgs_update(&mut h_inv, &x, &x_old, &g_new, &g, n);
+        bfgs_update(&mut h_inv, &xs, &xs_old, &g_new, &g, n);
 
         let prev_ofv = f_val;
         f_val = f_new;
@@ -672,10 +725,10 @@ fn optimize_bfgs(
             );
         }
 
-        // Optimizer trace
+        // Optimizer trace (step_norm in scaled space)
         if crate::estimation::trace::is_active() {
             let step_norm: f64 = (0..n)
-                .map(|i| (x[i] - x_old[i]).powi(2))
+                .map(|i| (xs[i] - xs_old[i]).powi(2))
                 .sum::<f64>()
                 .sqrt();
             let method_str = match options.method {
@@ -709,7 +762,10 @@ fn optimize_bfgs(
         }
     }
 
-    let final_params = unpack_params(&x, init_params);
+    // Unscale xs back to real (log/Cholesky) space for unpacking and covariance.
+    let x_final: Vec<f64> = (0..n).map(|i| xs[i] * scale[i]).collect();
+
+    let final_params = unpack_params(&x_final, init_params);
     let bfgs_final_mu_k = compute_mu_k(model, &final_params.theta, options.mu_referencing);
     let (final_ehs, final_hms, _) = run_inner_loop_warm(
         model,
@@ -720,7 +776,7 @@ fn optimize_bfgs(
         Some(&cached_etas),
         Some(&bfgs_final_mu_k),
     );
-    let final_ofv = ofv_at_fixed(&x, &final_ehs, &final_hms);
+    let final_ofv = ofv_at_fixed(&x_final, &final_ehs, &final_hms);
 
     let covariance_matrix =
         if options.run_covariance_step && !crate::cancel::is_cancelled(&options.cancel) {
@@ -728,7 +784,7 @@ fn optimize_bfgs(
                 eprintln!("Computing covariance matrix...");
             }
             compute_covariance(
-                &x,
+                &x_final,
                 init_params,
                 model,
                 population,

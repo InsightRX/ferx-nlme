@@ -657,6 +657,7 @@ pub fn apply_fit_option(opts: &mut FitOptions, key: &str, value: &str) -> Result
             }
         }
         "optimizer_trace" => opts.optimizer_trace = parse_bool("optimizer_trace")?,
+        "scale_params" => opts.scale_params = parse_bool("scale_params")?,
         _ => return Ok(false),
     }
     opts.user_set_keys.push(key.to_string());
