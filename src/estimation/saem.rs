@@ -499,14 +499,23 @@ pub fn run_saem(
             state.steps_since_adapt = 0;
         }
 
-        // ---- Verbose output (lightweight: use cached NLL sum) ----
-        if verbose && (k == 1 || k % 50 == 0 || k == n_iter) {
+        // ---- Verbose output + optimizer trace ----
+        {
             let phase = if k <= k1 { "explore" } else { "converge" };
             let cond_nll: f64 = state.nll_cache.iter().sum();
-            eprintln!(
-                "  SAEM iter {:>4}/{} [{}] gamma={:.3}  condNLL={:.3}",
-                k, n_iter, phase, gamma, cond_nll
-            );
+            // Rolling MH accept rate since the last adapt reset.
+            let steps_so_far = state.steps_since_adapt.max(1);
+            let mh_accept_rate: f64 = state.accept_counts.iter().sum::<usize>() as f64
+                / (n_subjects * n_mh_steps * steps_so_far) as f64;
+
+            if verbose && (k == 1 || k % 50 == 0 || k == n_iter) {
+                eprintln!(
+                    "  SAEM iter {:>4}/{} [{}] gamma={:.3}  condNLL={:.3}",
+                    k, n_iter, phase, gamma, cond_nll
+                );
+            }
+
+            crate::estimation::trace::write_saem(k, phase, cond_nll, gamma, mh_accept_rate);
         }
     }
 

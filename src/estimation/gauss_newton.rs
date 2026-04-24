@@ -206,6 +206,15 @@ pub fn run_foce_gn(
         if ofv_new >= ofv {
             // Step failed — increase damping and retry
             lambda *= 10.0;
+
+            // Trace: rejected step
+            if crate::estimation::trace::is_active() {
+                let (gn_method, gn_phase) = gn_trace_method_phase(options.method);
+                crate::estimation::trace::write_gn(
+                    iter, gn_method, gn_phase, ofv, lambda, 0.0, false,
+                );
+            }
+
             if lambda > 1e6 {
                 if verbose {
                     eprintln!("  GN iter {:>3}: lambda too large, stopping", iter);
@@ -227,12 +236,27 @@ pub fn run_foce_gn(
         let rel_change = ofv_change / ofv.abs().max(1.0);
 
         x = x_new;
+        let prev_ofv = ofv;
         ofv = ofv_new;
         eta_hats = eta_new;
         h_matrices = h_new;
 
         // Decrease damping on success
         lambda = (lambda * 0.3).max(1e-6);
+
+        // Trace: accepted step
+        if crate::estimation::trace::is_active() {
+            let (gn_method, gn_phase) = gn_trace_method_phase(options.method);
+            crate::estimation::trace::write_gn(
+                iter,
+                gn_method,
+                gn_phase,
+                ofv,
+                lambda,
+                ofv - prev_ofv,
+                true,
+            );
+        }
 
         if verbose {
             eprintln!(
@@ -312,6 +336,9 @@ pub fn run_foce_gn(
     polish_options.global_search = false;
     polish_options.run_covariance_step = false; // defer to after polish
 
+    // Tell the trace that the following NLopt rows belong to the focei polish
+    // phase of gn_hybrid, not a standalone foce/focei run.
+    crate::estimation::trace::set_overrides(Some("gn_hybrid"), Some("focei"));
     let polish_result = crate::estimation::outer_optimizer::optimize_population_warm(
         model,
         population,
@@ -320,6 +347,7 @@ pub fn run_foce_gn(
         &eta_hats,
         &h_matrices,
     );
+    crate::estimation::trace::set_overrides(None, None);
 
     let final_ofv;
     let final_params;
@@ -384,6 +412,16 @@ pub fn run_foce_gn(
         h_matrices: final_h_mats,
         covariance_matrix,
         warnings,
+    }
+}
+
+/// Returns the (method, phase) strings for GN trace rows.
+/// gn_hybrid rows use method="gn_hybrid" and phase="gn" during the GN loop.
+/// Pure gn rows use method="gn" and phase="".
+fn gn_trace_method_phase(method: EstimationMethod) -> (&'static str, &'static str) {
+    match method {
+        EstimationMethod::FoceGnHybrid => ("gn_hybrid", "gn"),
+        _ => ("gn", ""),
     }
 }
 

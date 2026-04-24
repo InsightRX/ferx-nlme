@@ -68,6 +68,8 @@ struct NloptState {
     cached_h_mats: Vec<DMatrix<f64>>,
     best_ofv: f64,
     n_evals: usize,
+    /// Previous parameter vector — used to compute step_norm for the trace.
+    prev_x: Vec<f64>,
 }
 
 fn optimize_nlopt(
@@ -90,6 +92,7 @@ fn optimize_nlopt(
         cached_h_mats: Vec::new(),
         best_ofv: f64::INFINITY,
         n_evals: 0,
+        prev_x: x0.clone(),
     };
 
     // External counter mirrors state.n_evals — nlopt doesn't hand `state`
@@ -150,6 +153,7 @@ fn optimize_nlopt(
         let ofv = if raw_ofv.is_finite() { raw_ofv } else { 1e20 };
 
         // Compute gradient if requested (central FD with fixed EBEs)
+        let mut grad_norm_for_trace: Option<f64> = None;
         if let Some(g) = grad {
             // If OFV is non-finite, gradient is meaningless — use steepest ascent
             // toward center of bounds to nudge optimizer back
@@ -176,13 +180,13 @@ fn optimize_nlopt(
                 )
             };
             let grad_vec = gradient_cd(x, &bounds, &ehs, &hms, &ofv_fn);
+            let mut sq = 0.0_f64;
             for i in 0..g.len() {
-                g[i] = if grad_vec[i].is_finite() {
-                    grad_vec[i]
-                } else {
-                    0.0
-                };
+                let gi = if grad_vec[i].is_finite() { grad_vec[i] } else { 0.0 };
+                g[i] = gi;
+                sq += gi * gi;
             }
+            grad_norm_for_trace = Some(sq.sqrt());
         }
 
         // Update state
@@ -196,6 +200,34 @@ fn optimize_nlopt(
                 eprintln!("Eval {:>4}: OFV = {:.6}", state.n_evals, ofv);
             }
         }
+
+        // Optimizer trace
+        if crate::estimation::trace::is_active() {
+            let step_norm = {
+                let sq: f64 = x.iter().zip(&state.prev_x).map(|(a, b)| (a - b).powi(2)).sum();
+                let n = sq.sqrt();
+                if n > 0.0 { Some(n) } else { None }
+            };
+            let method_str = match options.method {
+                EstimationMethod::FoceI => "focei",
+                _ => "foce",
+            };
+            let optimizer_str = match algo {
+                nlopt::Algorithm::Bobyqa => "bobyqa",
+                nlopt::Algorithm::Mma    => "mma",
+                nlopt::Algorithm::Lbfgs  => "nlopt_lbfgs",
+                _                        => "slsqp",
+            };
+            crate::estimation::trace::write_foce(
+                state.n_evals,
+                method_str,
+                ofv,
+                grad_norm_for_trace,
+                step_norm,
+                optimizer_str,
+            );
+        }
+        state.prev_x = x.to_vec();
 
         ofv
     };
@@ -261,6 +293,7 @@ fn optimize_nlopt(
             cached_h_mats: Vec::new(),
             best_ofv: f64::INFINITY,
             n_evals: 0,
+            prev_x: x0.clone(),
         };
 
         let n_evals_cl2 = Arc::clone(&n_evals_outer);
@@ -297,6 +330,7 @@ fn optimize_nlopt(
             let raw_ofv = 2.0 * nll;
             let ofv = if raw_ofv.is_finite() { raw_ofv } else { 1e20 };
 
+            let mut grad_norm_for_trace: Option<f64> = None;
             if let Some(g) = grad {
                 if !raw_ofv.is_finite() {
                     for i in 0..g.len() {
@@ -321,13 +355,13 @@ fn optimize_nlopt(
                     )
                 };
                 let grad_vec = gradient_cd(x, &bounds, &ehs, &hms, &ofv_fn);
+                let mut sq = 0.0_f64;
                 for i in 0..g.len() {
-                    g[i] = if grad_vec[i].is_finite() {
-                        grad_vec[i]
-                    } else {
-                        0.0
-                    };
+                    let gi = if grad_vec[i].is_finite() { grad_vec[i] } else { 0.0 };
+                    g[i] = gi;
+                    sq += gi * gi;
                 }
+                grad_norm_for_trace = Some(sq.sqrt());
             }
 
             state.cached_etas = ehs;
@@ -340,6 +374,29 @@ fn optimize_nlopt(
                     eprintln!("Eval {:>4}: OFV = {:.6} (SLSQP)", state.n_evals, ofv);
                 }
             }
+
+            // Optimizer trace (SLSQP fallback)
+            if crate::estimation::trace::is_active() {
+                let step_norm = {
+                    let sq: f64 = x.iter().zip(&state.prev_x).map(|(a, b)| (a - b).powi(2)).sum();
+                    let n = sq.sqrt();
+                    if n > 0.0 { Some(n) } else { None }
+                };
+                let method_str = match options.method {
+                    EstimationMethod::FoceI => "focei",
+                    _ => "foce",
+                };
+                crate::estimation::trace::write_foce(
+                    state.n_evals,
+                    method_str,
+                    ofv,
+                    grad_norm_for_trace,
+                    step_norm,
+                    "slsqp",
+                );
+            }
+            state.prev_x = x.to_vec();
+
             ofv
         };
 
@@ -612,6 +669,30 @@ fn optimize_bfgs(
             eprintln!(
                 "Iter {:>4}: OFV = {:.6}  |g| = {:.2e}  alpha = {:.2e}",
                 iter, f_val, g_norm, alpha
+            );
+        }
+
+        // Optimizer trace
+        if crate::estimation::trace::is_active() {
+            let step_norm: f64 = (0..n)
+                .map(|i| (x[i] - x_old[i]).powi(2))
+                .sum::<f64>()
+                .sqrt();
+            let method_str = match options.method {
+                EstimationMethod::FoceI => "focei",
+                _ => "foce",
+            };
+            let optimizer_str = match options.optimizer {
+                Optimizer::Lbfgs => "lbfgs",
+                _ => "bfgs",
+            };
+            crate::estimation::trace::write_foce(
+                iter,
+                method_str,
+                f_val,
+                Some(g_norm),
+                Some(step_norm),
+                optimizer_str,
             );
         }
 
