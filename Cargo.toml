@@ -32,6 +32,7 @@ argmin-math = { version = "0.5", features = ["nalgebra_latest"] }
 
 [dev-dependencies]
 approx = "0.5"
+tempfile = "3"
 
 [profile.release]
 lto = "fat"

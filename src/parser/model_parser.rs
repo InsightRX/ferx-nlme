@@ -174,7 +174,8 @@ pub fn parse_full_model(content: &str) -> Result<ParsedModel, String> {
     let param_lines = blocks
         .get("parameters")
         .ok_or("Missing [parameters] block")?;
-    let (thetas, omegas, block_omegas, sigmas, eta_names) = parse_parameters(param_lines)?;
+    let (thetas, omegas, block_omegas, sigmas, eta_names_bsv, kappa_specs) =
+        parse_parameters(param_lines)?;
 
     let struct_lines = blocks
         .get("structural_model")
@@ -192,8 +193,19 @@ pub fn parse_full_model(content: &str) -> Result<ParsedModel, String> {
     let theta_names: Vec<String> = thetas.iter().map(|t| t.name.clone()).collect();
     let sigma_names: Vec<String> = sigmas.iter().map(|s| s.name.clone()).collect();
     let n_theta = theta_names.len();
-    let n_eta = eta_names.len();
+    let n_eta = eta_names_bsv.len(); // BSV-only count
+    let n_kappa = kappa_specs.len();
     let n_epsilon = sigma_names.len();
+
+    // Extended eta context: BSV etas followed by kappa names.
+    // This lets [individual_parameters] expressions like `ETA_CL + KAPPA_CL`
+    // compile: KAPPA_CL becomes Eta(n_eta + kappa_idx) in the AST.
+    let kappa_names: Vec<String> = kappa_specs.iter().map(|k| k.name.clone()).collect();
+    let eta_names: Vec<String> = eta_names_bsv
+        .iter()
+        .cloned()
+        .chain(kappa_names.iter().cloned())
+        .collect();
 
     // Detect ODE vs analytical model
     let is_ode = struct_lines
@@ -225,6 +237,7 @@ pub fn parse_full_model(content: &str) -> Result<ParsedModel, String> {
         (pk_model, pk_param_map, None)
     };
 
+    // Build pk_param_fn with the extended eta context (BSV + kappa names).
     let (pk_param_fn, referenced_covariates) =
         build_pk_param_fn(indiv_lines, &theta_names, &eta_names, &pk_param_map)?;
 
@@ -232,13 +245,24 @@ pub fn parse_full_model(content: &str) -> Result<ParsedModel, String> {
     let theta_lower: Vec<f64> = thetas.iter().map(|t| t.lower).collect();
     let theta_upper: Vec<f64> = thetas.iter().map(|t| t.upper).collect();
     let theta_fixed: Vec<bool> = thetas.iter().map(|t| t.fixed).collect();
-    let omega = build_omega_matrix(&omegas, &block_omegas, &eta_names)?;
-    let omega_fixed = build_omega_fixed(&omegas, &block_omegas, &eta_names)?;
+    // BSV omega is built from the BSV-only eta names (no kappas)
+    let omega = build_omega_matrix(&omegas, &block_omegas, &eta_names_bsv)?;
+    let omega_fixed = build_omega_fixed(&omegas, &block_omegas, &eta_names_bsv)?;
     let sigma_values: Vec<f64> = sigmas.iter().map(|s| s.value).collect();
     let sigma_fixed: Vec<bool> = sigmas.iter().map(|s| s.fixed).collect();
     let sigma = SigmaVector {
         values: sigma_values,
         names: sigma_names,
+    };
+
+    // IOV omega: diagonal matrix from kappa specs (Option A)
+    let (omega_iov, kappa_fixed) = if kappa_specs.is_empty() {
+        (None, Vec::new())
+    } else {
+        let variances: Vec<f64> = kappa_specs.iter().map(|k| k.variance).collect();
+        let kappa_fixed: Vec<bool> = kappa_specs.iter().map(|k| k.fixed).collect();
+        let omega_iov = OmegaMatrix::from_diagonal(&variances, kappa_names.clone());
+        (Some(omega_iov), kappa_fixed)
     };
 
     let default_params = ModelParameters {
@@ -251,13 +275,17 @@ pub fn parse_full_model(content: &str) -> Result<ParsedModel, String> {
         omega_fixed,
         sigma,
         sigma_fixed,
+        omega_iov,
+        kappa_fixed,
     };
 
     // Auto-generate tv_fn: evaluate individual parameters with eta=0
     // This gives covariate-adjusted typical values for the AD inner loop.
+    // tv_fn uses the extended eta context (BSV + kappa) so KAPPA_* vars evaluate
+    // to 0 at population-typical predictions, which is correct.
     let tv_assignments = indiv_lines.clone();
     let tv_theta_names = theta_names.clone();
-    let tv_eta_names = eta_names.clone();
+    let tv_eta_names = eta_names.clone(); // extended (BSV + kappa)
     let tv_fn: Option<Box<dyn Fn(&[f64], &HashMap<String, f64>) -> Vec<f64> + Send + Sync>> =
         if !is_ode {
             let mut assignments: Vec<(String, Expression)> = Vec::new();
@@ -295,8 +323,9 @@ pub fn parse_full_model(content: &str) -> Result<ParsedModel, String> {
             None
         };
 
-    // Detect mu-referencing relationships from [individual_parameters]
-    let mu_refs = detect_mu_refs(indiv_lines, &theta_names, &eta_names);
+    // Detect mu-referencing relationships from [individual_parameters].
+    // Use BSV-only eta names — kappas don't participate in mu-referencing.
+    let mu_refs = detect_mu_refs(indiv_lines, &theta_names, &eta_names_bsv);
 
     // Build pk_indices: maps each individual parameter (by declaration order)
     // to its PK parameter index. Needed for AD to place values in correct slots.
@@ -321,11 +350,10 @@ pub fn parse_full_model(content: &str) -> Result<ParsedModel, String> {
         (0..n_eta).collect()
     };
 
-    // Per-tv eta index: for each [individual_parameters] line, find which eta
-    // its expression references (or -1 for none). Used by the AD path so
-    // `pk[pk_indices[i]] = tv[i] * exp(eta[eta_map[i]])` stays correct even
-    // when some params are eta-free (e.g. `Q = TVQ`). If a line references
-    // multiple etas (unusual), pick the first.
+    // Per-tv eta index: for each [individual_parameters] line, find which BSV eta
+    // its expression references (or -1 for none). Kappa indices (>= n_eta) map to
+    // -1 here since the AD path is disabled when IOV is active. Used only by the
+    // AD inner loop, which checks n_kappa > 0 and falls back to FD automatically.
     let eta_map: Vec<i32> = indiv_lines
         .iter()
         .map(|line| {
@@ -333,25 +361,26 @@ pub fn parse_full_model(content: &str) -> Result<ParsedModel, String> {
             if parts.len() != 2 {
                 return -1i32;
             }
+            // Use extended context so KAPPA_* parses without error
             let ctx = ParseCtx::new(&theta_names, &eta_names, &[]);
             match parse_expression(parts[1].trim(), ctx) {
-                Ok(expr) => extract_eta_indices(&expr)
-                    .first()
-                    .copied()
-                    .map(|i| i as i32)
-                    .unwrap_or(-1),
+                Ok(expr) => {
+                    // Only map BSV eta indices; kappa indices → -1
+                    extract_eta_indices(&expr)
+                        .into_iter()
+                        .find(|&i| i < n_eta)
+                        .map(|i| i as i32)
+                        .unwrap_or(-1)
+                }
                 Err(_) => -1,
             }
         })
         .collect();
 
     let pk_idx_f64: Vec<f64> = pk_indices.iter().map(|&i| i as f64).collect();
-    // sel_flat is n_tv × n_eta (n_tv = eta_map.len() = number of
-    // individual_parameters lines). pk_indices.len() can differ from
-    // eta_map.len() for ODE models (where pk_indices is synthesized as
-    // `(0..n_eta).collect()`), so size from eta_map to avoid an OOB panic
-    // when the two disagree. The AD path is only taken when tv_fn is
-    // populated (analytical models), where the two lengths match.
+    // sel_flat is n_tv × n_eta (BSV etas only). Kappa columns are intentionally
+    // absent — the AD path reads BSV gradients only; when n_kappa > 0 the inner
+    // loop forces FD for the full extended-eta gradient.
     let n_tv = eta_map.len();
     let mut sel_flat = vec![0.0f64; n_tv * n_eta];
     for (i, &em) in eta_map.iter().enumerate() {
@@ -367,9 +396,11 @@ pub fn parse_full_model(content: &str) -> Result<ParsedModel, String> {
         pk_param_fn,
         n_theta,
         n_eta,
+        n_kappa,
         n_epsilon,
         theta_names,
-        eta_names,
+        eta_names: eta_names_bsv,
+        kappa_names,
         default_params,
         tv_fn,
         pk_indices,
@@ -656,6 +687,17 @@ pub fn apply_fit_option(opts: &mut FitOptions, key: &str, value: &str) -> Result
                 }
             }
         }
+        "iov_column" => {
+            opts.iov_column = if value.is_empty()
+                || value.eq_ignore_ascii_case("null")
+                || value.eq_ignore_ascii_case("na")
+                || value.eq_ignore_ascii_case("none")
+            {
+                None
+            } else {
+                Some(value.to_string())
+            };
+        }
         _ => return Ok(false),
     }
     opts.user_set_keys.push(key.to_string());
@@ -823,6 +865,13 @@ struct SigmaSpec {
     fixed: bool,
 }
 
+/// Diagonal inter-occasion variability (kappa) specification.
+struct KappaSpec {
+    name: String,
+    variance: f64,
+    fixed: bool,
+}
+
 // --- Block extraction ---
 
 fn extract_model_name(content: &str) -> String {
@@ -875,7 +924,8 @@ fn parse_parameters(
         Vec<OmegaSpec>,
         Vec<BlockOmegaSpec>,
         Vec<SigmaSpec>,
-        Vec<String>, // eta names in declaration order
+        Vec<String>,    // BSV eta names in declaration order
+        Vec<KappaSpec>, // IOV kappa specs (diagonal only, Option A)
     ),
     String,
 > {
@@ -884,6 +934,7 @@ fn parse_parameters(
     let mut block_omegas = Vec::new();
     let mut sigmas = Vec::new();
     let mut eta_names_ordered = Vec::new();
+    let mut kappas: Vec<KappaSpec> = Vec::new();
 
     // theta NAME(init)  |  theta NAME(init, FIX)
     // theta NAME(init, lower, upper)  |  theta NAME(init, lower, upper, FIX)
@@ -905,6 +956,9 @@ fn parse_parameters(
 
     // sigma NAME ~ value  |  sigma NAME ~ value FIX
     let sigma_re = Regex::new(r"(?i)sigma\s+(\w+)\s*~\s*([0-9eE.+-]+)(?:\s+(FIX)\b)?").unwrap();
+
+    // kappa NAME ~ value  |  kappa NAME ~ value FIX  (IOV diagonal variance)
+    let kappa_re = Regex::new(r"(?i)kappa\s+(\w+)\s*~\s*([0-9eE.+-]+)(?:\s+(FIX)\b)?").unwrap();
 
     for line in lines {
         if let Some(caps) = theta_re.captures(line) {
@@ -977,10 +1031,17 @@ fn parse_parameters(
                 .map_err(|_| format!("Bad sigma: {}", line))?;
             let fixed = caps.get(3).is_some();
             sigmas.push(SigmaSpec { name, value, fixed });
+        } else if let Some(caps) = kappa_re.captures(line) {
+            let name = caps[1].to_string();
+            let variance: f64 = caps[2]
+                .parse()
+                .map_err(|_| format!("Bad kappa: {}", line))?;
+            let fixed = caps.get(3).is_some();
+            kappas.push(KappaSpec { name, variance, fixed });
         }
     }
 
-    Ok((thetas, omegas, block_omegas, sigmas, eta_names_ordered))
+    Ok((thetas, omegas, block_omegas, sigmas, eta_names_ordered, kappas))
 }
 
 // --- Build omega matrix from diagonal + block specs ---
@@ -2246,7 +2307,7 @@ mod tests {
             "omega ETA_CL ~ 0.07".to_string(),
             "omega ETA_V  ~ 0.02".to_string(),
         ];
-        let (_, omegas, block_omegas, _, _) = parse_parameters(&lines).unwrap();
+        let (_, omegas, block_omegas, _, _, _) = parse_parameters(&lines).unwrap();
         assert_eq!(omegas.len(), 2);
         assert_eq!(block_omegas.len(), 0);
         assert_eq!(omegas[0].name, "ETA_CL");
@@ -2256,7 +2317,7 @@ mod tests {
     #[test]
     fn test_parse_block_omega() {
         let lines = vec!["block_omega (ETA_CL, ETA_V) = [0.09, 0.02, 0.04]".to_string()];
-        let (_, omegas, block_omegas, _, _) = parse_parameters(&lines).unwrap();
+        let (_, omegas, block_omegas, _, _, _) = parse_parameters(&lines).unwrap();
         assert_eq!(omegas.len(), 0);
         assert_eq!(block_omegas.len(), 1);
         assert_eq!(block_omegas[0].names, vec!["ETA_CL", "ETA_V"]);
@@ -2269,7 +2330,7 @@ mod tests {
             "block_omega (ETA_CL, ETA_V, ETA_KA) = [0.09, 0.01, 0.04, 0.005, 0.002, 0.16]"
                 .to_string(),
         ];
-        let (_, _, block_omegas, _, _) = parse_parameters(&lines).unwrap();
+        let (_, _, block_omegas, _, _, _) = parse_parameters(&lines).unwrap();
         assert_eq!(block_omegas[0].names.len(), 3);
         assert_eq!(block_omegas[0].lower_triangle.len(), 6); // 3*(3+1)/2
     }
@@ -2289,7 +2350,7 @@ mod tests {
             "omega ETA_KA ~ 0.40".to_string(),
             "block_omega (ETA_CL, ETA_V) = [0.09, 0.02, 0.04]".to_string(),
         ];
-        let (_, omegas, block_omegas, _, eta_names) = parse_parameters(&lines).unwrap();
+        let (_, omegas, block_omegas, _, eta_names, _) = parse_parameters(&lines).unwrap();
         assert_eq!(omegas.len(), 1);
         assert_eq!(block_omegas.len(), 1);
         // Declaration order preserved: ETA_KA first, then block (ETA_CL, ETA_V)
@@ -2302,7 +2363,7 @@ mod tests {
             "block_omega (ETA_CL, ETA_V) = [0.09, 0.02, 0.04]".to_string(),
             "omega ETA_KA ~ 0.40".to_string(),
         ];
-        let (_, _, _, _, eta_names) = parse_parameters(&lines).unwrap();
+        let (_, _, _, _, eta_names, _) = parse_parameters(&lines).unwrap();
         // block_omega declared first, so ETA_CL, ETA_V come before ETA_KA
         assert_eq!(eta_names, vec!["ETA_CL", "ETA_V", "ETA_KA"]);
     }
@@ -2372,7 +2433,7 @@ mod tests {
     #[test]
     fn test_parse_theta_fix_without_bounds() {
         let lines = vec!["theta TVCL(0.1, FIX)".to_string()];
-        let (thetas, _, _, _, _) = parse_parameters(&lines).unwrap();
+        let (thetas, _, _, _, _, _) = parse_parameters(&lines).unwrap();
         assert_eq!(thetas.len(), 1);
         assert!(thetas[0].fixed);
         assert!((thetas[0].init - 0.1).abs() < 1e-12);
@@ -2381,7 +2442,7 @@ mod tests {
     #[test]
     fn test_parse_theta_fix_with_bounds() {
         let lines = vec!["theta TVCL(0.1, 0.01, 1.0, FIX)".to_string()];
-        let (thetas, _, _, _, _) = parse_parameters(&lines).unwrap();
+        let (thetas, _, _, _, _, _) = parse_parameters(&lines).unwrap();
         assert!(thetas[0].fixed);
         assert!((thetas[0].lower - 0.01).abs() < 1e-12);
         assert!((thetas[0].upper - 1.0).abs() < 1e-12);
@@ -2390,28 +2451,28 @@ mod tests {
     #[test]
     fn test_parse_theta_unfixed_by_default() {
         let lines = vec!["theta TVCL(0.1, 0.01, 1.0)".to_string()];
-        let (thetas, _, _, _, _) = parse_parameters(&lines).unwrap();
+        let (thetas, _, _, _, _, _) = parse_parameters(&lines).unwrap();
         assert!(!thetas[0].fixed);
     }
 
     #[test]
     fn test_parse_omega_fix() {
         let lines = vec!["omega ETA_CL ~ 0.09 FIX".to_string()];
-        let (_, omegas, _, _, _) = parse_parameters(&lines).unwrap();
+        let (_, omegas, _, _, _, _) = parse_parameters(&lines).unwrap();
         assert!(omegas[0].fixed);
     }
 
     #[test]
     fn test_parse_sigma_fix() {
         let lines = vec!["sigma PROP ~ 0.05 FIX".to_string()];
-        let (_, _, _, sigmas, _) = parse_parameters(&lines).unwrap();
+        let (_, _, _, sigmas, _, _) = parse_parameters(&lines).unwrap();
         assert!(sigmas[0].fixed);
     }
 
     #[test]
     fn test_parse_block_omega_fix() {
         let lines = vec!["block_omega (ETA_CL, ETA_V) = [0.09, 0.02, 0.04] FIX".to_string()];
-        let (_, _, blocks, _, _) = parse_parameters(&lines).unwrap();
+        let (_, _, blocks, _, _, _) = parse_parameters(&lines).unwrap();
         assert!(blocks[0].fixed);
     }
 
@@ -2422,7 +2483,7 @@ mod tests {
             "omega ETA ~ 0.05 Fix".to_string(),
             "sigma S ~ 0.02 FIX".to_string(),
         ];
-        let (thetas, omegas, _, sigmas, _) = parse_parameters(&lines).unwrap();
+        let (thetas, omegas, _, sigmas, _, _) = parse_parameters(&lines).unwrap();
         assert!(thetas[0].fixed);
         assert!(omegas[0].fixed);
         assert!(sigmas[0].fixed);
@@ -2438,7 +2499,7 @@ mod tests {
             "sigma PROP ~ 0.02 FIXED".to_string(),
             "block_omega (A, B) = [1.0, 0.0, 1.0] FIXED".to_string(),
         ];
-        let (_, omegas, blocks, sigmas, _) = parse_parameters(&lines).unwrap();
+        let (_, omegas, blocks, sigmas, _, _) = parse_parameters(&lines).unwrap();
         // omega/sigma still parse (trailing `FIXED` is ignored) but must NOT
         // be marked fixed.
         assert!(!omegas[0].fixed);
@@ -2744,5 +2805,92 @@ mod tests {
 
         assert!(apply_fit_option(&mut opts, "inner_maxiter", "oops").is_err());
         assert!(apply_fit_option(&mut opts, "inner_tol", "not_a_num").is_err());
+    }
+
+    // ── IOV: kappa keyword and iov_column ──────────────────────────────────
+
+    #[test]
+    fn test_parse_kappa_keyword() {
+        let lines = vec!["kappa KAPPA_CL ~ 0.01".to_string()];
+        let (_, _, _, _, _, kappas) = parse_parameters(&lines).unwrap();
+        assert_eq!(kappas.len(), 1);
+        assert_eq!(kappas[0].name, "KAPPA_CL");
+        assert!((kappas[0].variance - 0.01).abs() < 1e-12);
+        assert!(!kappas[0].fixed);
+    }
+
+    #[test]
+    fn test_parse_kappa_fix() {
+        let lines = vec!["kappa KAPPA_V ~ 0.05 FIX".to_string()];
+        let (_, _, _, _, _, kappas) = parse_parameters(&lines).unwrap();
+        assert!(kappas[0].fixed);
+    }
+
+    #[test]
+    fn test_kappa_appended_after_bsv_etas() {
+        // kappa names must NOT appear in the BSV eta_names list returned
+        // as the 5th element; they only appear in the 6th (kappas) element.
+        let lines = vec![
+            "omega ETA_CL ~ 0.09".to_string(),
+            "kappa KAPPA_CL ~ 0.01".to_string(),
+        ];
+        let (_, _, _, _, bsv_etas, kappas) = parse_parameters(&lines).unwrap();
+        assert_eq!(bsv_etas, vec!["ETA_CL"]);
+        assert_eq!(kappas.len(), 1);
+        assert_eq!(kappas[0].name, "KAPPA_CL");
+    }
+
+    #[test]
+    fn test_parse_full_model_with_kappa() {
+        let content = r#"
+[parameters]
+  theta TVCL(0.2, 0.001, 10.0)
+  theta TVV(10.0, 0.1, 500.0)
+  omega ETA_CL ~ 0.09
+  omega ETA_V  ~ 0.04
+  kappa KAPPA_CL ~ 0.01
+  sigma PROP_ERR ~ 0.02
+
+[individual_parameters]
+  CL = TVCL * exp(ETA_CL + KAPPA_CL)
+  V  = TVV  * exp(ETA_V)
+
+[structural_model]
+  pk one_cpt_iv_bolus(cl=CL, v=V)
+
+[error_model]
+  DV ~ proportional(PROP_ERR)
+"#;
+        let parsed = parse_full_model(content).unwrap();
+        let m = &parsed.model;
+        assert_eq!(m.n_eta, 2);   // BSV only
+        assert_eq!(m.n_kappa, 1);
+        assert_eq!(m.kappa_names, vec!["KAPPA_CL"]);
+        assert!(m.default_params.omega_iov.is_some());
+        let iov = m.default_params.omega_iov.as_ref().unwrap();
+        assert_eq!(iov.dim(), 1);
+        assert!((iov.matrix[(0, 0)] - 0.01).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_iov_column_fit_option() {
+        let mut opts = FitOptions::default();
+        assert_eq!(apply_fit_option(&mut opts, "iov_column", "OCC"), Ok(true));
+        assert_eq!(opts.iov_column, Some("OCC".to_string()));
+    }
+
+    #[test]
+    fn test_iov_column_none_values() {
+        let mut opts = FitOptions::default();
+        apply_fit_option(&mut opts, "iov_column", "OCC").unwrap();
+        apply_fit_option(&mut opts, "iov_column", "none").unwrap();
+        assert!(opts.iov_column.is_none());
+    }
+
+    #[test]
+    fn test_iov_column_parsed_from_fit_options_block() {
+        let content = minimal_model_with_fit_options("  iov_column = PERIOD");
+        let parsed = parse_full_model(&content).unwrap();
+        assert_eq!(parsed.fit_options.iov_column, Some("PERIOD".to_string()));
     }
 }
