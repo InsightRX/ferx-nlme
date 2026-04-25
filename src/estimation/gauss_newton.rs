@@ -302,6 +302,7 @@ pub fn run_foce_gn(
             h_matrices,
             covariance_matrix,
             warnings,
+            saem_mu_ref_m_step_evals_saved: None,
         };
     }
 
@@ -384,6 +385,7 @@ pub fn run_foce_gn(
         h_matrices: final_h_mats,
         covariance_matrix,
         warnings,
+        saem_mu_ref_m_step_evals_saved: None,
     }
 }
 

@@ -486,6 +486,9 @@ pub struct FitResult {
     pub sir_ci_omega: Option<Vec<(f64, f64)>>,
     pub sir_ci_sigma: Option<Vec<(f64, f64)>>,
     pub sir_ess: Option<f64>,
+    /// Estimated OFV evaluations saved by the SAEM mu-ref gradient step M-step.
+    /// Non-None only when method=saem and mu_referencing=true.
+    pub saem_mu_ref_m_step_evals_saved: Option<u32>,
 }
 
 /// Options for fit()

@@ -459,6 +459,7 @@ fn fit_inner(
         sir_ci_omega: sir_result.as_ref().map(|s| s.ci_omega.clone()),
         sir_ci_sigma: sir_result.as_ref().map(|s| s.ci_sigma.clone()),
         sir_ess: sir_result.as_ref().map(|s| s.effective_sample_size),
+        saem_mu_ref_m_step_evals_saved: result.saem_mu_ref_m_step_evals_saved,
     };
 
     if options.verbose {
