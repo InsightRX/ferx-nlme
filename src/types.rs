@@ -424,6 +424,13 @@ impl Default for GradientMethod {
     }
 }
 
+impl CompiledModel {
+    /// Returns true when this model uses ODE integration; false for analytical PK.
+    pub fn is_ode_based(&self) -> bool {
+        self.ode_spec.is_some()
+    }
+}
+
 impl std::fmt::Debug for CompiledModel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CompiledModel")
@@ -486,6 +493,19 @@ pub struct FitResult {
     pub sir_ci_omega: Option<Vec<(f64, f64)>>,
     pub sir_ci_sigma: Option<Vec<(f64, f64)>>,
     pub sir_ess: Option<f64>,
+    /// Gradient method used in the inner (per-subject EBE) BFGS loop.
+    pub gradient_method_inner: String,
+    /// Gradient method used in the outer (population parameter) optimizer.
+    pub gradient_method_outer: String,
+    /// True when the model uses ODE integration; false for analytical PK.
+    pub uses_ode_solver: bool,
+    /// Number of Rayon worker threads used during this fit.
+    pub n_threads_used: usize,
+    /// NLopt algorithms requested but not available in this platform build.
+    pub nlopt_missing_algorithms: Vec<String>,
+    /// Estimated OFV evaluations for the covariance step (n_params²), set
+    /// when `run_covariance_step = true` and `n_parameters > 30`.
+    pub covariance_n_evals_estimated: Option<usize>,
 }
 
 /// Options for fit()
@@ -807,4 +827,66 @@ pub struct ParsedModel {
     pub model: CompiledModel,
     pub simulation: Option<SimulationSpec>,
     pub fit_options: FitOptions,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    fn make_compiled_model(with_ode: bool) -> CompiledModel {
+        CompiledModel {
+            name: "test".into(),
+            pk_model: PkModel::OneCptOral,
+            error_model: ErrorModel::Additive,
+            pk_param_fn: Box::new(|_, _, _| PkParams::default()),
+            n_theta: 1,
+            n_eta: 1,
+            n_epsilon: 1,
+            theta_names: vec!["CL".into()],
+            eta_names: vec!["ETA_CL".into()],
+            default_params: ModelParameters {
+                theta: vec![1.0],
+                theta_names: vec!["CL".into()],
+                theta_lower: vec![0.0],
+                theta_upper: vec![f64::INFINITY],
+                theta_fixed: vec![false],
+                omega: OmegaMatrix::from_diagonal(&[0.1], vec!["ETA_CL".into()]),
+                omega_fixed: vec![false],
+                sigma: SigmaVector { values: vec![0.1], names: vec!["EPS".into()] },
+                sigma_fixed: vec![false],
+            },
+            mu_refs: HashMap::new(),
+            tv_fn: None,
+            pk_indices: vec![],
+            eta_map: vec![],
+            pk_idx_f64: vec![],
+            sel_flat: vec![],
+            ode_spec: if with_ode {
+                Some(crate::ode::OdeSpec {
+                    rhs: Box::new(|_y, _p, _t, _dy| {}),
+                    n_states: 2,
+                    state_names: vec!["depot".into(), "central".into()],
+                    obs_cmt_idx: 0,
+                })
+            } else {
+                None
+            },
+            bloq_method: BloqMethod::Drop,
+            referenced_covariates: vec![],
+            gradient_method: GradientMethod::Auto,
+        }
+    }
+
+    #[test]
+    fn is_ode_based_false_for_analytical() {
+        let m = make_compiled_model(false);
+        assert!(!m.is_ode_based());
+    }
+
+    #[test]
+    fn is_ode_based_true_for_ode() {
+        let m = make_compiled_model(true);
+        assert!(m.is_ode_based());
+    }
 }
