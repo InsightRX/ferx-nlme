@@ -158,6 +158,12 @@ pub struct Subject {
     /// Censoring flag per observation (0 = quantified, 1 = below LLOQ).
     /// When `cens[j] == 1`, `observations[j]` holds the LLOQ value (NONMEM convention).
     pub cens: Vec<u8>,
+    /// Occasion index per observation row (parallel to `obs_times`).
+    /// Empty when no IOV column is present in the data.
+    pub occasions: Vec<u32>,
+    /// Occasion index per dose event (parallel to `doses`).
+    /// Empty when no IOV column is present in the data.
+    pub dose_occasions: Vec<u32>,
 }
 
 impl Subject {
@@ -251,6 +257,11 @@ pub struct ModelParameters {
     pub sigma: SigmaVector,
     /// Per-sigma FIX flags.
     pub sigma_fixed: Vec<bool>,
+    /// Inter-occasion variability matrix (Omega_IOV). `None` when no `kappa`
+    /// declarations appear in the model file.  Always diagonal for Option A.
+    pub omega_iov: Option<OmegaMatrix>,
+    /// Per-kappa FIX flags (parallel to `omega_iov` diagonal).
+    pub kappa_fixed: Vec<bool>,
 }
 
 impl ModelParameters {
@@ -259,6 +270,7 @@ impl ModelParameters {
         self.theta_fixed.iter().any(|&b| b)
             || self.omega_fixed.iter().any(|&b| b)
             || self.sigma_fixed.iter().any(|&b| b)
+            || self.kappa_fixed.iter().any(|&b| b)
     }
 }
 
@@ -302,10 +314,17 @@ pub struct CompiledModel {
     pub error_model: ErrorModel,
     pub pk_param_fn: PkParamFn,
     pub n_theta: usize,
+    /// Number of between-subject variability (BSV) ETAs.
     pub n_eta: usize,
+    /// Number of inter-occasion variability (IOV) kappa parameters.
+    /// Zero when no `kappa` declarations are present.
+    pub n_kappa: usize,
     pub n_epsilon: usize,
     pub theta_names: Vec<String>,
+    /// BSV ETA names only (length == n_eta).
     pub eta_names: Vec<String>,
+    /// IOV kappa names (length == n_kappa). Empty when no IOV.
+    pub kappa_names: Vec<String>,
     pub default_params: ModelParameters,
     /// Detected mu-referencing relationships: eta_name → (theta_name, log_transformed).
     /// Populated by the parser; empty map means no mu-referencing detected.
@@ -432,6 +451,7 @@ impl std::fmt::Debug for CompiledModel {
             .field("error_model", &self.error_model)
             .field("n_theta", &self.n_theta)
             .field("n_eta", &self.n_eta)
+            .field("n_kappa", &self.n_kappa)
             .finish()
     }
 }
@@ -486,6 +506,12 @@ pub struct FitResult {
     pub sir_ci_omega: Option<Vec<(f64, f64)>>,
     pub sir_ci_sigma: Option<Vec<(f64, f64)>>,
     pub sir_ess: Option<f64>,
+    // IOV results (present when kappa declarations exist in the model)
+    pub omega_iov: Option<DMatrix<f64>>,
+    pub kappa_names: Vec<String>,
+    pub kappa_fixed: Vec<bool>,
+    pub se_kappa: Option<Vec<f64>>,
+    pub shrinkage_kappa: Vec<f64>,
 }
 
 /// Options for fit()
@@ -544,6 +570,11 @@ pub struct FitOptions {
     /// pool of `n` threads — so the setting is per-call, not process-wide,
     /// and different fits can use different thread counts.
     pub threads: Option<usize>,
+    /// Name of the column in the dataset that identifies the occasion for each row.
+    /// When `Some`, `read_nonmem_csv` populates `Subject::occasions` / `dose_occasions`
+    /// and the inner loop estimates per-occasion kappas alongside the BSV etas.
+    /// Requires at least one `kappa` declaration in the model's `[parameters]` block.
+    pub iov_column: Option<String>,
     /// Optional cooperative cancellation token. When present and flipped by
     /// another thread, the outer/inner/SAEM/GN loops exit at the next safe
     /// point and `fit()` returns `Err("cancelled by user")`. Default `None`.
@@ -589,6 +620,7 @@ impl Default for FitOptions {
             steihaug_max_iters: 50,
             mu_referencing: true,
             threads: None,
+            iov_column: None,
             cancel: None,
             user_set_keys: Vec::new(),
             gradient_method: GradientMethod::default(),
@@ -748,6 +780,7 @@ pub fn framework_keys() -> &'static [&'static str] {
         "threads",
         "gradient",
         "gradient_method",
+        "iov_column",
     ]
 }
 

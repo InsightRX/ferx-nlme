@@ -44,6 +44,14 @@ pub fn pack_params(params: &ModelParameters) -> Vec<f64> {
         v.push(s.max(1e-10).ln());
     }
 
+    // IOV diagonal omega (Option A): log-transformed diagonal elements
+    if let Some(ref iov) = params.omega_iov {
+        let n = iov.dim();
+        for i in 0..n {
+            v.push(iov.chol[(i, i)].max(1e-10).ln());
+        }
+    }
+
     v
 }
 
@@ -103,6 +111,23 @@ pub fn unpack_params(v: &[f64], template: &ModelParameters) -> ModelParameters {
         names: template.sigma.names.clone(),
     };
 
+    // IOV diagonal omega
+    let omega_iov = if let Some(ref iov_tmpl) = template.omega_iov {
+        let n_iov = iov_tmpl.dim();
+        let mut variances = Vec::with_capacity(n_iov);
+        for _ in 0..n_iov {
+            let chol_diag = v[idx].exp();
+            idx += 1;
+            variances.push(chol_diag * chol_diag);
+        }
+        Some(OmegaMatrix::from_diagonal(
+            &variances,
+            iov_tmpl.eta_names.clone(),
+        ))
+    } else {
+        None
+    };
+
     ModelParameters {
         theta,
         theta_names: template.theta_names.clone(),
@@ -113,6 +138,8 @@ pub fn unpack_params(v: &[f64], template: &ModelParameters) -> ModelParameters {
         omega_fixed: template.omega_fixed.clone(),
         sigma,
         sigma_fixed: template.sigma_fixed.clone(),
+        omega_iov,
+        kappa_fixed: template.kappa_fixed.clone(),
     }
 }
 
@@ -153,6 +180,13 @@ pub fn packed_fixed_mask(template: &ModelParameters) -> Vec<bool> {
         mask.push(f);
     }
 
+    // IOV diagonal: one element per kappa
+    if let Some(ref iov) = template.omega_iov {
+        for i in 0..iov.dim() {
+            mask.push(template.kappa_fixed.get(i).copied().unwrap_or(false));
+        }
+    }
+
     mask
 }
 
@@ -166,7 +200,8 @@ pub fn packed_len(template: &ModelParameters) -> usize {
         n_eta * (n_eta + 1) / 2
     };
     let n_sigma = template.sigma.values.len();
-    n_theta + n_omega + n_sigma
+    let n_iov = template.omega_iov.as_ref().map_or(0, |m| m.dim());
+    n_theta + n_omega + n_sigma + n_iov
 }
 
 /// Compute box constraints for the packed parameter vector.
@@ -212,6 +247,14 @@ pub fn compute_bounds(template: &ModelParameters) -> PackedBounds {
     for _ in 0..n_sigma {
         lower.push(-8.0); // exp(-8) ≈ 3e-4
         upper.push(5.0); // exp(5) ≈ 148
+    }
+
+    // IOV diagonal bounds (same as BSV diagonal)
+    if let Some(ref iov) = template.omega_iov {
+        for _ in 0..iov.dim() {
+            lower.push(-6.0);
+            upper.push(4.0);
+        }
     }
 
     // Pin any FIX parameters to their packed (log-space) initial value.
@@ -300,6 +343,8 @@ mod tests {
             omega_fixed: vec![false; 2],
             sigma,
             sigma_fixed: vec![false; 1],
+            omega_iov: None,
+            kappa_fixed: Vec::new(),
         }
     }
 
@@ -415,6 +460,8 @@ mod tests {
             omega_fixed: vec![false; 2],
             sigma,
             sigma_fixed: vec![false; 1],
+            omega_iov: None,
+            kappa_fixed: Vec::new(),
         }
     }
 
@@ -505,6 +552,8 @@ mod tests {
             omega_fixed: vec![false; 3],
             sigma,
             sigma_fixed: vec![false; 1],
+            omega_iov: None,
+            kappa_fixed: Vec::new(),
         };
         CompiledModel {
             name: "test".into(),
@@ -536,6 +585,8 @@ mod tests {
             bloq_method: BloqMethod::Drop,
             referenced_covariates: Vec::new(),
             gradient_method: GradientMethod::default(),
+            n_kappa: 0,
+            kappa_names: Vec::new(),
         }
     }
 
@@ -707,6 +758,82 @@ mod tests {
         let mask = packed_fixed_mask(&template);
         assert_eq!(mask.len(), packed_len(&template));
         assert!(mask.iter().all(|&b| !b)); // default: nothing fixed
+    }
+
+    fn make_iov_template() -> ModelParameters {
+        let omega =
+            OmegaMatrix::from_diagonal(&[0.09], vec!["ETA_CL".into()]);
+        let omega_iov = OmegaMatrix::from_diagonal(&[0.01], vec!["KAPPA_CL".into()]);
+        let sigma = SigmaVector {
+            values: vec![0.02],
+            names: vec!["PROP_ERR".into()],
+        };
+        ModelParameters {
+            theta: vec![5.0],
+            theta_names: vec!["TVCL".into()],
+            theta_lower: vec![0.01],
+            theta_upper: vec![100.0],
+            theta_fixed: vec![false],
+            omega,
+            omega_fixed: vec![false],
+            sigma,
+            sigma_fixed: vec![false],
+            omega_iov: Some(omega_iov),
+            kappa_fixed: vec![false],
+        }
+    }
+
+    #[test]
+    fn test_packed_len_with_kappa() {
+        let template = make_iov_template();
+        // 1 theta + 1 bsv omega diag + 1 sigma + 1 kappa omega diag = 4
+        assert_eq!(packed_len(&template), 4);
+    }
+
+    #[test]
+    fn test_pack_unpack_with_omega_iov() {
+        let template = make_iov_template();
+        let packed = pack_params(&template);
+        assert_eq!(packed.len(), packed_len(&template));
+
+        let recovered = unpack_params(&packed, &template);
+
+        // Theta round-trips
+        assert_relative_eq!(template.theta[0], recovered.theta[0], epsilon = 1e-8);
+
+        // BSV omega diagonal round-trips
+        assert_relative_eq!(
+            template.omega.matrix[(0, 0)],
+            recovered.omega.matrix[(0, 0)],
+            epsilon = 1e-8
+        );
+
+        // IOV omega diagonal round-trips
+        let iov_orig = template.omega_iov.as_ref().unwrap().matrix[(0, 0)];
+        let iov_rec = recovered.omega_iov.as_ref().unwrap().matrix[(0, 0)];
+        assert_relative_eq!(iov_orig, iov_rec, epsilon = 1e-8);
+    }
+
+    #[test]
+    fn test_fixed_kappa_pins_bounds() {
+        let mut template = make_iov_template();
+        template.kappa_fixed[0] = true;
+        let bounds = compute_bounds(&template);
+        let packed = pack_params(&template);
+        // kappa is the last packed element
+        let kappa_idx = packed.len() - 1;
+        assert_relative_eq!(bounds.lower[kappa_idx], packed[kappa_idx], epsilon = 1e-12);
+        assert_relative_eq!(bounds.upper[kappa_idx], packed[kappa_idx], epsilon = 1e-12);
+    }
+
+    #[test]
+    fn test_packed_fixed_mask_with_kappa() {
+        let mut template = make_iov_template();
+        template.kappa_fixed[0] = true;
+        let mask = packed_fixed_mask(&template);
+        assert_eq!(mask.len(), packed_len(&template));
+        assert!(mask[mask.len() - 1]); // kappa is fixed
+        assert!(!mask[0]); // theta is free
     }
 
     #[test]
