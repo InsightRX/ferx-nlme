@@ -16,6 +16,9 @@ pub struct OuterResult {
     pub h_matrices: Vec<DMatrix<f64>>,
     pub covariance_matrix: Option<DMatrix<f64>>,
     pub warnings: Vec<String>,
+    /// Estimated OFV evaluations saved by the SAEM mu-ref gradient step M-step.
+    /// Non-None only when method=saem and mu_referencing=true.
+    pub saem_mu_ref_m_step_evals_saved: Option<u32>,
 }
 
 /// Run the outer optimization loop (population parameter estimation).
@@ -452,6 +455,7 @@ fn optimize_nlopt(
         h_matrices: final_hms,
         covariance_matrix,
         warnings,
+        saem_mu_ref_m_step_evals_saved: None,
     }
 }
 
@@ -678,6 +682,7 @@ fn optimize_bfgs(
         h_matrices: final_hms,
         covariance_matrix,
         warnings,
+        saem_mu_ref_m_step_evals_saved: None,
     }
 }
 
