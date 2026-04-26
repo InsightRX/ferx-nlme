@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "ayu";
-            window.path_to_searchindex_js = "searchindex-2f461d70.js";
+            window.path_to_searchindex_js = "searchindex-b27c9ee6.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-66605922.js"></script>
@@ -1054,6 +1054,10 @@ PARAM = THETA + ETA                   # additive
 <tr><td><code>global_maxeval</code></td><td>integer</td><td>auto</td><td>Max evaluations for global search</td></tr>
 <tr><td><code>bloq_method</code></td><td><code>drop</code>, <code>m3</code></td><td><code>drop</code></td><td>How to handle rows with <code>CENS=1</code>. <code>m3</code> enables Beal’s M3 likelihood (see <a href="#bloq-m3-method">BLOQ example</a>).</td></tr>
 <tr><td><code>mu_referencing</code></td><td><code>true</code>, <code>false</code></td><td><code>true</code></td><td>Re-centre inner-loop ETA estimates on the current population mean (auto-detected from <code>[individual_parameters]</code>). See the <a href="#do-i-need-to-use-mu-referencing-in-my-model-definitions-like-in-nonmem--nlmixr2">FAQ entry</a> for details. Set <code>false</code> to reproduce pre-automatic-mu behaviour.</td></tr>
+<tr><td><code>scale_params</code></td><td><code>true</code>, <code>false</code></td><td><code>true</code></td><td>Scale optimizer coordinates by the magnitude of the initial parameter vector. Helps outer optimizers (NLopt, Gauss-Newton, SAEM M-step) treat all dimensions equally when parameters span several orders of magnitude. Set <code>false</code> only for debugging or to reproduce pre-scaling behaviour.</td></tr>
+<tr><td><code>optimizer_trace</code></td><td><code>true</code>, <code>false</code></td><td><code>false</code></td><td>Write a per-iteration CSV to <code>/tmp/ferx_trace_&lt;pid&gt;_&lt;ts&gt;.csv</code>. The path is stored in <code>FitResult::trace_path</code>. Useful for diagnosing convergence problems or comparing optimizers. See <a href="#optimizer-trace">Optimizer Trace</a>.</td></tr>
+<tr><td><code>max_unconverged_frac</code></td><td>float 0–1</td><td><code>1.0</code> (disabled)</td><td>EBE convergence guard: if the fraction of subjects whose inner optimizer did not converge exceeds this threshold, the outer step is rejected (OFV = ∞). Use values like <code>0.5</code> to force the outer optimizer to backtrack from pathological regions.</td></tr>
+<tr><td><code>min_obs_for_convergence_check</code></td><td>integer</td><td><code>0</code> (all)</td><td>Subjects with fewer than this many observations are excluded from the <code>max_unconverged_frac</code> denominator. Useful when sparse subjects routinely fail EBE convergence and should not trigger the guard.</td></tr>
 </tbody>
 </table>
 </div>
@@ -1187,6 +1191,41 @@ warnings.</p>
   maxiter            = 200
   steihaug_max_iters = 30
 </code></pre>
+<p>Enable optimizer trace and EBE guard:</p>
+<pre><code>[fit_options]
+  method                   = foce
+  optimizer_trace          = true
+  max_unconverged_frac     = 0.5
+  min_obs_for_convergence_check = 3
+</code></pre>
+<h2 id="optimizer-trace"><a class="header" href="#optimizer-trace">Optimizer Trace</a></h2>
+<p>When <code>optimizer_trace = true</code>, a CSV is written to <code>/tmp/ferx_trace_&lt;pid&gt;_&lt;ts&gt;.csv</code> and the path is stored in <code>FitResult::trace_path</code>. Each row is one outer iteration.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Column</th><th>Populated by</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>iter</code></td><td>all</td><td>Iteration number</td></tr>
+<tr><td><code>method</code></td><td>all</td><td><code>foce</code>, <code>focei</code>, <code>gn</code>, <code>gn_hybrid</code>, <code>saem</code></td></tr>
+<tr><td><code>phase</code></td><td>gn_hybrid, saem</td><td><code>focei</code> (polish) or <code>explore</code>/<code>converge</code></td></tr>
+<tr><td><code>ofv</code></td><td>all</td><td>Objective function value</td></tr>
+<tr><td><code>wall_ms</code></td><td>all</td><td>Wall time for this iteration (ms)</td></tr>
+<tr><td><code>grad_norm</code></td><td>BFGS, NLopt gradient-mode</td><td>Gradient norm</td></tr>
+<tr><td><code>step_norm</code></td><td>BFGS</td><td>Step size</td></tr>
+<tr><td><code>optimizer</code></td><td>FOCE/FOCEI</td><td>Active NLopt algorithm</td></tr>
+<tr><td><code>lm_lambda</code></td><td>GN</td><td>Levenberg-Marquardt damping factor</td></tr>
+<tr><td><code>ofv_delta</code></td><td>GN</td><td>Change in OFV from previous iteration</td></tr>
+<tr><td><code>step_accepted</code></td><td>GN</td><td>Whether the GN step was accepted</td></tr>
+<tr><td><code>cond_nll</code></td><td>SAEM</td><td>Conditional observation NLL</td></tr>
+<tr><td><code>gamma</code></td><td>SAEM</td><td>SAEM step-size (1 in exploration, 1/k in convergence)</td></tr>
+<tr><td><code>mh_accept_rate</code></td><td>SAEM</td><td>Mean Metropolis-Hastings acceptance rate across subjects</td></tr>
+<tr><td><code>n_ebe_unconverged</code></td><td>FOCE/FOCEI</td><td>Subjects whose inner optimizer did not converge</td></tr>
+<tr><td><code>n_ebe_fallback</code></td><td>FOCE/FOCEI</td><td>Subjects that fell back to Nelder-Mead</td></tr>
+</tbody>
+</table>
+</div>
+<p>Unused columns contain <code>NA</code>. The trace is written in append mode per iteration — it is readable even if the run is interrupted.</p>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="simulation"><a class="header" href="#simulation">Simulation</a></h1>
 <p>The optional <code>[simulation]</code> block defines a virtual clinical trial design for generating simulated data. This is useful for model validation and testing.</p>
@@ -1497,7 +1536,11 @@ warnings.</p>
 <h3 id="4-m-step-for-theta-and-sigma-optimization"><a class="header" href="#4-m-step-for-theta-and-sigma-optimization">4. M-Step for Theta and Sigma (Optimization)</a></h3>
 <p>Minimize the conditional observation negative log-likelihood with ETAs held fixed:</p>
 <p>\[ \sum_{i=1}^{N} \sum_{j=1}^{n_i} \left[ \frac{1}{2} \log V_{ij} + \frac{1}{2} \frac{(y_{ij} - f_{ij})^2}{V_{ij}} \right] \]</p>
-<p>This is optimized over \( \theta \) and \( \sigma \) in log-space using NLopt SLSQP with finite-difference gradients.</p>
+<p>When <code>mu_referencing = true</code> (the default), ferx detects lognormal parameters from the <code>[individual_parameters]</code> block and applies a fast <strong>analytic gradient step</strong> for those thetas instead of running NLopt:</p>
+<p>\[ \mu_j \leftarrow \mu_j - \gamma_k \cdot \nabla_{\mu_j} \text{condNLL} \]</p>
+<p>where the gradient is computed via central finite differences on the accepted ETAs (2 evaluations per mu-referenced pair per subject). NLopt still runs for any remaining thetas (non-mu-referenced) and for sigma — those are unchanged.</p>
+<p>When <code>mu_referencing = false</code>, the full NLopt M-step runs for all thetas as before.</p>
+<p>The number of NLopt evaluations saved is stored in <code>FitResult::saem_mu_ref_m_step_evals_saved</code> (estimated as <code>n_mstep_iters × n_mu_ref_pairs × 3</code>; <code>None</code> when mu-referencing is off or method ≠ SAEM).</p>
 <h3 id="5-adaptive-mh-step-sizes"><a class="header" href="#5-adaptive-mh-step-sizes">5. Adaptive MH Step Sizes</a></h3>
 <p>Every <code>adapt_interval</code> iterations, the per-subject step sizes \( \delta_i \) are adjusted:</p>
 <ul>
@@ -1814,6 +1857,8 @@ cargo run --release --features autodiff --bin ferx -- model.ferx --data data.csv
 <tr><td><code>CWRES</code></td><td>Conditional weighted residual</td></tr>
 <tr><td><code>IWRES</code></td><td>Individual weighted residual</td></tr>
 <tr><td><code>ETA1</code>, <code>ETA2</code>, …</td><td>Empirical Bayes estimates of random effects</td></tr>
+<tr><td><code>EBE_OFV</code></td><td>Each subject’s contribution to the total OFV</td></tr>
+<tr><td><code>N_OBS</code></td><td>Number of observations for the subject</td></tr>
 </tbody>
 </table>
 </div>
@@ -1875,11 +1920,58 @@ sigma:
 <li><strong>rse_pct</strong>: Relative standard error as percentage (SE/estimate * 100)</li>
 <li><strong>cv_pct</strong>: Coefficient of variation for omega (sqrt(variance) * 100)</li>
 </ul>
+<h3 id="shrinkage"><a class="header" href="#shrinkage">Shrinkage</a></h3>
+<p>Two shrinkage metrics are reported after every fit:</p>
+<p><strong>ETA shrinkage</strong> (per random effect):
+\[ \text{shrinkage}_k = 1 - \frac{\text{SD}(\hat{\eta}<em>k)}{\sqrt{\omega</em>{kk}}} \]</p>
+<p>A value near 1 means individual EBEs are all pulled toward zero — the data are not informative about that random effect. A value near 0 means the ETAs are spread consistent with the prior omega.</p>
+<p><strong>EPS shrinkage</strong> (scalar):
+\[ \text{shrinkage}_\varepsilon = 1 - \text{SD}(\text{IWRES}) \]</p>
+<p>Both are reported in the YAML and in <code>print_results()</code> output. Values of <code>NaN</code> indicate fewer than two subjects or a zero-variance omega component.</p>
+<h3 id="covariance-status"><a class="header" href="#covariance-status">Covariance Status</a></h3>
+<p><code>covariance_status</code> in the YAML takes one of three values:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Value</th><th>Meaning</th></tr>
+</thead>
+<tbody>
+<tr><td><code>Computed</code></td><td>Covariance step succeeded; SE values are valid</td></tr>
+<tr><td><code>Failed</code></td><td>Hessian was singular or inversion failed; SE fields are <code>null</code></td></tr>
+<tr><td><code>NotRequested</code></td><td><code>covariance = false</code> was set; SE fields are <code>null</code></td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="run-record-fields"><a class="header" href="#run-record-fields">Run Record Fields</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Field</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>model_name</code></td><td>Name from the <code>.ferx</code> file (stem of the filename)</td></tr>
+<tr><td><code>ferx_version</code></td><td>Version of ferx-nlme that produced the result</td></tr>
+<tr><td><code>wall_time_secs</code></td><td>Wall-clock time for the estimation step (seconds)</td></tr>
+<tr><td><code>gradient_method_inner</code></td><td>Gradient method used in the inner (EBE) loop, e.g. <code>FiniteDifference</code></td></tr>
+<tr><td><code>gradient_method_outer</code></td><td>Gradient method used in the outer loop, e.g. <code>FiniteDifference</code> or <code>AutoDiff</code></td></tr>
+<tr><td><code>uses_ode_solver</code></td><td><code>true</code> if the model uses the ODE solver, <code>false</code> for analytical PK</td></tr>
+<tr><td><code>n_threads_used</code></td><td>Number of Rayon threads used during estimation</td></tr>
+</tbody>
+</table>
+</div>
 <h2 id="timing-file-model-timingtxt"><a class="header" href="#timing-file-model-timingtxt">Timing File (<code>{model}-timing.txt</code>)</a></h2>
 <p>A single-line text file with the wall-clock estimation time:</p>
 <pre><code>elapsed_seconds=0.496000
 </code></pre>
 <p>This measures only the estimation step (not parsing or data reading).</p>
+<h2 id="optimizer-trace-csv"><a class="header" href="#optimizer-trace-csv">Optimizer Trace CSV</a></h2>
+<p>When <code>optimizer_trace = true</code> is set in <code>[fit_options]</code>, a CSV is written to <code>/tmp/ferx_trace_&lt;pid&gt;_&lt;ts&gt;.csv</code>. The path is also stored in <code>FitResult::trace_path</code>.</p>
+<p>Each row is one outer iteration. See the <a href="#optimizer-trace">fit-options trace table</a> for the full column reference.</p>
+<p>Example use in R (with the <code>ferx</code> package):</p>
+<pre><code class="language-r">fit &lt;- ferx_fit("model.ferx", "data.csv", optimizer_trace = TRUE)
+trace &lt;- read.csv(fit$trace_path)
+plot(trace$iter, trace$ofv, type = "l", xlab = "Iteration", ylab = "OFV")
+</code></pre>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="examples-4"><a class="header" href="#examples-4">Examples</a></h1>
 <p>FeRx includes several example models in the <code>examples/</code> directory with corresponding datasets in <code>data/</code>.</p>
