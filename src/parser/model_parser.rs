@@ -174,7 +174,7 @@ pub fn parse_full_model(content: &str) -> Result<ParsedModel, String> {
     let param_lines = blocks
         .get("parameters")
         .ok_or("Missing [parameters] block")?;
-    let (thetas, omegas, block_omegas, sigmas, eta_names_bsv, kappa_specs) =
+    let (thetas, omegas, block_omegas, sigmas, eta_names_bsv, kappa_info) =
         parse_parameters(param_lines)?;
 
     let struct_lines = blocks
@@ -194,13 +194,13 @@ pub fn parse_full_model(content: &str) -> Result<ParsedModel, String> {
     let sigma_names: Vec<String> = sigmas.iter().map(|s| s.name.clone()).collect();
     let n_theta = theta_names.len();
     let n_eta = eta_names_bsv.len(); // BSV-only count
-    let n_kappa = kappa_specs.len();
+    let n_kappa = kappa_info.names_ordered.len();
     let n_epsilon = sigma_names.len();
 
     // Extended eta context: BSV etas followed by kappa names.
     // This lets [individual_parameters] expressions like `ETA_CL + KAPPA_CL`
     // compile: KAPPA_CL becomes Eta(n_eta + kappa_idx) in the AST.
-    let kappa_names: Vec<String> = kappa_specs.iter().map(|k| k.name.clone()).collect();
+    let kappa_names: Vec<String> = kappa_info.names_ordered.clone();
     let eta_names: Vec<String> = eta_names_bsv
         .iter()
         .cloned()
@@ -255,13 +255,32 @@ pub fn parse_full_model(content: &str) -> Result<ParsedModel, String> {
         names: sigma_names,
     };
 
-    // IOV omega: diagonal matrix from kappa specs (Option A)
-    let (omega_iov, kappa_fixed) = if kappa_specs.is_empty() {
+    // IOV omega: built from kappa (diagonal) and/or block_kappa specs.
+    // When only diagonal kappas are present (Option A) the matrix is diagonal.
+    // When block_kappa entries are present (Option B) the matrix is non-diagonal;
+    // parameterization.rs uses the `diagonal` flag to choose Cholesky packing.
+    let (omega_iov, kappa_fixed) = if kappa_info.diagonal.is_empty() && kappa_info.block.is_empty()
+    {
         (None, Vec::new())
     } else {
-        let variances: Vec<f64> = kappa_specs.iter().map(|k| k.variance).collect();
-        let kappa_fixed: Vec<bool> = kappa_specs.iter().map(|k| k.fixed).collect();
-        let omega_iov = OmegaMatrix::from_diagonal(&variances, kappa_names.clone());
+        // Reuse build_omega_matrix by converting kappa specs to the omega spec types.
+        let diag_as_omega: Vec<OmegaSpec> = kappa_info
+            .diagonal
+            .iter()
+            .map(|k| OmegaSpec { name: k.name.clone(), variance: k.variance, fixed: k.fixed })
+            .collect();
+        let block_as_omega: Vec<BlockOmegaSpec> = kappa_info
+            .block
+            .iter()
+            .map(|bk| BlockOmegaSpec {
+                names: bk.names.clone(),
+                lower_triangle: bk.lower_triangle.clone(),
+                fixed: bk.fixed,
+            })
+            .collect();
+        let omega_iov = build_omega_matrix(&diag_as_omega, &block_as_omega, &kappa_names)?;
+        let kappa_fixed =
+            build_omega_fixed(&diag_as_omega, &block_as_omega, &kappa_names)?;
         (Some(omega_iov), kappa_fixed)
     };
 
@@ -872,6 +891,21 @@ struct KappaSpec {
     fixed: bool,
 }
 
+/// Block (correlated) IOV kappa specification — mirrors `BlockOmegaSpec`.
+struct BlockKappaSpec {
+    names: Vec<String>,
+    lower_triangle: Vec<f64>,
+    fixed: bool,
+}
+
+/// All kappa-related data returned by `parse_parameters`.
+struct ParsedKappas {
+    diagonal: Vec<KappaSpec>,
+    block: Vec<BlockKappaSpec>,
+    /// All kappa names in declaration order (diagonal then block, interleaved).
+    names_ordered: Vec<String>,
+}
+
 // --- Block extraction ---
 
 fn extract_model_name(content: &str) -> String {
@@ -924,8 +958,8 @@ fn parse_parameters(
         Vec<OmegaSpec>,
         Vec<BlockOmegaSpec>,
         Vec<SigmaSpec>,
-        Vec<String>,    // BSV eta names in declaration order
-        Vec<KappaSpec>, // IOV kappa specs (diagonal only, Option A)
+        Vec<String>,  // BSV eta names in declaration order
+        ParsedKappas, // IOV kappa specs (diagonal and/or block)
     ),
     String,
 > {
@@ -935,6 +969,8 @@ fn parse_parameters(
     let mut sigmas = Vec::new();
     let mut eta_names_ordered = Vec::new();
     let mut kappas: Vec<KappaSpec> = Vec::new();
+    let mut block_kappas: Vec<BlockKappaSpec> = Vec::new();
+    let mut kappa_names_ordered: Vec<String> = Vec::new();
 
     // theta NAME(init)  |  theta NAME(init, FIX)
     // theta NAME(init, lower, upper)  |  theta NAME(init, lower, upper, FIX)
@@ -959,6 +995,10 @@ fn parse_parameters(
 
     // kappa NAME ~ value  |  kappa NAME ~ value FIX  (IOV diagonal variance)
     let kappa_re = Regex::new(r"(?i)kappa\s+(\w+)\s*~\s*([0-9eE.+-]+)(?:\s+(FIX)\b)?").unwrap();
+
+    // block_kappa (NAME1, NAME2, ...) = [lower_triangle_values]  |  ... FIX
+    let block_kappa_re =
+        Regex::new(r"(?i)block_kappa\s*\(([^)]+)\)\s*=\s*\[([^\]]+)\](?:\s+(FIX)\b)?").unwrap();
 
     for line in lines {
         if let Some(caps) = theta_re.captures(line) {
@@ -1012,6 +1052,36 @@ fn parse_parameters(
                 lower_triangle: values,
                 fixed,
             });
+        } else if let Some(caps) = block_kappa_re.captures(line) {
+            let names: Vec<String> = caps[1].split(',').map(|s| s.trim().to_string()).collect();
+            let values: Vec<f64> = caps[2]
+                .split(',')
+                .map(|s| {
+                    s.trim()
+                        .parse::<f64>()
+                        .map_err(|_| format!("Bad block_kappa value in: {}", line))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            let n = names.len();
+            let expected = n * (n + 1) / 2;
+            if values.len() != expected {
+                return Err(format!(
+                    "block_kappa with {} kappas expects {} lower-triangle values, got {}: {}",
+                    n,
+                    expected,
+                    values.len(),
+                    line
+                ));
+            }
+            for name in &names {
+                kappa_names_ordered.push(name.clone());
+            }
+            let fixed = caps.get(3).is_some();
+            block_kappas.push(BlockKappaSpec {
+                names,
+                lower_triangle: values,
+                fixed,
+            });
         } else if let Some(caps) = omega_re.captures(line) {
             let name = caps[1].to_string();
             let variance: f64 = caps[2]
@@ -1037,11 +1107,37 @@ fn parse_parameters(
                 .parse()
                 .map_err(|_| format!("Bad kappa: {}", line))?;
             let fixed = caps.get(3).is_some();
+            kappa_names_ordered.push(name.clone());
             kappas.push(KappaSpec { name, variance, fixed });
         }
     }
 
-    Ok((thetas, omegas, block_omegas, sigmas, eta_names_ordered, kappas))
+    // Reject names that appear in both kappa and block_kappa
+    let diag_name_set: std::collections::HashSet<&str> =
+        kappas.iter().map(|k| k.name.as_str()).collect();
+    for bk in &block_kappas {
+        for name in &bk.names {
+            if diag_name_set.contains(name.as_str()) {
+                return Err(format!(
+                    "'{}' appears in both kappa and block_kappa declarations",
+                    name
+                ));
+            }
+        }
+    }
+
+    Ok((
+        thetas,
+        omegas,
+        block_omegas,
+        sigmas,
+        eta_names_ordered,
+        ParsedKappas {
+            diagonal: kappas,
+            block: block_kappas,
+            names_ordered: kappa_names_ordered,
+        },
+    ))
 }
 
 // --- Build omega matrix from diagonal + block specs ---
@@ -2812,18 +2908,18 @@ mod tests {
     #[test]
     fn test_parse_kappa_keyword() {
         let lines = vec!["kappa KAPPA_CL ~ 0.01".to_string()];
-        let (_, _, _, _, _, kappas) = parse_parameters(&lines).unwrap();
-        assert_eq!(kappas.len(), 1);
-        assert_eq!(kappas[0].name, "KAPPA_CL");
-        assert!((kappas[0].variance - 0.01).abs() < 1e-12);
-        assert!(!kappas[0].fixed);
+        let (_, _, _, _, _, ki) = parse_parameters(&lines).unwrap();
+        assert_eq!(ki.diagonal.len(), 1);
+        assert_eq!(ki.diagonal[0].name, "KAPPA_CL");
+        assert!((ki.diagonal[0].variance - 0.01).abs() < 1e-12);
+        assert!(!ki.diagonal[0].fixed);
     }
 
     #[test]
     fn test_parse_kappa_fix() {
         let lines = vec!["kappa KAPPA_V ~ 0.05 FIX".to_string()];
-        let (_, _, _, _, _, kappas) = parse_parameters(&lines).unwrap();
-        assert!(kappas[0].fixed);
+        let (_, _, _, _, _, ki) = parse_parameters(&lines).unwrap();
+        assert!(ki.diagonal[0].fixed);
     }
 
     #[test]
@@ -2834,10 +2930,10 @@ mod tests {
             "omega ETA_CL ~ 0.09".to_string(),
             "kappa KAPPA_CL ~ 0.01".to_string(),
         ];
-        let (_, _, _, _, bsv_etas, kappas) = parse_parameters(&lines).unwrap();
+        let (_, _, _, _, bsv_etas, ki) = parse_parameters(&lines).unwrap();
         assert_eq!(bsv_etas, vec!["ETA_CL"]);
-        assert_eq!(kappas.len(), 1);
-        assert_eq!(kappas[0].name, "KAPPA_CL");
+        assert_eq!(ki.diagonal.len(), 1);
+        assert_eq!(ki.diagonal[0].name, "KAPPA_CL");
     }
 
     #[test]
@@ -2892,5 +2988,80 @@ mod tests {
         let content = minimal_model_with_fit_options("  iov_column = PERIOD");
         let parsed = parse_full_model(&content).unwrap();
         assert_eq!(parsed.fit_options.iov_column, Some("PERIOD".to_string()));
+    }
+
+    // ── block_kappa (Option B) ─────────────────────────────────────────────
+
+    #[test]
+    fn test_parse_block_kappa_syntax() {
+        let lines =
+            vec!["block_kappa (KAPPA_CL, KAPPA_V) = [0.01, 0.002, 0.005]".to_string()];
+        let (_, _, _, _, _, ki) = parse_parameters(&lines).unwrap();
+        assert_eq!(ki.diagonal.len(), 0);
+        assert_eq!(ki.block.len(), 1);
+        assert_eq!(ki.block[0].names, vec!["KAPPA_CL", "KAPPA_V"]);
+        assert_eq!(ki.block[0].lower_triangle, vec![0.01, 0.002, 0.005]);
+        assert!(!ki.block[0].fixed);
+        assert_eq!(ki.names_ordered, vec!["KAPPA_CL", "KAPPA_V"]);
+    }
+
+    #[test]
+    fn test_parse_block_kappa_fix() {
+        let lines =
+            vec!["block_kappa (KAPPA_CL, KAPPA_V) = [0.01, 0.002, 0.005] FIX".to_string()];
+        let (_, _, _, _, _, ki) = parse_parameters(&lines).unwrap();
+        assert!(ki.block[0].fixed);
+    }
+
+    #[test]
+    fn test_parse_block_kappa_wrong_count_errors() {
+        // 2 names → need 3 values, only 2 given
+        let lines =
+            vec!["block_kappa (KAPPA_CL, KAPPA_V) = [0.01, 0.002]".to_string()];
+        assert!(parse_parameters(&lines).is_err());
+    }
+
+    #[test]
+    fn test_parse_block_kappa_name_overlap_errors() {
+        let lines = vec![
+            "kappa KAPPA_CL ~ 0.01".to_string(),
+            "block_kappa (KAPPA_CL, KAPPA_V) = [0.01, 0.002, 0.005]".to_string(),
+        ];
+        assert!(parse_parameters(&lines).is_err());
+    }
+
+    #[test]
+    fn test_parse_full_model_with_block_kappa() {
+        let content = r#"
+[parameters]
+  theta TVCL(0.2, 0.001, 10.0)
+  theta TVV(10.0, 0.1, 500.0)
+  omega ETA_CL ~ 0.09
+  omega ETA_V  ~ 0.04
+  block_kappa (KAPPA_CL, KAPPA_V) = [0.01, 0.002, 0.005]
+  sigma PROP_ERR ~ 0.02
+
+[individual_parameters]
+  CL = TVCL * exp(ETA_CL + KAPPA_CL)
+  V  = TVV  * exp(ETA_V + KAPPA_V)
+
+[structural_model]
+  pk one_cpt_iv_bolus(cl=CL, v=V)
+
+[error_model]
+  DV ~ proportional(PROP_ERR)
+"#;
+        let parsed = parse_full_model(content).unwrap();
+        let m = &parsed.model;
+        assert_eq!(m.n_eta, 2);
+        assert_eq!(m.n_kappa, 2);
+        assert_eq!(m.kappa_names, vec!["KAPPA_CL", "KAPPA_V"]);
+        let iov = m.default_params.omega_iov.as_ref().unwrap();
+        assert_eq!(iov.dim(), 2);
+        assert!(!iov.diagonal, "block_kappa should produce non-diagonal omega_iov");
+        assert!((iov.matrix[(0, 0)] - 0.01).abs() < 1e-12);
+        assert!((iov.matrix[(0, 1)] - 0.002).abs() < 1e-12);
+        assert!((iov.matrix[(1, 0)] - 0.002).abs() < 1e-12);
+        assert!((iov.matrix[(1, 1)] - 0.005).abs() < 1e-12);
     }
 }
