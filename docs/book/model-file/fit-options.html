@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "ayu";
-            window.path_to_searchindex_js = "../searchindex-2f461d70.js";
+            window.path_to_searchindex_js = "../searchindex-b27c9ee6.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-66605922.js"></script>
@@ -201,6 +201,10 @@
 <tr><td><code>global_maxeval</code></td><td>integer</td><td>auto</td><td>Max evaluations for global search</td></tr>
 <tr><td><code>bloq_method</code></td><td><code>drop</code>, <code>m3</code></td><td><code>drop</code></td><td>How to handle rows with <code>CENS=1</code>. <code>m3</code> enables Beal’s M3 likelihood (see <a href="../examples/bloq.html">BLOQ example</a>).</td></tr>
 <tr><td><code>mu_referencing</code></td><td><code>true</code>, <code>false</code></td><td><code>true</code></td><td>Re-centre inner-loop ETA estimates on the current population mean (auto-detected from <code>[individual_parameters]</code>). See the <a href="../faq.html#do-i-need-to-use-mu-referencing-in-my-model-definitions-like-in-nonmem--nlmixr2">FAQ entry</a> for details. Set <code>false</code> to reproduce pre-automatic-mu behaviour.</td></tr>
+<tr><td><code>scale_params</code></td><td><code>true</code>, <code>false</code></td><td><code>true</code></td><td>Scale optimizer coordinates by the magnitude of the initial parameter vector. Helps outer optimizers (NLopt, Gauss-Newton, SAEM M-step) treat all dimensions equally when parameters span several orders of magnitude. Set <code>false</code> only for debugging or to reproduce pre-scaling behaviour.</td></tr>
+<tr><td><code>optimizer_trace</code></td><td><code>true</code>, <code>false</code></td><td><code>false</code></td><td>Write a per-iteration CSV to <code>/tmp/ferx_trace_&lt;pid&gt;_&lt;ts&gt;.csv</code>. The path is stored in <code>FitResult::trace_path</code>. Useful for diagnosing convergence problems or comparing optimizers. See <a href="#optimizer-trace">Optimizer Trace</a>.</td></tr>
+<tr><td><code>max_unconverged_frac</code></td><td>float 0–1</td><td><code>1.0</code> (disabled)</td><td>EBE convergence guard: if the fraction of subjects whose inner optimizer did not converge exceeds this threshold, the outer step is rejected (OFV = ∞). Use values like <code>0.5</code> to force the outer optimizer to backtrack from pathological regions.</td></tr>
+<tr><td><code>min_obs_for_convergence_check</code></td><td>integer</td><td><code>0</code> (all)</td><td>Subjects with fewer than this many observations are excluded from the <code>max_unconverged_frac</code> denominator. Useful when sparse subjects routinely fail EBE convergence and should not trigger the guard.</td></tr>
 </tbody>
 </table>
 </div>
@@ -334,6 +338,41 @@ warnings.</p>
   maxiter            = 200
   steihaug_max_iters = 30
 </code></pre>
+<p>Enable optimizer trace and EBE guard:</p>
+<pre><code>[fit_options]
+  method                   = foce
+  optimizer_trace          = true
+  max_unconverged_frac     = 0.5
+  min_obs_for_convergence_check = 3
+</code></pre>
+<h2 id="optimizer-trace"><a class="header" href="#optimizer-trace">Optimizer Trace</a></h2>
+<p>When <code>optimizer_trace = true</code>, a CSV is written to <code>/tmp/ferx_trace_&lt;pid&gt;_&lt;ts&gt;.csv</code> and the path is stored in <code>FitResult::trace_path</code>. Each row is one outer iteration.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Column</th><th>Populated by</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>iter</code></td><td>all</td><td>Iteration number</td></tr>
+<tr><td><code>method</code></td><td>all</td><td><code>foce</code>, <code>focei</code>, <code>gn</code>, <code>gn_hybrid</code>, <code>saem</code></td></tr>
+<tr><td><code>phase</code></td><td>gn_hybrid, saem</td><td><code>focei</code> (polish) or <code>explore</code>/<code>converge</code></td></tr>
+<tr><td><code>ofv</code></td><td>all</td><td>Objective function value</td></tr>
+<tr><td><code>wall_ms</code></td><td>all</td><td>Wall time for this iteration (ms)</td></tr>
+<tr><td><code>grad_norm</code></td><td>BFGS, NLopt gradient-mode</td><td>Gradient norm</td></tr>
+<tr><td><code>step_norm</code></td><td>BFGS</td><td>Step size</td></tr>
+<tr><td><code>optimizer</code></td><td>FOCE/FOCEI</td><td>Active NLopt algorithm</td></tr>
+<tr><td><code>lm_lambda</code></td><td>GN</td><td>Levenberg-Marquardt damping factor</td></tr>
+<tr><td><code>ofv_delta</code></td><td>GN</td><td>Change in OFV from previous iteration</td></tr>
+<tr><td><code>step_accepted</code></td><td>GN</td><td>Whether the GN step was accepted</td></tr>
+<tr><td><code>cond_nll</code></td><td>SAEM</td><td>Conditional observation NLL</td></tr>
+<tr><td><code>gamma</code></td><td>SAEM</td><td>SAEM step-size (1 in exploration, 1/k in convergence)</td></tr>
+<tr><td><code>mh_accept_rate</code></td><td>SAEM</td><td>Mean Metropolis-Hastings acceptance rate across subjects</td></tr>
+<tr><td><code>n_ebe_unconverged</code></td><td>FOCE/FOCEI</td><td>Subjects whose inner optimizer did not converge</td></tr>
+<tr><td><code>n_ebe_fallback</code></td><td>FOCE/FOCEI</td><td>Subjects that fell back to Nelder-Mead</td></tr>
+</tbody>
+</table>
+</div>
+<p>Unused columns contain <code>NA</code>. The trace is written in append mode per iteration — it is readable even if the run is interrupted.</p>
 
                     </main>
 

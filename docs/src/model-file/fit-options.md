@@ -24,6 +24,10 @@ The optional `[fit_options]` block configures the estimation method and optimize
 | `global_maxeval` | integer | auto | Max evaluations for global search |
 | `bloq_method` | `drop`, `m3` | `drop` | How to handle rows with `CENS=1`. `m3` enables Beal's M3 likelihood (see [BLOQ example](../examples/bloq.md)). |
 | `mu_referencing` | `true`, `false` | `true` | Re-centre inner-loop ETA estimates on the current population mean (auto-detected from `[individual_parameters]`). See the [FAQ entry](../faq.md#do-i-need-to-use-mu-referencing-in-my-model-definitions-like-in-nonmem--nlmixr2) for details. Set `false` to reproduce pre-automatic-mu behaviour. |
+| `scale_params` | `true`, `false` | `true` | Scale optimizer coordinates by the magnitude of the initial parameter vector. Helps outer optimizers (NLopt, Gauss-Newton, SAEM M-step) treat all dimensions equally when parameters span several orders of magnitude. Set `false` only for debugging or to reproduce pre-scaling behaviour. |
+| `optimizer_trace` | `true`, `false` | `false` | Write a per-iteration CSV to `/tmp/ferx_trace_<pid>_<ts>.csv`. The path is stored in `FitResult::trace_path`. Useful for diagnosing convergence problems or comparing optimizers. See [Optimizer Trace](#optimizer-trace). |
+| `max_unconverged_frac` | float 0–1 | `1.0` (disabled) | EBE convergence guard: if the fraction of subjects whose inner optimizer did not converge exceeds this threshold, the outer step is rejected (OFV = ∞). Use values like `0.5` to force the outer optimizer to backtrack from pathological regions. |
+| `min_obs_for_convergence_check` | integer | `0` (all) | Subjects with fewer than this many observations are excluded from the `max_unconverged_frac` denominator. Useful when sparse subjects routinely fail EBE convergence and should not trigger the guard. |
 
 ## Estimation Methods
 
@@ -166,3 +170,37 @@ Trust-region with tuned CG subproblem:
   maxiter            = 200
   steihaug_max_iters = 30
 ```
+
+Enable optimizer trace and EBE guard:
+```
+[fit_options]
+  method                   = foce
+  optimizer_trace          = true
+  max_unconverged_frac     = 0.5
+  min_obs_for_convergence_check = 3
+```
+
+## Optimizer Trace
+
+When `optimizer_trace = true`, a CSV is written to `/tmp/ferx_trace_<pid>_<ts>.csv` and the path is stored in `FitResult::trace_path`. Each row is one outer iteration.
+
+| Column | Populated by | Description |
+|--------|-------------|-------------|
+| `iter` | all | Iteration number |
+| `method` | all | `foce`, `focei`, `gn`, `gn_hybrid`, `saem` |
+| `phase` | gn_hybrid, saem | `focei` (polish) or `explore`/`converge` |
+| `ofv` | all | Objective function value |
+| `wall_ms` | all | Wall time for this iteration (ms) |
+| `grad_norm` | BFGS, NLopt gradient-mode | Gradient norm |
+| `step_norm` | BFGS | Step size |
+| `optimizer` | FOCE/FOCEI | Active NLopt algorithm |
+| `lm_lambda` | GN | Levenberg-Marquardt damping factor |
+| `ofv_delta` | GN | Change in OFV from previous iteration |
+| `step_accepted` | GN | Whether the GN step was accepted |
+| `cond_nll` | SAEM | Conditional observation NLL |
+| `gamma` | SAEM | SAEM step-size (1 in exploration, 1/k in convergence) |
+| `mh_accept_rate` | SAEM | Mean Metropolis-Hastings acceptance rate across subjects |
+| `n_ebe_unconverged` | FOCE/FOCEI | Subjects whose inner optimizer did not converge |
+| `n_ebe_fallback` | FOCE/FOCEI | Subjects that fell back to Nelder-Mead |
+
+Unused columns contain `NA`. The trace is written in append mode per iteration — it is readable even if the run is interrupted.
