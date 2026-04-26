@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>BLOQ (M3 method) - FeRx-NLME Documentation</title>
+        <title>Inter-Occasion Variability - FeRx-NLME Documentation</title>
 
 
         <!-- Custom HTML head -->
@@ -177,42 +177,45 @@
 
                 <div id="mdbook-content" class="content">
                     <main>
-                        <h1 id="bloq-m3-method"><a class="header" href="#bloq-m3-method">BLOQ (M3 method)</a></h1>
-<p>This example shows how to fit a model to data that contains observations below
-the assay lower limit of quantification (BLOQ) using Beal’s <strong>M3 method</strong>.
-Instead of dropping BLOQ rows — which biases terminal-phase parameter estimates
-— each censored observation contributes
-<code>P(y &lt; LLOQ | θ, η) = Φ((LLOQ − f)/√V)</code> to the likelihood.</p>
-<h2 id="dataset-datawarfarin-bloqcsv"><a class="header" href="#dataset-datawarfarin-bloqcsv">Dataset (<code>data/warfarin-bloq.csv</code>)</a></h2>
-<p>This is the warfarin dataset with an added <code>CENS</code> column. Ten late-time
-observations that originally fell below an assay LLOQ of 2.0 µg/mL have been
-marked <code>CENS=1</code> and their <code>DV</code> cell set to the LLOQ value:</p>
-<pre><code class="language-csv">ID,TIME,DV,EVID,AMT,CMT,RATE,MDV,CENS
-1,0,.,1,100,1,0,1,0
-1,0.5,5.3653,0,.,1,0,0,0
-...
-1,96,2.5019,0,.,1,0,0,0
-1,120,2,0,.,1,0,0,1
+                        <h1 id="inter-occasion-variability-iov"><a class="header" href="#inter-occasion-variability-iov">Inter-Occasion Variability (IOV)</a></h1>
+<p>This example extends the one-compartment oral warfarin model to account for occasion-to-occasion variability in clearance. The complete model file is <code>examples/warfarin_iov.ferx</code>.</p>
+<h2 id="when-to-use-iov"><a class="header" href="#when-to-use-iov">When to use IOV</a></h2>
+<p>Use IOV when:</p>
+<ul>
+<li>Subjects have data from multiple study periods (crossover designs, multiple visits)</li>
+<li>You expect within-subject PK variability across periods that is larger than pure residual error</li>
+<li>NONMEM models used <code>OMEGA BLOCK SAME</code> syntax for one or more parameters</li>
+</ul>
+<h2 id="dataset"><a class="header" href="#dataset">Dataset</a></h2>
+<p>The dataset must include an occasion-index column. Add an integer <code>OCC</code> column (or any name you choose — tell FeRx via <code>iov_column</code>):</p>
+<pre><code class="language-csv">ID,TIME,DV,EVID,AMT,CMT,MDV,OCC
+1,0,.,1,100,1,1,1
+1,1,9.49,0,.,.,0,1
+1,2,14.42,0,.,.,0,1
+1,3,17.56,0,.,.,0,1
+1,24,.,1,100,1,1,2
+1,25,10.1,0,.,.,0,2
+1,26,8.2,0,.,.,0,2
 </code></pre>
-<p><strong>NONMEM <code>CENS</code> convention</strong>: when <code>CENS=1</code>, the row is censored and <code>DV</code>
-carries the LLOQ value — not the true (unobserved) concentration. Rows with no
-<code>CENS</code> column, or <code>CENS=0</code>, are treated as ordinary quantified observations.</p>
-<h2 id="model-file-exampleswarfarin-bloqferx"><a class="header" href="#model-file-exampleswarfarin-bloqferx">Model File (<code>examples/warfarin-bloq.ferx</code>)</a></h2>
-<pre><code># One-compartment oral PK model (warfarin) with M3 BLOQ likelihood.
+<p>Occasion 1 = first period, occasion 2 = second period. Dose records and observation records in the same period share the same OCC value.</p>
+<h2 id="model-file-option-a--diagonal-iov"><a class="header" href="#model-file-option-a--diagonal-iov">Model File (Option A — diagonal IOV)</a></h2>
+<pre><code>model warfarin_iov
 
 [parameters]
   theta TVCL(0.2, 0.001, 10.0)
   theta TVV(10.0, 0.1, 500.0)
   theta TVKA(1.5, 0.01, 50.0)
 
-  omega ETA_CL ~ 0.09
+  omega ETA_CL ~ 0.09      # between-subject variability in CL
   omega ETA_V  ~ 0.04
   omega ETA_KA ~ 0.30
+
+  kappa KAPPA_CL ~ 0.05    # inter-occasion variability in CL
 
   sigma PROP_ERR ~ 0.02
 
 [individual_parameters]
-  CL = TVCL * exp(ETA_CL)
+  CL = TVCL * exp(ETA_CL + KAPPA_CL)
   V  = TVV  * exp(ETA_V)
   KA = TVKA * exp(ETA_KA)
 
@@ -223,65 +226,72 @@ carries the LLOQ value — not the true (unobserved) concentration. Rows with no
   DV ~ proportional(PROP_ERR)
 
 [fit_options]
-  method       = focei
-  maxiter      = 300
-  covariance   = true
-  bloq_method  = m3
+  method     = foce
+  iov_column = OCC
+  covariance = true
 </code></pre>
-<p>The only two lines that differ from a plain fit are <code>bloq_method = m3</code> in
-<code>[fit_options]</code> and the added <code>CENS</code> column in the CSV. Nothing else in the
-model changes.</p>
-<h2 id="running"><a class="header" href="#running">Running</a></h2>
-<pre><code class="language-bash">ferx examples/warfarin-bloq.ferx --data data/warfarin-bloq.csv
+<p>The key additions compared to a standard model:</p>
+<ol>
+<li><code>kappa KAPPA_CL ~ 0.05</code> — declares IOV on CL with starting variance 0.05</li>
+<li><code>+ KAPPA_CL</code> in the CL expression — kappa enters just like a BSV eta</li>
+<li><code>iov_column = OCC</code> — tells FeRx which dataset column carries occasion labels</li>
+</ol>
+<h2 id="model-file-option-b--correlated-iov"><a class="header" href="#model-file-option-b--correlated-iov">Model File (Option B — correlated IOV)</a></h2>
+<p>If you have IOV on both CL and V and suspect they covary across occasions, use <code>block_kappa</code>:</p>
+<pre><code>[parameters]
+  ...
+  omega ETA_CL ~ 0.09
+  omega ETA_V  ~ 0.04
+  omega ETA_KA ~ 0.30
+
+  block_kappa (KAPPA_CL, KAPPA_V) = [0.05, 0.01, 0.03]
+
+  sigma PROP_ERR ~ 0.02
+
+[individual_parameters]
+  CL = TVCL * exp(ETA_CL + KAPPA_CL)
+  V  = TVV  * exp(ETA_V  + KAPPA_V)
+  KA = TVKA * exp(ETA_KA)
 </code></pre>
-<h2 id="expected-results"><a class="header" href="#expected-results">Expected Results</a></h2>
-<pre><code>--- Objective Function ---
-OFV:  -213.9104
-
---- THETA Estimates ---
-TVCL                 0.126263
-TVV                  7.629401
-TVKA                 1.083302
-
---- OMEGA Estimates ---
-  OMEGA(1,1) = 0.031381  (CV% = 17.7)
-  OMEGA(2,2) = 0.009723  (CV% = 9.9)
-  OMEGA(3,3) = 0.419327  (CV% = 64.8)
-
---- SIGMA Estimates ---
-  SIGMA(1) = 0.010766
-</code></pre>
-<p>The diagnostic table (<code>warfarin-bloq-sdtab.csv</code>) gains a <code>CENS</code> column, and the
-<code>IWRES</code> / <code>CWRES</code> cells for censored rows are written as empty (a weighted
-Gaussian residual is undefined when the observed value is censored).</p>
-<h2 id="method-notes"><a class="header" href="#method-notes">Method Notes</a></h2>
+<p>The three values in <code>[0.05, 0.01, 0.03]</code> are the lower triangle of Ω_IOV:</p>
 <ul>
-<li><strong>Activation requires both pieces</strong>: the <code>CENS</code> column in the data file <em>and</em>
-<code>bloq_method = m3</code> in <code>[fit_options]</code>. Without the option, <code>CENS=1</code> rows are
-treated as ordinary observations at the LLOQ value, which biases the fit.</li>
-<li><strong>FOCE is auto-promoted to FOCEI on affected subjects.</strong> Mixing linearized
-Gaussian residuals with non-linearized <code>log Φ</code> terms produces inconsistent
-OFVs near the LLOQ boundary, so when <code>method = foce</code> and a subject has any
-<code>CENS=1</code> row, that subject is evaluated with η-interaction. A notice is
-written to <code>FitResult.warnings</code>; set <code>method = focei</code> explicitly to silence
-it.</li>
-<li><strong>Gauss-Newton caveat.</strong> With <code>method = gn</code> or <code>gn_hybrid</code>, the BHHH
-information-matrix approximation degrades as the BLOQ fraction grows (each
-censored row carries less Fisher information than its Gaussian counterpart).
-A warning is emitted; for &gt;20% censoring prefer <code>focei</code>.</li>
-<li><strong>SAEM</strong> optimizes θ/σ with M3 in the M-step directly, so no special handling
-is required beyond setting <code>bloq_method = m3</code>.</li>
+<li><code>0.05</code> = Var(KAPPA_CL)</li>
+<li><code>0.01</code> = Cov(KAPPA_CL, KAPPA_V)</li>
+<li><code>0.03</code> = Var(KAPPA_V)</li>
+</ul>
+<h2 id="running-the-fit"><a class="header" href="#running-the-fit">Running the Fit</a></h2>
+<pre><code class="language-bash">ferx examples/warfarin_iov.ferx --data data/warfarin_occ.csv
+</code></pre>
+<p>Or via the Rust API:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>let result = fit_from_files("examples/warfarin_iov.ferx", "data/warfarin_occ.csv")?;
+println!("Omega IOV: {:?}", result.omega_iov);
+<span class="boring">}</span></code></pre>
+<h2 id="interpreting-output"><a class="header" href="#interpreting-output">Interpreting Output</a></h2>
+<p>The fit YAML and console output gain an <code>OMEGA_IOV</code> section:</p>
+<pre><code>OMEGA_IOV Estimates (Inter-Occasion Variability):
+  KAPPA_CL: 0.0412 (SE: 0.008)  shrinkage: 22.4%
+</code></pre>
+<p>The <strong>shrinkage</strong> of kappas tells you how well the data informs individual occasion effects — high shrinkage (&gt;50%) suggests the IOV term may not be well-supported by the data.</p>
+<p>The sdtab CSV includes <code>KAPPA_CL</code> (and <code>KAPPA_V</code>, etc.) columns with the per-subject per-occasion EBEs.</p>
+<h2 id="tips"><a class="header" href="#tips">Tips</a></h2>
+<ul>
+<li><strong>Start with IOV on CL only</strong> — it is the most commonly occasion-sensitive parameter. Add IOV on other parameters only if warranted by the shrinkage and OFV.</li>
+<li><strong>Compare OFV</strong> between BSV-only and IOV models — the difference (ΔOFV ≈ χ² with degrees of freedom = number of new kappa variances) gives a likelihood-ratio test.</li>
+<li><strong>Use FOCEI for proportional errors</strong> — the interaction term matters more when individual predictions vary across occasions.</li>
+<li><strong>SAEM is not supported</strong> with IOV — use <code>foce</code> or <code>focei</code>.</li>
 </ul>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../examples/ode-model.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../examples/bloq.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="../examples/iov.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../api/index.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -291,11 +301,11 @@ is required beyond setting <code>bloq_method = m3</code>.</li>
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../examples/ode-model.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../examples/bloq.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="../examples/iov.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../api/index.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>

@@ -24,6 +24,7 @@ The optional `[fit_options]` block configures the estimation method and optimize
 | `global_maxeval` | integer | auto | Max evaluations for global search |
 | `bloq_method` | `drop`, `m3` | `drop` | How to handle rows with `CENS=1`. `m3` enables Beal's M3 likelihood (see [BLOQ example](../examples/bloq.md)). |
 | `mu_referencing` | `true`, `false` | `true` | Re-centre inner-loop ETA estimates on the current population mean (auto-detected from `[individual_parameters]`). See the [FAQ entry](../faq.md#do-i-need-to-use-mu-referencing-in-my-model-definitions-like-in-nonmem--nlmixr2) for details. Set `false` to reproduce pre-automatic-mu behaviour. |
+| `iov_column` | string | — | Name of the occasion column in the dataset (e.g. `OCC`). Required when the model uses `kappa` or `block_kappa` declarations. The column must contain integer occasion indices. Case-insensitive. Only supported with `foce` / `focei` — not `saem`. See [IOV documentation](../estimation/iov.md). |
 
 ## Estimation Methods
 
@@ -165,4 +166,12 @@ Trust-region with tuned CG subproblem:
   optimizer          = trust_region
   maxiter            = 200
   steihaug_max_iters = 30
+```
+
+FOCE with Inter-Occasion Variability:
+```
+[fit_options]
+  method     = foce
+  iov_column = OCC
+  covariance = true
 ```

@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "ayu";
-            window.path_to_searchindex_js = "../searchindex-2f461d70.js";
+            window.path_to_searchindex_js = "../searchindex-717082d9.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-66605922.js"></script>
+        <script src="../toc-911e3088.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -201,6 +201,7 @@
 <tr><td><code>global_maxeval</code></td><td>integer</td><td>auto</td><td>Max evaluations for global search</td></tr>
 <tr><td><code>bloq_method</code></td><td><code>drop</code>, <code>m3</code></td><td><code>drop</code></td><td>How to handle rows with <code>CENS=1</code>. <code>m3</code> enables Beal’s M3 likelihood (see <a href="../examples/bloq.html">BLOQ example</a>).</td></tr>
 <tr><td><code>mu_referencing</code></td><td><code>true</code>, <code>false</code></td><td><code>true</code></td><td>Re-centre inner-loop ETA estimates on the current population mean (auto-detected from <code>[individual_parameters]</code>). See the <a href="../faq.html#do-i-need-to-use-mu-referencing-in-my-model-definitions-like-in-nonmem--nlmixr2">FAQ entry</a> for details. Set <code>false</code> to reproduce pre-automatic-mu behaviour.</td></tr>
+<tr><td><code>iov_column</code></td><td>string</td><td>—</td><td>Name of the occasion column in the dataset (e.g. <code>OCC</code>). Required when the model uses <code>kappa</code> or <code>block_kappa</code> declarations. The column must contain integer occasion indices. Case-insensitive. Only supported with <code>foce</code> / <code>focei</code> — not <code>saem</code>. See <a href="../estimation/iov.html">IOV documentation</a>.</td></tr>
 </tbody>
 </table>
 </div>
@@ -333,6 +334,12 @@ warnings.</p>
   optimizer          = trust_region
   maxiter            = 200
   steihaug_max_iters = 30
+</code></pre>
+<p>FOCE with Inter-Occasion Variability:</p>
+<pre><code>[fit_options]
+  method     = foce
+  iov_column = OCC
+  covariance = true
 </code></pre>
 
                     </main>
