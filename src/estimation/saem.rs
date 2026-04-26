@@ -7,9 +7,9 @@
 ///   Phase 1 (exploration, k ≤ K1):  γₖ = 1          — rapid basin convergence
 ///   Phase 2 (convergence, k > K1):  γₖ = 1/(k−K1)   — almost-sure convergence to MLE
 use crate::estimation::inner_optimizer::run_inner_loop_warm;
-use crate::estimation::outer_optimizer::{compute_covariance, OuterResult};
+use crate::estimation::outer_optimizer::{compute_covariance, pop_nll, OuterResult};
 use crate::estimation::parameterization::{compute_mu_k, *};
-use crate::stats::likelihood::{foce_population_nll, individual_nll};
+use crate::stats::likelihood::individual_nll;
 use crate::stats::residual_error::residual_variance;
 use crate::stats::special::log_normal_cdf;
 use crate::types::*;
@@ -533,6 +533,8 @@ pub fn run_saem(
             names: init_params.sigma.names.clone(),
         },
         sigma_fixed: init_params.sigma_fixed.clone(),
+        omega_iov: init_params.omega_iov.clone(),
+        kappa_fixed: init_params.kappa_fixed.clone(),
     };
 
     // ---- Final EBEs via inner loop (warm-started from SAEM etas) ----
@@ -542,7 +544,7 @@ pub fn run_saem(
         .map(|e| DVector::from_column_slice(e))
         .collect();
     let saem_final_mu_k = compute_mu_k(model, &final_params.theta, options.mu_referencing);
-    let (eta_hats, h_matrices, _) = run_inner_loop_warm(
+    let (eta_hats, h_matrices, _, final_kappas) = run_inner_loop_warm(
         model,
         population,
         &final_params,
@@ -553,17 +555,7 @@ pub fn run_saem(
     );
 
     // ---- Final OFV via FOCE approximation (for AIC/BIC comparability) ----
-    let foce_nll = foce_population_nll(
-        model,
-        population,
-        &final_params.theta,
-        &eta_hats,
-        &h_matrices,
-        &final_params.omega,
-        &final_params.sigma.values,
-        options.interaction,
-    );
-    let ofv = 2.0 * foce_nll;
+    let ofv = 2.0 * pop_nll(model, population, &final_params, &eta_hats, &h_matrices, &final_kappas, options.interaction);
 
     // ---- Covariance step ----
     let mut warnings = Vec::new();
@@ -580,6 +572,7 @@ pub fn run_saem(
                 population,
                 &eta_hats,
                 &h_matrices,
+                &final_kappas,
                 options,
             );
             if cov.is_none() {
@@ -601,6 +594,7 @@ pub fn run_saem(
         n_iterations: n_iter,
         eta_hats,
         h_matrices,
+        kappas: final_kappas,
         covariance_matrix,
         warnings,
     })

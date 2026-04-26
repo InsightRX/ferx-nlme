@@ -44,6 +44,27 @@ pub fn pack_params(params: &ModelParameters) -> Vec<f64> {
         v.push(s.max(1e-10).ln());
     }
 
+    // IOV omega: diagonal elements as log; off-diagonal as-is (mirrors BSV omega).
+    if let Some(ref iov) = params.omega_iov {
+        let l = &iov.chol;
+        let n = iov.dim();
+        if iov.diagonal {
+            for i in 0..n {
+                v.push(l[(i, i)].max(1e-10).ln());
+            }
+        } else {
+            for j in 0..n {
+                for i in j..n {
+                    if i == j {
+                        v.push(l[(i, j)].max(1e-10).ln());
+                    } else {
+                        v.push(l[(i, j)]);
+                    }
+                }
+            }
+        }
+    }
+
     v
 }
 
@@ -103,6 +124,41 @@ pub fn unpack_params(v: &[f64], template: &ModelParameters) -> ModelParameters {
         names: template.sigma.names.clone(),
     };
 
+    // IOV omega: mirrors BSV omega unpacking, checking the diagonal flag.
+    let omega_iov = if let Some(ref iov_tmpl) = template.omega_iov {
+        let n_iov = iov_tmpl.dim();
+        if iov_tmpl.diagonal {
+            let mut variances = Vec::with_capacity(n_iov);
+            for _ in 0..n_iov {
+                let chol_diag = v[idx].exp();
+                idx += 1;
+                variances.push(chol_diag * chol_diag);
+            }
+            Some(OmegaMatrix::from_diagonal(&variances, iov_tmpl.eta_names.clone()))
+        } else {
+            let mut l = DMatrix::zeros(n_iov, n_iov);
+            for j in 0..n_iov {
+                for i in j..n_iov {
+                    if i == j {
+                        l[(i, j)] = v[idx].exp();
+                    } else {
+                        l[(i, j)] = v[idx];
+                    }
+                    idx += 1;
+                }
+            }
+            let matrix = &l * l.transpose();
+            Some(OmegaMatrix {
+                matrix,
+                chol: l,
+                eta_names: iov_tmpl.eta_names.clone(),
+                diagonal: false,
+            })
+        }
+    } else {
+        None
+    };
+
     ModelParameters {
         theta,
         theta_names: template.theta_names.clone(),
@@ -113,6 +169,8 @@ pub fn unpack_params(v: &[f64], template: &ModelParameters) -> ModelParameters {
         omega_fixed: template.omega_fixed.clone(),
         sigma,
         sigma_fixed: template.sigma_fixed.clone(),
+        omega_iov,
+        kappa_fixed: template.kappa_fixed.clone(),
     }
 }
 
@@ -153,6 +211,25 @@ pub fn packed_fixed_mask(template: &ModelParameters) -> Vec<bool> {
         mask.push(f);
     }
 
+    // IOV: mirrors BSV omega mask logic, checking the diagonal flag.
+    if let Some(ref iov) = template.omega_iov {
+        let n = iov.dim();
+        let kf = &template.kappa_fixed;
+        if iov.diagonal {
+            for i in 0..n {
+                mask.push(kf.get(i).copied().unwrap_or(false));
+            }
+        } else {
+            for j in 0..n {
+                for i in j..n {
+                    let fi = kf.get(i).copied().unwrap_or(false);
+                    let fj = kf.get(j).copied().unwrap_or(false);
+                    mask.push(fi || fj);
+                }
+            }
+        }
+    }
+
     mask
 }
 
@@ -166,7 +243,11 @@ pub fn packed_len(template: &ModelParameters) -> usize {
         n_eta * (n_eta + 1) / 2
     };
     let n_sigma = template.sigma.values.len();
-    n_theta + n_omega + n_sigma
+    let n_iov = template.omega_iov.as_ref().map_or(0, |m| {
+        let d = m.dim();
+        if m.diagonal { d } else { d * (d + 1) / 2 }
+    });
+    n_theta + n_omega + n_sigma + n_iov
 }
 
 /// Compute box constraints for the packed parameter vector.
@@ -212,6 +293,29 @@ pub fn compute_bounds(template: &ModelParameters) -> PackedBounds {
     for _ in 0..n_sigma {
         lower.push(-8.0); // exp(-8) ≈ 3e-4
         upper.push(5.0); // exp(5) ≈ 148
+    }
+
+    // IOV bounds: diagonal same as BSV diagonal; off-diagonal same as BSV off-diagonal.
+    if let Some(ref iov) = template.omega_iov {
+        let n = iov.dim();
+        if iov.diagonal {
+            for _ in 0..n {
+                lower.push(-6.0);
+                upper.push(4.0);
+            }
+        } else {
+            for j in 0..n {
+                for i in j..n {
+                    if i == j {
+                        lower.push(-6.0);
+                        upper.push(4.0);
+                    } else {
+                        lower.push(-10.0);
+                        upper.push(10.0);
+                    }
+                }
+            }
+        }
     }
 
     // Pin any FIX parameters to their packed (log-space) initial value.
@@ -300,6 +404,8 @@ mod tests {
             omega_fixed: vec![false; 2],
             sigma,
             sigma_fixed: vec![false; 1],
+            omega_iov: None,
+            kappa_fixed: Vec::new(),
         }
     }
 
@@ -415,6 +521,8 @@ mod tests {
             omega_fixed: vec![false; 2],
             sigma,
             sigma_fixed: vec![false; 1],
+            omega_iov: None,
+            kappa_fixed: Vec::new(),
         }
     }
 
@@ -505,6 +613,8 @@ mod tests {
             omega_fixed: vec![false; 3],
             sigma,
             sigma_fixed: vec![false; 1],
+            omega_iov: None,
+            kappa_fixed: Vec::new(),
         };
         CompiledModel {
             name: "test".into(),
@@ -536,6 +646,8 @@ mod tests {
             bloq_method: BloqMethod::Drop,
             referenced_covariates: Vec::new(),
             gradient_method: GradientMethod::default(),
+            n_kappa: 0,
+            kappa_names: Vec::new(),
         }
     }
 
@@ -709,6 +821,82 @@ mod tests {
         assert!(mask.iter().all(|&b| !b)); // default: nothing fixed
     }
 
+    fn make_iov_template() -> ModelParameters {
+        let omega =
+            OmegaMatrix::from_diagonal(&[0.09], vec!["ETA_CL".into()]);
+        let omega_iov = OmegaMatrix::from_diagonal(&[0.01], vec!["KAPPA_CL".into()]);
+        let sigma = SigmaVector {
+            values: vec![0.02],
+            names: vec!["PROP_ERR".into()],
+        };
+        ModelParameters {
+            theta: vec![5.0],
+            theta_names: vec!["TVCL".into()],
+            theta_lower: vec![0.01],
+            theta_upper: vec![100.0],
+            theta_fixed: vec![false],
+            omega,
+            omega_fixed: vec![false],
+            sigma,
+            sigma_fixed: vec![false],
+            omega_iov: Some(omega_iov),
+            kappa_fixed: vec![false],
+        }
+    }
+
+    #[test]
+    fn test_packed_len_with_kappa() {
+        let template = make_iov_template();
+        // 1 theta + 1 bsv omega diag + 1 sigma + 1 kappa omega diag = 4
+        assert_eq!(packed_len(&template), 4);
+    }
+
+    #[test]
+    fn test_pack_unpack_with_omega_iov() {
+        let template = make_iov_template();
+        let packed = pack_params(&template);
+        assert_eq!(packed.len(), packed_len(&template));
+
+        let recovered = unpack_params(&packed, &template);
+
+        // Theta round-trips
+        assert_relative_eq!(template.theta[0], recovered.theta[0], epsilon = 1e-8);
+
+        // BSV omega diagonal round-trips
+        assert_relative_eq!(
+            template.omega.matrix[(0, 0)],
+            recovered.omega.matrix[(0, 0)],
+            epsilon = 1e-8
+        );
+
+        // IOV omega diagonal round-trips
+        let iov_orig = template.omega_iov.as_ref().unwrap().matrix[(0, 0)];
+        let iov_rec = recovered.omega_iov.as_ref().unwrap().matrix[(0, 0)];
+        assert_relative_eq!(iov_orig, iov_rec, epsilon = 1e-8);
+    }
+
+    #[test]
+    fn test_fixed_kappa_pins_bounds() {
+        let mut template = make_iov_template();
+        template.kappa_fixed[0] = true;
+        let bounds = compute_bounds(&template);
+        let packed = pack_params(&template);
+        // kappa is the last packed element
+        let kappa_idx = packed.len() - 1;
+        assert_relative_eq!(bounds.lower[kappa_idx], packed[kappa_idx], epsilon = 1e-12);
+        assert_relative_eq!(bounds.upper[kappa_idx], packed[kappa_idx], epsilon = 1e-12);
+    }
+
+    #[test]
+    fn test_packed_fixed_mask_with_kappa() {
+        let mut template = make_iov_template();
+        template.kappa_fixed[0] = true;
+        let mask = packed_fixed_mask(&template);
+        assert_eq!(mask.len(), packed_len(&template));
+        assert!(mask[mask.len() - 1]); // kappa is fixed
+        assert!(!mask[0]); // theta is free
+    }
+
     #[test]
     fn test_packed_fixed_mask_block_off_diagonal() {
         // One eta fixed, the other free. The whole row/col of a fixed eta is
@@ -721,5 +909,94 @@ mod tests {
         assert!(mask[2]); // L11 (eta0 diagonal) — fixed
         assert!(mask[3]); // L21 (couples eta0-fixed to eta1) — pinned
         assert!(!mask[4]); // L22 (eta1 diagonal) — free
+    }
+
+    // ── block_kappa (Option B) ─────────────────────────────────────────────
+
+    fn make_block_kappa_iov_template() -> ModelParameters {
+        let omega = OmegaMatrix::from_diagonal(&[0.09], vec!["ETA_CL".into()]);
+        // 2×2 block kappa: [[0.01, 0.002], [0.002, 0.005]]
+        // Build via Cholesky like OmegaMatrix::from_diagonal but full.
+        use nalgebra::DMatrix;
+        let mut mat = DMatrix::zeros(2, 2);
+        mat[(0, 0)] = 0.01;
+        mat[(0, 1)] = 0.002;
+        mat[(1, 0)] = 0.002;
+        mat[(1, 1)] = 0.005;
+        let chol = mat.clone().cholesky().unwrap().l();
+        let omega_iov = OmegaMatrix {
+            matrix: mat,
+            chol,
+            eta_names: vec!["KAPPA_CL".into(), "KAPPA_V".into()],
+            diagonal: false,
+        };
+        let sigma = SigmaVector {
+            values: vec![0.02],
+            names: vec!["PROP_ERR".into()],
+        };
+        ModelParameters {
+            theta: vec![0.2],
+            theta_names: vec!["TVCL".into()],
+            theta_lower: vec![0.01],
+            theta_upper: vec![100.0],
+            theta_fixed: vec![false],
+            omega,
+            omega_fixed: vec![false],
+            sigma,
+            sigma_fixed: vec![false],
+            omega_iov: Some(omega_iov),
+            kappa_fixed: vec![false, false],
+        }
+    }
+
+    #[test]
+    fn test_packed_len_block_kappa() {
+        let template = make_block_kappa_iov_template();
+        // 1 theta + 1 bsv omega diag + 1 sigma + 3 block-kappa chol entries = 6
+        assert_eq!(packed_len(&template), 6);
+    }
+
+    #[test]
+    fn test_pack_unpack_block_kappa_round_trip() {
+        let template = make_block_kappa_iov_template();
+        let packed = pack_params(&template);
+        assert_eq!(packed.len(), packed_len(&template));
+
+        let recovered = unpack_params(&packed, &template);
+        let iov_orig = template.omega_iov.as_ref().unwrap();
+        let iov_rec = recovered.omega_iov.as_ref().unwrap();
+
+        assert!(!iov_rec.diagonal);
+        for i in 0..2 {
+            for j in 0..2 {
+                assert_relative_eq!(iov_orig.matrix[(i, j)], iov_rec.matrix[(i, j)], epsilon = 1e-8);
+            }
+        }
+    }
+
+    #[test]
+    fn test_packed_fixed_mask_block_kappa() {
+        let mut template = make_block_kappa_iov_template();
+        // Fix the first kappa — its whole row/col in the Cholesky should be pinned.
+        template.kappa_fixed = vec![true, false];
+        let mask = packed_fixed_mask(&template);
+        assert_eq!(mask.len(), packed_len(&template));
+        // IOV chol layout (after theta+omega+sigma): L11, L21, L22
+        let iov_start = 1 + 1 + 1; // theta + bsv diag + sigma
+        assert!(mask[iov_start]);     // L11 — kappa_fixed[0]=true
+        assert!(mask[iov_start + 1]); // L21 — kappa_fixed[0]||kappa_fixed[1]=true
+        assert!(!mask[iov_start + 2]); // L22 — kappa_fixed[1]=false
+    }
+
+    #[test]
+    fn test_block_kappa_bounds_off_diagonal() {
+        let template = make_block_kappa_iov_template();
+        let bounds = compute_bounds(&template);
+        assert_eq!(bounds.lower.len(), packed_len(&template));
+        // IOV chol layout after theta+omega+sigma: L11, L21, L22
+        let iov_start = 1 + 1 + 1;
+        assert_relative_eq!(bounds.lower[iov_start], -6.0, epsilon = 1e-12);     // L11 diag
+        assert_relative_eq!(bounds.lower[iov_start + 1], -10.0, epsilon = 1e-12); // L21 off-diag
+        assert_relative_eq!(bounds.lower[iov_start + 2], -6.0, epsilon = 1e-12); // L22 diag
     }
 }

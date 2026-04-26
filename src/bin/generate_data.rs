@@ -99,6 +99,8 @@ fn simulate_subjects(
                 covariates: cov,
                 tvcov: HashMap::new(),
                 cens: vec![0; obs_times.len()],
+                occasions: Vec::new(),
+                dose_occasions: Vec::new(),
             }
         })
         .collect();
@@ -158,6 +160,8 @@ fn build_warfarin_model() -> CompiledModel {
         omega_fixed: vec![false; 3],
         sigma,
         sigma_fixed: vec![false; 1],
+        omega_iov: None,
+        kappa_fixed: Vec::new(),
     };
     let pk_param_fn: PkParamFn =
         Box::new(|theta: &[f64], eta: &[f64], _: &HashMap<String, f64>| {
@@ -201,6 +205,8 @@ fn build_warfarin_model() -> CompiledModel {
         mu_refs: HashMap::new(),
         referenced_covariates: Vec::new(),
         gradient_method: GradientMethod::default(),
+        n_kappa: 0,
+        kappa_names: Vec::new(),
     }
 }
 
@@ -221,6 +227,8 @@ fn build_warfarin_true_params() -> ModelParameters {
             names: vec!["PROP_ERR".into()],
         },
         sigma_fixed: vec![false; 1],
+        omega_iov: None,
+        kappa_fixed: Vec::new(),
     }
 }
 
@@ -250,6 +258,8 @@ fn generate_two_cpt_iv() {
         omega_fixed: vec![false; 4],
         sigma,
         sigma_fixed: vec![false; 1],
+        omega_iov: None,
+        kappa_fixed: Vec::new(),
     };
     let pk_param_fn: PkParamFn =
         Box::new(|theta: &[f64], eta: &[f64], _: &HashMap<String, f64>| {
@@ -293,6 +303,8 @@ fn generate_two_cpt_iv() {
         mu_refs: HashMap::new(),
         referenced_covariates: Vec::new(),
         gradient_method: GradientMethod::default(),
+        n_kappa: 0,
+        kappa_names: Vec::new(),
     };
     let obs_times = vec![0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 12.0, 24.0, 48.0, 72.0];
     let subjects = simulate_subjects(&model, &params, 15, 100.0, 1, &obs_times, 123, None);
@@ -337,6 +349,8 @@ fn generate_two_cpt_oral_cov() {
         omega_fixed: vec![false; 5],
         sigma,
         sigma_fixed: vec![false; 1],
+        omega_iov: None,
+        kappa_fixed: Vec::new(),
     };
     let pk_param_fn: PkParamFn =
         Box::new(|theta: &[f64], eta: &[f64], cov: &HashMap<String, f64>| {
@@ -386,6 +400,8 @@ fn generate_two_cpt_oral_cov() {
         mu_refs: HashMap::new(),
         referenced_covariates: Vec::new(),
         gradient_method: GradientMethod::default(),
+        n_kappa: 0,
+        kappa_names: Vec::new(),
     };
 
     // Generate random covariates (matching Julia seed 456)
@@ -416,6 +432,8 @@ fn generate_two_cpt_oral_cov() {
             covariates: covs[i].clone(),
             tvcov: HashMap::new(),
             cens: vec![0; obs_times.len()],
+            occasions: Vec::new(),
+            dose_occasions: Vec::new(),
         })
         .collect();
     let pop = Population {
@@ -466,6 +484,8 @@ fn generate_mm_oral() {
         omega_fixed: vec![false; 2],
         sigma,
         sigma_fixed: vec![false; 1],
+        omega_iov: None,
+        kappa_fixed: Vec::new(),
     };
     let pk_param_fn: PkParamFn =
         Box::new(|theta: &[f64], eta: &[f64], _: &HashMap<String, f64>| {
@@ -519,6 +539,8 @@ fn generate_mm_oral() {
         mu_refs: HashMap::new(),
         referenced_covariates: Vec::new(),
         gradient_method: GradientMethod::default(),
+        n_kappa: 0,
+        kappa_names: Vec::new(),
     };
     let obs_times = vec![
         0.25, 0.5, 1.0, 2.0, 3.0, 4.0, 6.0, 8.0, 12.0, 24.0, 36.0, 48.0,

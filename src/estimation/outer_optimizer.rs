@@ -1,6 +1,6 @@
 use crate::estimation::inner_optimizer::run_inner_loop_warm;
 use crate::estimation::parameterization::{compute_mu_k, *};
-use crate::stats::likelihood::foce_population_nll;
+use crate::stats::likelihood::{foce_population_nll, foce_population_nll_iov};
 use crate::types::*;
 use nalgebra::{DMatrix, DVector};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -14,6 +14,8 @@ pub struct OuterResult {
     pub n_iterations: usize,
     pub eta_hats: Vec<DVector<f64>>,
     pub h_matrices: Vec<DMatrix<f64>>,
+    /// Per-occasion kappa EBEs for each subject. Empty vecs when `n_kappa == 0`.
+    pub kappas: Vec<Vec<DVector<f64>>>,
     pub covariance_matrix: Option<DMatrix<f64>>,
     pub warnings: Vec<String>,
 }
@@ -61,6 +63,31 @@ pub fn optimize_population_warm(
 // ═══════════════════════════════════════════════════════════════════════════
 //  NLopt-based outer optimizer (matches Julia's NLopt path exactly)
 // ═══════════════════════════════════════════════════════════════════════════
+
+/// Dispatch to the IOV-aware or standard population NLL based on model.n_kappa.
+/// `kappas` is ignored (may be empty) when `model.n_kappa == 0`.
+pub(crate) fn pop_nll(
+    model: &CompiledModel,
+    population: &Population,
+    params: &ModelParameters,
+    eta_hats: &[DVector<f64>],
+    h_matrices: &[DMatrix<f64>],
+    kappas: &[Vec<DVector<f64>>],
+    interaction: bool,
+) -> f64 {
+    if model.n_kappa > 0 {
+        if let Some(ref iov) = params.omega_iov {
+            return foce_population_nll_iov(
+                model, population, &params.theta, eta_hats, h_matrices,
+                kappas, &params.omega, iov, &params.sigma.values, interaction,
+            );
+        }
+    }
+    foce_population_nll(
+        model, population, &params.theta, eta_hats, h_matrices,
+        &params.omega, &params.sigma.values, interaction,
+    )
+}
 
 /// State passed through NLopt's user-data mechanism
 struct NloptState {
@@ -125,7 +152,7 @@ fn optimize_nlopt(
         let mu_k = compute_mu_k(model, &params.theta, options.mu_referencing);
 
         // Run inner loop (warm-started)
-        let (ehs, hms, _) = run_inner_loop_warm(
+        let (ehs, hms, _, kappas) = run_inner_loop_warm(
             model,
             population,
             &params,
@@ -136,16 +163,7 @@ fn optimize_nlopt(
         );
 
         // Compute OFV with fixed EBEs
-        let nll = foce_population_nll(
-            model,
-            population,
-            &params.theta,
-            &ehs,
-            &hms,
-            &params.omega,
-            &params.sigma.values,
-            options.interaction,
-        );
+        let nll = pop_nll(model, population, &params, &ehs, &hms, &kappas, options.interaction);
         let raw_ofv = 2.0 * nll;
         let ofv = if raw_ofv.is_finite() { raw_ofv } else { 1e20 };
 
@@ -162,18 +180,10 @@ fn optimize_nlopt(
                 n_evals_cl.fetch_add(1, Ordering::Relaxed);
                 return ofv;
             }
+            let kappas_ref = &kappas;
             let ofv_fn = |xp: &[f64], eh: &[DVector<f64>], hm: &[DMatrix<f64>]| -> f64 {
                 let p = unpack_params(xp, init_params);
-                2.0 * foce_population_nll(
-                    model,
-                    population,
-                    &p.theta,
-                    eh,
-                    hm,
-                    &p.omega,
-                    &p.sigma.values,
-                    options.interaction,
-                )
+                2.0 * pop_nll(model, population, &p, eh, hm, kappas_ref, options.interaction)
             };
             let grad_vec = gradient_cd(x, &bounds, &ehs, &hms, &ofv_fn);
             for i in 0..g.len() {
@@ -275,7 +285,7 @@ fn optimize_nlopt(
             }
             let params = unpack_params(x, init_params);
             let mu_k = compute_mu_k(model, &params.theta, options.mu_referencing);
-            let (ehs, hms, _) = run_inner_loop_warm(
+            let (ehs, hms, _, kappas) = run_inner_loop_warm(
                 model,
                 population,
                 &params,
@@ -284,16 +294,7 @@ fn optimize_nlopt(
                 Some(&state.cached_etas),
                 Some(&mu_k),
             );
-            let nll = foce_population_nll(
-                model,
-                population,
-                &params.theta,
-                &ehs,
-                &hms,
-                &params.omega,
-                &params.sigma.values,
-                options.interaction,
-            );
+            let nll = pop_nll(model, population, &params, &ehs, &hms, &kappas, options.interaction);
             let raw_ofv = 2.0 * nll;
             let ofv = if raw_ofv.is_finite() { raw_ofv } else { 1e20 };
 
@@ -307,18 +308,10 @@ fn optimize_nlopt(
                     n_evals_cl2.fetch_add(1, Ordering::Relaxed);
                     return ofv;
                 }
+                let kappas_ref = &kappas;
                 let ofv_fn = |xp: &[f64], eh: &[DVector<f64>], hm: &[DMatrix<f64>]| -> f64 {
                     let p = unpack_params(xp, init_params);
-                    2.0 * foce_population_nll(
-                        model,
-                        population,
-                        &p.theta,
-                        eh,
-                        hm,
-                        &p.omega,
-                        &p.sigma.values,
-                        options.interaction,
-                    )
+                    2.0 * pop_nll(model, population, &p, eh, hm, kappas_ref, options.interaction)
                 };
                 let grad_vec = gradient_cd(x, &bounds, &ehs, &hms, &ofv_fn);
                 for i in 0..g.len() {
@@ -385,7 +378,7 @@ fn optimize_nlopt(
     let final_mu_k = compute_mu_k(model, &final_params.theta, options.mu_referencing);
 
     // Final inner loop at converged parameters
-    let (final_ehs, final_hms, _) = run_inner_loop_warm(
+    let (final_ehs, final_hms, _, final_kappas) = run_inner_loop_warm(
         model,
         population,
         &final_params,
@@ -395,14 +388,8 @@ fn optimize_nlopt(
         Some(&final_mu_k),
     );
 
-    let final_nll = foce_population_nll(
-        model,
-        population,
-        &final_params.theta,
-        &final_ehs,
-        &final_hms,
-        &final_params.omega,
-        &final_params.sigma.values,
+    let final_nll = pop_nll(
+        model, population, &final_params, &final_ehs, &final_hms, &final_kappas,
         options.interaction,
     );
     let final_ofv = 2.0 * final_nll;
@@ -425,6 +412,7 @@ fn optimize_nlopt(
                 population,
                 &final_ehs,
                 &final_hms,
+                &final_kappas,
                 options,
             )
         } else {
@@ -450,6 +438,7 @@ fn optimize_nlopt(
         n_iterations: n_evals_outer.load(Ordering::Relaxed),
         eta_hats: final_ehs,
         h_matrices: final_hms,
+        kappas: final_kappas,
         covariance_matrix,
         warnings,
     }
@@ -475,24 +464,19 @@ fn optimize_bfgs(
     let mut warnings = Vec::new();
     let mut cached_etas: Vec<DVector<f64>> = vec![DVector::zeros(n_eta); n_subj];
 
-    let ofv_at_fixed = |x: &[f64], eta_hats: &[DVector<f64>], h_matrices: &[DMatrix<f64>]| -> f64 {
+    let ofv_at_fixed = |x: &[f64],
+                        eta_hats: &[DVector<f64>],
+                        h_matrices: &[DMatrix<f64>],
+                        kappas: &[Vec<DVector<f64>>]|
+     -> f64 {
         let params = unpack_params(x, init_params);
-        2.0 * foce_population_nll(
-            model,
-            population,
-            &params.theta,
-            eta_hats,
-            h_matrices,
-            &params.omega,
-            &params.sigma.values,
-            options.interaction,
-        )
+        2.0 * pop_nll(model, population, &params, eta_hats, h_matrices, kappas, options.interaction)
     };
 
     let f_only = |x: &[f64], prev_etas: &[DVector<f64>]| -> f64 {
         let params = unpack_params(x, init_params);
         let mu_k = compute_mu_k(model, &params.theta, options.mu_referencing);
-        let (ehs, hms, _) = run_inner_loop_warm(
+        let (ehs, hms, _, kappas) = run_inner_loop_warm(
             model,
             population,
             &params,
@@ -501,22 +485,8 @@ fn optimize_bfgs(
             Some(prev_etas),
             Some(&mu_k),
         );
-        let ofv = 2.0
-            * foce_population_nll(
-                model,
-                population,
-                &params.theta,
-                &ehs,
-                &hms,
-                &params.omega,
-                &params.sigma.values,
-                options.interaction,
-            );
-        if ofv.is_finite() {
-            ofv
-        } else {
-            1e20
-        }
+        let ofv = 2.0 * pop_nll(model, population, &params, &ehs, &hms, &kappas, options.interaction);
+        if ofv.is_finite() { ofv } else { 1e20 }
     };
 
     let fdfg = |x: &[f64],
@@ -524,7 +494,7 @@ fn optimize_bfgs(
      -> (f64, Vec<f64>, Vec<DVector<f64>>, Vec<DMatrix<f64>>) {
         let params = unpack_params(x, init_params);
         let mu_k = compute_mu_k(model, &params.theta, options.mu_referencing);
-        let (ehs, hms, _) = run_inner_loop_warm(
+        let (ehs, hms, _, kappas) = run_inner_loop_warm(
             model,
             population,
             &params,
@@ -533,8 +503,13 @@ fn optimize_bfgs(
             Some(prev_etas),
             Some(&mu_k),
         );
-        let ofv = ofv_at_fixed(x, &ehs, &hms);
-        let g = gradient_cd(x, &bounds, &ehs, &hms, &ofv_at_fixed);
+        let kappas_ref = &kappas;
+        let ofv_fn_fixed =
+            |xp: &[f64], eh: &[DVector<f64>], hm: &[DMatrix<f64>]| -> f64 {
+                ofv_at_fixed(xp, eh, hm, kappas_ref)
+            };
+        let ofv = ofv_at_fixed(x, &ehs, &hms, &kappas);
+        let g = gradient_cd(x, &bounds, &ehs, &hms, &ofv_fn_fixed);
         let f = if ofv.is_finite() { ofv } else { 1e20 };
         (f, g, ehs, hms)
     };
@@ -630,7 +605,7 @@ fn optimize_bfgs(
 
     let final_params = unpack_params(&x, init_params);
     let bfgs_final_mu_k = compute_mu_k(model, &final_params.theta, options.mu_referencing);
-    let (final_ehs, final_hms, _) = run_inner_loop_warm(
+    let (final_ehs, final_hms, _, final_kappas) = run_inner_loop_warm(
         model,
         population,
         &final_params,
@@ -639,7 +614,7 @@ fn optimize_bfgs(
         Some(&cached_etas),
         Some(&bfgs_final_mu_k),
     );
-    let final_ofv = ofv_at_fixed(&x, &final_ehs, &final_hms);
+    let final_ofv = ofv_at_fixed(&x, &final_ehs, &final_hms, &final_kappas);
 
     let covariance_matrix =
         if options.run_covariance_step && !crate::cancel::is_cancelled(&options.cancel) {
@@ -653,6 +628,7 @@ fn optimize_bfgs(
                 population,
                 &final_ehs,
                 &final_hms,
+                &final_kappas,
                 options,
             )
         } else {
@@ -676,6 +652,7 @@ fn optimize_bfgs(
         n_iterations,
         eta_hats: final_ehs,
         h_matrices: final_hms,
+        kappas: final_kappas,
         covariance_matrix,
         warnings,
     }
@@ -813,6 +790,7 @@ pub(crate) fn compute_covariance(
     population: &Population,
     eta_hats: &[DVector<f64>],
     h_matrices: &[DMatrix<f64>],
+    kappas: &[Vec<DVector<f64>>],
     options: &FitOptions,
 ) -> Option<DMatrix<f64>> {
     let n = x_hat.len();
@@ -823,16 +801,7 @@ pub(crate) fn compute_covariance(
     // This matches Julia's foce_population_nll_diff.
     let ofv_fixed = |x: &[f64]| -> f64 {
         let params = unpack_params(x, template);
-        let foce_nll = foce_population_nll(
-            model,
-            population,
-            &params.theta,
-            eta_hats,
-            h_matrices,
-            &params.omega,
-            &params.sigma.values,
-            options.interaction,
-        );
+        let foce_nll = pop_nll(model, population, &params, eta_hats, h_matrices, kappas, options.interaction);
 
         // Add explicit Omega prior terms for each subject
         let n_subj = eta_hats.len();
