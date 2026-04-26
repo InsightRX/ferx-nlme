@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "ayu";
-            window.path_to_searchindex_js = "../searchindex-2f461d70.js";
+            window.path_to_searchindex_js = "../searchindex-717082d9.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-66605922.js"></script>
+        <script src="../toc-911e3088.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -232,6 +232,43 @@ omega ETA_KA ~ 0.40
 block_omega (ETA_CL, ETA_V) = [0.09, 0.02, 0.04]
 </code></pre>
 <p>produces <code>[ETA_KA, ETA_CL, ETA_V]</code> (indices 1, 2, 3). The <code>[individual_parameters]</code> block should list assignments in the same order for clarity, though the parameter mapping is by name, not position.</p>
+<h2 id="kappa-inter-occasion-variability"><a class="header" href="#kappa-inter-occasion-variability">Kappa (Inter-Occasion Variability)</a></h2>
+<p>Inter-Occasion Variability (IOV) is declared with <code>kappa</code> (independent per-parameter) or <code>block_kappa</code> (correlated across parameters). Kappa parameters must be paired with <code>iov_column</code> in <code>[fit_options]</code> and an occasion column in the dataset.</p>
+<h3 id="diagonal-kappa--option-a"><a class="header" href="#diagonal-kappa--option-a">Diagonal kappa — Option A</a></h3>
+<pre><code>kappa NAME ~ variance
+kappa NAME ~ variance FIX
+</code></pre>
+<p>Each <code>kappa</code> line adds one diagonal element to the IOV omega matrix. Occasions are independent.</p>
+<p>Example:</p>
+<pre><code>kappa KAPPA_CL ~ 0.05
+kappa KAPPA_V  ~ 0.03
+kappa KAPPA_CL ~ 0.02 FIX
+</code></pre>
+<h3 id="block-kappa--option-b-correlated-iov"><a class="header" href="#block-kappa--option-b-correlated-iov">Block kappa — Option B (correlated IOV)</a></h3>
+<pre><code>block_kappa (NAME1, NAME2, ...) = [lower_triangle_values]
+block_kappa (NAME1, NAME2, ...) = [lower_triangle_values] FIX
+</code></pre>
+<p>Mirrors the <code>block_omega</code> syntax — values are the lower triangle of the IOV covariance matrix, row-wise. Use this when IOV effects are expected to be correlated (e.g. correlated occasion shifts in CL and V).</p>
+<p>Example (2×2 block):</p>
+<pre><code>block_kappa (KAPPA_CL, KAPPA_V) = [0.05, 0.01, 0.03]
+</code></pre>
+<p>where <code>0.05</code> = Var(KAPPA_CL), <code>0.01</code> = Cov(KAPPA_CL, KAPPA_V), <code>0.03</code> = Var(KAPPA_V).</p>
+<h3 id="using-kappas-in-individual-parameters"><a class="header" href="#using-kappas-in-individual-parameters">Using kappas in individual parameters</a></h3>
+<p>Reference kappa names exactly like BSV etas in <code>[individual_parameters]</code>:</p>
+<pre><code>[individual_parameters]
+  CL = TVCL * exp(ETA_CL + KAPPA_CL)
+  V  = TVV  * exp(ETA_V  + KAPPA_V)
+  KA = TVKA * exp(ETA_KA)           # no IOV on absorption
+</code></pre>
+<p>Kappas can be combined freely — a parameter can carry BSV only, IOV only, or both.</p>
+<h3 id="mixed-diagonal-and-block-kappa"><a class="header" href="#mixed-diagonal-and-block-kappa">Mixed diagonal and block kappa</a></h3>
+<p>You can mix <code>kappa</code> (uncorrelated) and <code>block_kappa</code> (correlated) declarations in the same model:</p>
+<pre><code>block_kappa (KAPPA_CL, KAPPA_V) = [0.05, 0.01, 0.03]
+kappa KAPPA_KA ~ 0.10
+</code></pre>
+<p>A name may not appear in both <code>kappa</code> and <code>block_kappa</code> — this is a parse error.</p>
+<h3 id="declaration-order-1"><a class="header" href="#declaration-order-1">Declaration order</a></h3>
+<p>Kappa declaration order determines the IOV omega matrix layout and the kappa column order in output. Kappas follow all BSV etas in the internal indexing: if a model has 3 BSV etas and 2 kappas, the kappas sit at indices 4 and 5.</p>
 <h2 id="sigma-residual-error"><a class="header" href="#sigma-residual-error">Sigma (Residual Error)</a></h2>
 <pre><code>sigma NAME ~ value
 </code></pre>
