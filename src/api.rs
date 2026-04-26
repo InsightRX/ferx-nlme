@@ -269,6 +269,16 @@ fn fit_inner(
         );
     }
 
+    // Guard: SAEM does not support IOV (kappas are not sampled in the SAEM
+    // stochastic approximation loop).  Fail early with a clear message.
+    if model.n_kappa > 0 && chain.iter().any(|&m| m == EstimationMethod::Saem) {
+        return Err(
+            "method = saem does not support IOV (n_kappa > 0). \
+             Use method = foce or method = focei for models with kappa declarations."
+                .to_string(),
+        );
+    }
+
     // Run each stage in sequence, feeding params forward.
     let n_stages = chain.len();
     let mut stage_params: ModelParameters = init_params.clone();
@@ -467,6 +477,7 @@ fn fit_inner(
         kappa_fixed: result.params.kappa_fixed.clone(),
         se_kappa: None,
         shrinkage_kappa: Vec::new(),
+        ebe_kappas: result.kappas.clone(),
     };
 
     if options.verbose {
@@ -784,4 +795,263 @@ pub struct PredictionResult {
     pub id: String,
     pub time: f64,
     pub pred: f64,
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  IOV integration tests
+//
+//  Each test builds a minimal warfarin-like 1-cpt IV model with a single kappa
+//  for CL, simulates a small population (4 subjects × 2 occasions × 3 obs),
+//  and verifies that `fit()` completes without panicking and returns meaningful
+//  IOV estimates.  Tests run under `--features ci` (no autodiff required).
+// ─────────────────────────────────────────────────────────────────────────────
+#[cfg(test)]
+mod iov_integration {
+    use super::fit;
+    use crate::types::*;
+
+    use std::collections::HashMap;
+
+    // ── Model ────────────────────────────────────────────────────────────────
+    fn make_iov_model() -> CompiledModel {
+        let omega = OmegaMatrix::from_diagonal(&[0.09], vec!["ETA_CL".into()]);
+        let omega_iov = OmegaMatrix::from_diagonal(&[0.04], vec!["KAPPA_CL".into()]);
+        let default_params = ModelParameters {
+            theta: vec![5.0, 50.0],
+            theta_names: vec!["TVCL".into(), "TVV".into()],
+            theta_lower: vec![0.1, 5.0],
+            theta_upper: vec![50.0, 500.0],
+            theta_fixed: vec![false; 2],
+            omega,
+            omega_fixed: vec![false],
+            sigma: SigmaVector { values: vec![0.05], names: vec!["PROP_ERR".into()] },
+            sigma_fixed: vec![false],
+            omega_iov: Some(omega_iov),
+            kappa_fixed: vec![false],
+        };
+        CompiledModel {
+            name: "iov_test".into(),
+            pk_model: PkModel::OneCptIvBolus,
+            error_model: ErrorModel::Proportional,
+            // pk_param_fn: eta[0]=BSV for CL, eta[1]=KAPPA_CL (appended by IOV path)
+            pk_param_fn: Box::new(|theta: &[f64], eta: &[f64], _: &HashMap<String, f64>| {
+                let mut p = PkParams::default();
+                let kappa = if eta.len() > 1 { eta[1] } else { 0.0 };
+                p.values[0] = theta[0] * (eta[0] + kappa).exp(); // CL = TVCL * exp(ETA_CL + KAPPA_CL)
+                p.values[1] = theta[1];                           // V
+                p
+            }),
+            n_theta: 2,
+            n_eta: 1,
+            n_epsilon: 1,
+            n_kappa: 1,
+            kappa_names: vec!["KAPPA_CL".into()],
+            theta_names: vec!["TVCL".into(), "TVV".into()],
+            eta_names: vec!["ETA_CL".into()],
+            default_params,
+            mu_refs: HashMap::new(),
+            tv_fn: None,
+            pk_indices: vec![0, 1],
+            eta_map: vec![0],
+            pk_idx_f64: vec![0.0, 1.0],
+            sel_flat: vec![1.0, 0.0],
+            ode_spec: None,
+            bloq_method: BloqMethod::Drop,
+            referenced_covariates: Vec::new(),
+            gradient_method: GradientMethod::Fd,
+        }
+    }
+
+    // ── Population ───────────────────────────────────────────────────────────
+    // 4 subjects, each with 2 occasions.  Times 1–3 = occasion 1, times 4–6 = occ 2.
+    // Observations are plausible IV-bolus concentrations (dose=100).
+    fn make_iov_population() -> Population {
+        let obs_times = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+        let occasions = vec![1u32, 1, 1, 2, 2, 2];
+        let dose_occ = vec![1u32, 2]; // two dose rows: one per occasion
+        let subject_data: &[(&str, Vec<f64>)] = &[
+            ("S1", vec![36.0, 28.0, 21.0, 34.0, 26.0, 19.0]),
+            ("S2", vec![40.0, 32.0, 24.0, 38.0, 29.0, 22.0]),
+            ("S3", vec![33.0, 25.0, 19.0, 31.0, 24.0, 18.0]),
+            ("S4", vec![42.0, 33.0, 25.0, 39.0, 30.0, 23.0]),
+        ];
+
+        let subjects: Vec<Subject> = subject_data
+            .iter()
+            .map(|(id, obs)| Subject {
+                id: id.to_string(),
+                doses: vec![
+                    DoseEvent::new(0.0, 100.0, 1, 0.0, false, 0.0),
+                    DoseEvent::new(3.5, 100.0, 1, 0.0, false, 0.0),
+                ],
+                obs_times: obs_times.clone(),
+                observations: obs.clone(),
+                obs_cmts: vec![1; 6],
+                covariates: HashMap::new(),
+                tvcov: HashMap::new(),
+                cens: vec![0; 6],
+                occasions: occasions.clone(),
+                dose_occasions: dose_occ.clone(),
+            })
+            .collect();
+        Population {
+            subjects,
+            covariate_names: Vec::new(),
+            dv_column: "DV".to_string(),
+        }
+    }
+
+    fn fast_opts(method: EstimationMethod, optimizer: Optimizer, mu_referencing: bool) -> FitOptions {
+        FitOptions {
+            method,
+            methods: Vec::new(),
+            outer_maxiter: 60,
+            outer_gtol: 1e-3,
+            inner_maxiter: 50,
+            inner_tol: 1e-4,
+            run_covariance_step: false,
+            interaction: method == EstimationMethod::FoceI,
+            mu_referencing,
+            optimizer,
+            lbfgs_memory: 5,
+            verbose: false,
+            ..FitOptions::default()
+        }
+    }
+
+    // ── Helper ───────────────────────────────────────────────────────────────
+    fn assert_iov_fit_ok(result: &FitResult) {
+        assert!(result.ofv.is_finite(), "OFV must be finite");
+        assert!(result.omega_iov.is_some(), "omega_iov must be populated");
+        let iov_diag = result.omega_iov.as_ref().unwrap()[(0, 0)];
+        assert!(iov_diag > 0.0, "omega_iov diagonal must be positive, got {iov_diag}");
+        assert_eq!(result.kappa_names, vec!["KAPPA_CL"], "kappa name mismatch");
+        assert_eq!(result.ebe_kappas.len(), 4, "expected kappas for 4 subjects");
+        for (i, subj_kappas) in result.ebe_kappas.iter().enumerate() {
+            assert_eq!(subj_kappas.len(), 2, "subject {i} should have 2 occasions");
+        }
+    }
+
+    // ── Tests: FOCE + all outer optimizers ───────────────────────────────────
+
+    #[test]
+    fn test_iov_foce_bobyqa() {
+        let model = make_iov_model();
+        let pop = make_iov_population();
+        let opts = fast_opts(EstimationMethod::Foce, Optimizer::Bobyqa, false);
+        let result = fit(&model, &pop, &model.default_params, &opts).expect("fit should succeed");
+        assert_iov_fit_ok(&result);
+    }
+
+    #[test]
+    fn test_iov_foce_slsqp() {
+        let model = make_iov_model();
+        let pop = make_iov_population();
+        let opts = fast_opts(EstimationMethod::Foce, Optimizer::Slsqp, false);
+        let result = fit(&model, &pop, &model.default_params, &opts).expect("fit should succeed");
+        assert_iov_fit_ok(&result);
+    }
+
+    #[test]
+    fn test_iov_foce_lbfgs() {
+        let model = make_iov_model();
+        let pop = make_iov_population();
+        let opts = fast_opts(EstimationMethod::Foce, Optimizer::Lbfgs, false);
+        let result = fit(&model, &pop, &model.default_params, &opts).expect("fit should succeed");
+        assert_iov_fit_ok(&result);
+    }
+
+    #[test]
+    fn test_iov_foce_nlopt_lbfgs() {
+        let model = make_iov_model();
+        let pop = make_iov_population();
+        let opts = fast_opts(EstimationMethod::Foce, Optimizer::NloptLbfgs, false);
+        let result = fit(&model, &pop, &model.default_params, &opts).expect("fit should succeed");
+        assert_iov_fit_ok(&result);
+    }
+
+    #[test]
+    fn test_iov_foce_mma() {
+        let model = make_iov_model();
+        let pop = make_iov_population();
+        let opts = fast_opts(EstimationMethod::Foce, Optimizer::Mma, false);
+        let result = fit(&model, &pop, &model.default_params, &opts).expect("fit should succeed");
+        assert_iov_fit_ok(&result);
+    }
+
+    #[test]
+    fn test_iov_foce_bfgs() {
+        let model = make_iov_model();
+        let pop = make_iov_population();
+        let opts = fast_opts(EstimationMethod::Foce, Optimizer::Bfgs, false);
+        let result = fit(&model, &pop, &model.default_params, &opts).expect("fit should succeed");
+        assert_iov_fit_ok(&result);
+    }
+
+    // ── Tests: FOCEI ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_iov_focei_bobyqa() {
+        let model = make_iov_model();
+        let pop = make_iov_population();
+        let opts = fast_opts(EstimationMethod::FoceI, Optimizer::Bobyqa, false);
+        let result = fit(&model, &pop, &model.default_params, &opts).expect("fit should succeed");
+        assert_iov_fit_ok(&result);
+    }
+
+    // ── Tests: mu-referencing ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_iov_foce_mu_referencing_on() {
+        let model = make_iov_model();
+        let pop = make_iov_population();
+        let opts = fast_opts(EstimationMethod::Foce, Optimizer::Bobyqa, true);
+        let result = fit(&model, &pop, &model.default_params, &opts).expect("fit with mu_referencing should succeed");
+        assert_iov_fit_ok(&result);
+    }
+
+    #[test]
+    fn test_iov_focei_mu_referencing_on() {
+        let model = make_iov_model();
+        let pop = make_iov_population();
+        let opts = fast_opts(EstimationMethod::FoceI, Optimizer::Bobyqa, true);
+        let result = fit(&model, &pop, &model.default_params, &opts).expect("fit with mu_referencing should succeed");
+        assert_iov_fit_ok(&result);
+    }
+
+    // ── Tests: GN and GN_Hybrid ───────────────────────────────────────────────
+
+    #[test]
+    fn test_iov_gn() {
+        let model = make_iov_model();
+        let pop = make_iov_population();
+        let opts = fast_opts(EstimationMethod::FoceGn, Optimizer::Bobyqa, false);
+        let result = fit(&model, &pop, &model.default_params, &opts).expect("GN fit should succeed");
+        assert_iov_fit_ok(&result);
+    }
+
+    #[test]
+    fn test_iov_gn_hybrid() {
+        let model = make_iov_model();
+        let pop = make_iov_population();
+        let opts = fast_opts(EstimationMethod::FoceGnHybrid, Optimizer::Bobyqa, false);
+        let result = fit(&model, &pop, &model.default_params, &opts).expect("GN hybrid fit should succeed");
+        assert_iov_fit_ok(&result);
+    }
+
+    // ── Test: SAEM + IOV must return Err ──────────────────────────────────────
+
+    #[test]
+    fn test_iov_saem_returns_err() {
+        let model = make_iov_model();
+        let pop = make_iov_population();
+        let opts = fast_opts(EstimationMethod::Saem, Optimizer::Bobyqa, false);
+        let result = fit(&model, &pop, &model.default_params, &opts);
+        assert!(result.is_err(), "SAEM with IOV must return an error");
+        let msg = result.unwrap_err();
+        assert!(
+            msg.contains("saem") && msg.contains("IOV"),
+            "error message should mention saem and IOV, got: {msg}"
+        );
+    }
 }

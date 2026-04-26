@@ -149,7 +149,7 @@ pub fn find_ebe(
     // When the model has kappa declarations AND this subject has occasion labels,
     // optimize over the flat vector [bsv_eta (n_eta), kappa_1 (n_kappa), ..., kappa_K (n_kappa)].
     if model.n_kappa > 0 && !subject.occasions.is_empty() {
-        return find_ebe_iov(model, subject, params, max_iter, tol, eta_init);
+        return find_ebe_iov(model, subject, params, max_iter, tol, eta_init, mu_k);
     }
 
     // mu: shift vector (zeros when no mu-referencing)
@@ -322,6 +322,10 @@ pub fn find_ebe(
 
 /// IOV inner optimizer: optimizes [bsv_eta, kappa_1, ..., kappa_K] jointly.
 /// Forces FD gradient (no AD path for IOV in Option A).
+///
+/// When `mu_k` is provided the BSV block is optimised in psi-space
+/// (`psi = eta_true + mu_k`) so mu-referencing benefits also apply to the BSV
+/// etas when IOV is active.  The returned `EbeResult.eta` is always `eta_true`.
 fn find_ebe_iov(
     model: &CompiledModel,
     subject: &Subject,
@@ -329,6 +333,7 @@ fn find_ebe_iov(
     max_iter: usize,
     tol: f64,
     eta_init: Option<&[f64]>,
+    mu_k: Option<&[f64]>,
 ) -> EbeResult {
     let n_eta = model.n_eta;
     let n_kappa = model.n_kappa;
@@ -338,19 +343,31 @@ fn find_ebe_iov(
 
     let n_flat = n_eta + k_occasions * n_kappa;
 
-    // Initial flat vector: [bsv_eta_init, zeros for kappas]
+    // mu shift for BSV block (zeros when no mu-referencing)
+    let mu: Vec<f64> = mu_k.map(|m| m.to_vec()).unwrap_or_else(|| vec![0.0; n_eta]);
+
+    // Initial flat vector: [psi_init (bsv in psi-space), zeros for kappas]
     let mut x: Vec<f64> = if let Some(warm) = eta_init {
-        let mut v = warm[..n_eta.min(warm.len())].to_vec();
+        // warm start is in eta_true space; convert BSV block to psi-space
+        let mut v: Vec<f64> = warm[..n_eta.min(warm.len())]
+            .iter()
+            .zip(mu.iter())
+            .map(|(e, m)| e + m)
+            .collect();
         v.resize(n_flat, 0.0);
         v
     } else {
-        vec![0.0; n_flat]
+        // Prior mode: psi = mu (eta_true = 0), kappas = 0
+        let mut v = mu.clone();
+        v.resize(n_flat, 0.0);
+        v
     };
 
     let omega_iov_ref = params.omega_iov.as_ref();
 
     let obj = |p: &[f64]| -> f64 {
-        let eta = &p[..n_eta];
+        // Convert BSV block from psi-space back to eta_true for the NLL
+        let eta: Vec<f64> = p[..n_eta].iter().zip(mu.iter()).map(|(pi, mi)| pi - mi).collect();
         let kappas: Vec<Vec<f64>> = (0..k_occasions)
             .map(|k| p[n_eta + k * n_kappa..n_eta + (k + 1) * n_kappa].to_vec())
             .collect();
@@ -358,7 +375,7 @@ fn find_ebe_iov(
             model,
             subject,
             &params.theta,
-            eta,
+            &eta,
             &kappas,
             &params.omega,
             omega_iov_ref,
@@ -373,7 +390,8 @@ fn find_ebe_iov(
     }
 
     let nll = obj(&x);
-    let bsv_eta: Vec<f64> = x[..n_eta].to_vec();
+    // Convert BSV block from psi-space to eta_true
+    let bsv_eta: Vec<f64> = x[..n_eta].iter().zip(mu.iter()).map(|(p, m)| p - m).collect();
     let kappas_vec: Vec<DVector<f64>> = (0..k_occasions)
         .map(|k| {
             DVector::from_column_slice(&x[n_eta + k * n_kappa..n_eta + (k + 1) * n_kappa])
@@ -804,7 +822,7 @@ pub fn run_inner_loop(
     params: &ModelParameters,
     max_iter: usize,
     tol: f64,
-) -> (Vec<DVector<f64>>, Vec<DMatrix<f64>>, bool) {
+) -> (Vec<DVector<f64>>, Vec<DMatrix<f64>>, bool, Vec<Vec<DVector<f64>>>) {
     run_inner_loop_warm(model, population, params, max_iter, tol, None, None)
 }
 
@@ -812,6 +830,10 @@ pub fn run_inner_loop(
 ///
 /// `prev_etas`: previous-iteration EBEs in eta_true space (used as warm starts).
 /// `mu_k`: mu shift vector from `compute_mu_k`; `None` means no mu-referencing.
+///
+/// Returns `(eta_hats, h_matrices, any_failed, kappas_per_subject)`.
+/// `kappas_per_subject[i]` contains per-occasion kappa EBEs for subject i;
+/// it is empty for non-IOV subjects or when `model.n_kappa == 0`.
 pub fn run_inner_loop_warm(
     model: &CompiledModel,
     population: &Population,
@@ -820,7 +842,7 @@ pub fn run_inner_loop_warm(
     tol: f64,
     prev_etas: Option<&[DVector<f64>]>,
     mu_k: Option<&[f64]>,
-) -> (Vec<DVector<f64>>, Vec<DMatrix<f64>>, bool) {
+) -> (Vec<DVector<f64>>, Vec<DMatrix<f64>>, bool, Vec<Vec<DVector<f64>>>) {
     use rayon::prelude::*;
 
     let results: Vec<EbeResult> = population
@@ -836,8 +858,9 @@ pub fn run_inner_loop_warm(
     let any_failed = results.iter().any(|r| !r.converged);
     let eta_hats: Vec<DVector<f64>> = results.iter().map(|r| r.eta.clone()).collect();
     let h_matrices: Vec<DMatrix<f64>> = results.iter().map(|r| r.h_matrix.clone()).collect();
+    let kappas: Vec<Vec<DVector<f64>>> = results.into_iter().map(|r| r.kappas).collect();
 
-    (eta_hats, h_matrices, any_failed)
+    (eta_hats, h_matrices, any_failed, kappas)
 }
 
 #[cfg(test)]
