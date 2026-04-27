@@ -324,4 +324,161 @@ mod tests {
         assert!(row.contains(",1.000000,0.3500"));
         std::fs::remove_file(&path).ok();
     }
+
+    // Per-test path that won't collide with other tests sharing the same
+    // thread-local TRACE on parallel cargo test runs.  cargo test runs each
+    // #[test] on its own thread, so TLS is isolated, but file paths still
+    // need to be unique on disk.
+    fn unique_path(tag: &str) -> String {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        format!(
+            "/tmp/ferx_trace_{}_{}_{}.csv",
+            tag,
+            std::process::id(),
+            nanos
+        )
+    }
+
+    #[test]
+    fn test_is_active_default_false() {
+        // Fresh thread => no writer initialised => not active.
+        assert!(!is_active());
+    }
+
+    #[test]
+    fn test_init_then_finish_lifecycle() {
+        let path = unique_path("lifecycle");
+        assert!(!is_active());
+
+        init(path.clone()).unwrap();
+        assert!(is_active(), "is_active should be true after init");
+
+        let returned = finish().expect("finish should return the path");
+        assert_eq!(returned, path);
+        assert!(!is_active(), "is_active should be false after finish");
+        assert!(
+            std::path::Path::new(&path).exists(),
+            "trace file should still exist on disk after finish"
+        );
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn test_finish_without_init_returns_none() {
+        // No init => finish is a no-op that returns None.
+        assert!(finish().is_none());
+    }
+
+    #[test]
+    fn test_write_foce_via_thread_local() {
+        let path = unique_path("tl_foce");
+        init(path.clone()).unwrap();
+        write_foce(7, "focei", 42.5, Some(0.125), None, "bobyqa");
+        finish();
+
+        let contents = read_file(&path);
+        let lines: Vec<&str> = contents.lines().collect();
+        assert_eq!(lines.len(), 2, "header + one data row");
+        assert!(lines[1].starts_with("7,focei,,42.5"));
+        assert!(lines[1].contains(",0.125000,NA,NA,bobyqa,"));
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn test_write_when_no_writer_is_noop() {
+        // Calling write_* with no active trace must not panic and must not
+        // create any files.  This is the contract estimators rely on so they
+        // can call trace::write_* unconditionally.
+        assert!(!is_active());
+        write_foce(1, "foce", 1.0, None, None, "slsqp");
+        write_gn(1, "gn", "", 1.0, 0.0, 0.0, true);
+        write_saem(1, "explore", 1.0, 1.0, 0.5);
+        // No assertion on files — the assertion is "didn't panic".
+    }
+
+    #[test]
+    fn test_method_override_applied() {
+        let path = unique_path("override");
+        init(path.clone()).unwrap();
+        // Caller passes "foce" but override forces "gn_hybrid" + phase "focei".
+        set_overrides(Some("gn_hybrid"), Some("focei"));
+        write_foce(2, "foce", 10.0, Some(0.1), Some(0.01), "slsqp");
+        set_overrides(None, None);
+        // After clearing, caller-supplied method/phase apply.
+        write_foce(3, "foce", 9.0, Some(0.05), Some(0.005), "slsqp");
+        finish();
+
+        let contents = read_file(&path);
+        let rows: Vec<&str> = contents.lines().skip(1).collect();
+        assert_eq!(rows.len(), 2);
+
+        let cols0: Vec<&str> = rows[0].split(',').collect();
+        assert_eq!(cols0[1], "gn_hybrid", "method overridden");
+        assert_eq!(cols0[2], "focei", "phase overridden");
+
+        let cols1: Vec<&str> = rows[1].split(',').collect();
+        assert_eq!(cols1[1], "foce", "method override cleared");
+        assert_eq!(cols1[2], "", "phase override cleared");
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn test_init_overwrites_previous_writer() {
+        // Calling init twice in a row (e.g. back-to-back fits on the same
+        // worker thread) should drop the first writer and start fresh.
+        let path1 = unique_path("init1");
+        let path2 = unique_path("init2");
+        init(path1.clone()).unwrap();
+        write_foce(1, "foce", 1.0, None, None, "slsqp");
+        init(path2.clone()).unwrap();
+        write_foce(1, "foce", 2.0, None, None, "slsqp");
+        let returned = finish().unwrap();
+        assert_eq!(returned, path2, "finish returns the most recent path");
+
+        // Second file has just the one row written after re-init.
+        let c2 = read_file(&path2);
+        assert_eq!(c2.lines().count(), 2);
+        std::fs::remove_file(&path1).ok();
+        std::fs::remove_file(&path2).ok();
+    }
+
+    #[test]
+    fn test_init_fails_for_unwritable_path() {
+        // A path under a non-existent directory should fail at File::create
+        // and leave the writer uninitialised.
+        let bad = "/definitely/not/a/real/dir/ferx_trace.csv";
+        let err = init(bad.to_string());
+        assert!(err.is_err());
+        assert!(!is_active(), "failed init must leave writer uninitialised");
+    }
+
+    #[test]
+    fn test_na_for_non_finite_grad() {
+        // NaN/Inf gradients should be serialised as "NA", not "NaN"/"inf".
+        let path = unique_path("nonfinite");
+        let mut w = TraceWriter::new(path.clone()).unwrap();
+        w.write_foce_row(1, "foce", "", 1.0, Some(f64::NAN), Some(f64::INFINITY), "bfgs");
+        w.flush();
+        let row = read_file(&path).lines().nth(1).unwrap().to_string();
+        let cols: Vec<&str> = row.split(',').collect();
+        assert_eq!(cols[5], "NA", "NaN grad_norm => NA");
+        assert_eq!(cols[6], "NA", "Inf step_norm => NA");
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn test_gn_step_rejected_serialised_as_zero() {
+        let path = unique_path("gn_reject");
+        let mut w = TraceWriter::new(path.clone()).unwrap();
+        w.write_gn_row(5, "gn", "", 100.0, 1.0, 2.0, false);
+        w.flush();
+        let row = read_file(&path).lines().nth(1).unwrap().to_string();
+        // step_accepted is the column right before cond_nll's NA stretch.
+        assert!(row.contains(",1.000000,2.000000,0,"));
+        std::fs::remove_file(&path).ok();
+    }
 }
