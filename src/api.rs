@@ -227,6 +227,21 @@ fn fit_inner(
     // notice at the end) and carry them through into FitResult.warnings.
     let unsupported_warnings = options.unsupported_keys_warnings();
 
+    // Initialise the per-iteration optimizer trace if requested.
+    if options.optimizer_trace {
+        let pid = std::process::id();
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let path = format!("/tmp/ferx_trace_{}_{}.csv", pid, ts);
+        if let Err(e) = crate::estimation::trace::init(path.clone()) {
+            eprintln!("[ferx] warning: could not open trace file {}: {}", path, e);
+        } else {
+            eprintln!("[ferx] optimizer trace → {}", path);
+        }
+    }
+
     // Reset gradient timing counters for this fit so FERX_TIME_GRADIENTS
     // readouts are per-call rather than cumulative across a long R session.
     let time_gradients = std::env::var("FERX_TIME_GRADIENTS")
@@ -430,6 +445,9 @@ fn fit_inner(
         None
     };
 
+    // Flush and close the trace file; capture path for FitResult.
+    let trace_path = crate::estimation::trace::finish();
+
     let fit_result = FitResult {
         method: *chain.last().expect("chain non-empty"),
         method_chain: chain.clone(),
@@ -459,6 +477,7 @@ fn fit_inner(
         sir_ci_omega: sir_result.as_ref().map(|s| s.ci_omega.clone()),
         sir_ci_sigma: sir_result.as_ref().map(|s| s.ci_sigma.clone()),
         sir_ess: sir_result.as_ref().map(|s| s.effective_sample_size),
+        trace_path,
     };
 
     if options.verbose {
