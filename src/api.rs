@@ -3,7 +3,9 @@ use crate::estimation::saem;
 use crate::io::datareader::read_nonmem_csv;
 use crate::io::output;
 use crate::pk;
-use crate::stats::likelihood::{compute_cwres, foce_subject_nll};
+use crate::stats::likelihood::{
+    compute_cwres, foce_subject_nll, foce_subject_nll_iov, split_obs_by_occasion,
+};
 use crate::stats::residual_error::compute_iwres;
 use crate::types::*;
 use nalgebra::{DMatrix, DVector};
@@ -358,6 +360,7 @@ fn fit_inner(
         &result.params,
         &result.eta_hats,
         &result.h_matrices,
+        &result.kappas,
         options.interaction,
     );
 
@@ -532,6 +535,7 @@ fn compute_subject_results(
     params: &ModelParameters,
     eta_hats: &[DVector<f64>],
     h_matrices: &[DMatrix<f64>],
+    kappas_per_subject: &[Vec<DVector<f64>>],
     interaction: bool,
 ) -> Vec<SubjectResult> {
     population
@@ -541,15 +545,38 @@ fn compute_subject_results(
         .map(|(i, subject)| {
             let eta = &eta_hats[i];
             let h = &h_matrices[i];
+            let kappas: &[DVector<f64>] = if i < kappas_per_subject.len() {
+                kappas_per_subject[i].as_slice()
+            } else {
+                &[]
+            };
 
-            // Individual predictions: f(eta_hat)
-            let pk_params_ind =
-                (model.pk_param_fn)(&params.theta, eta.as_slice(), &subject.covariates);
-            let ipred = model_preds(model, subject, &pk_params_ind);
+            // Individual predictions: f(eta_hat), with occasion-specific kappas for IOV.
+            let ipred = if !kappas.is_empty() {
+                let occ_groups = split_obs_by_occasion(subject);
+                let mut ipreds = vec![0.0; subject.obs_times.len()];
+                for (k, (_, obs_indices)) in occ_groups.iter().enumerate() {
+                    let kap: &[f64] =
+                        if k < kappas.len() { kappas[k].as_slice() } else { &[] };
+                    let combined: Vec<f64> =
+                        eta.iter().copied().chain(kap.iter().copied()).collect();
+                    let pk = (model.pk_param_fn)(&params.theta, &combined, &subject.covariates);
+                    let all_preds = model_preds(model, subject, &pk);
+                    for &j in obs_indices {
+                        ipreds[j] = all_preds[j];
+                    }
+                }
+                ipreds
+            } else {
+                let pk_params_ind =
+                    (model.pk_param_fn)(&params.theta, eta.as_slice(), &subject.covariates);
+                model_preds(model, subject, &pk_params_ind)
+            };
 
-            // Population predictions: f(eta = 0)
-            let zero_eta = vec![0.0; model.n_eta];
-            let pk_params_pop = (model.pk_param_fn)(&params.theta, &zero_eta, &subject.covariates);
+            // Population predictions: f(eta = 0, kappa = 0).
+            let zero_eta = vec![0.0_f64; model.n_eta + model.n_kappa];
+            let pk_params_pop =
+                (model.pk_param_fn)(&params.theta, &zero_eta, &subject.covariates);
             let pred = model_preds(model, subject, &pk_params_pop);
 
             // IWRES (NaN on BLOQ rows — see compute_cwres for CWRES handling).
@@ -577,16 +604,35 @@ fn compute_subject_results(
             );
 
             // OFV contribution
-            let ofv_i = foce_subject_nll(
-                model,
-                subject,
-                &params.theta,
-                eta,
-                h,
-                &params.omega,
-                &params.sigma.values,
-                interaction,
-            );
+            let ofv_i = if !kappas.is_empty() {
+                let omega_iov = params
+                    .omega_iov
+                    .as_ref()
+                    .expect("omega_iov present when kappas non-empty");
+                foce_subject_nll_iov(
+                    model,
+                    subject,
+                    &params.theta,
+                    eta,
+                    h,
+                    &params.omega,
+                    &params.sigma.values,
+                    interaction,
+                    kappas,
+                    omega_iov,
+                )
+            } else {
+                foce_subject_nll(
+                    model,
+                    subject,
+                    &params.theta,
+                    eta,
+                    h,
+                    &params.omega,
+                    &params.sigma.values,
+                    interaction,
+                )
+            };
 
             SubjectResult {
                 id: subject.id.clone(),
@@ -718,11 +764,12 @@ fn simulate_inner<R: rand::Rng>(
 
     for sim_idx in 0..n_sim {
         for subject in &population.subjects {
-            // Sample eta from N(0, Omega)
+            // Sample eta from N(0, Omega); append zero kappas for IOV models.
             let z: Vec<f64> = (0..n_eta).map(|_| rng.sample(normal)).collect();
             let z_vec = DVector::from_column_slice(&z);
             let eta = &params.omega.chol * z_vec;
-            let eta_slice: Vec<f64> = eta.iter().copied().collect();
+            let mut eta_slice: Vec<f64> = eta.iter().copied().collect();
+            eta_slice.resize(n_eta + model.n_kappa, 0.0);
 
             // Compute individual parameters
             let pk_params = (model.pk_param_fn)(&params.theta, &eta_slice, &subject.covariates);
@@ -770,7 +817,7 @@ pub fn predict(
     population: &Population,
     params: &ModelParameters,
 ) -> Vec<PredictionResult> {
-    let zero_eta = vec![0.0; model.n_eta];
+    let zero_eta = vec![0.0_f64; model.n_eta + model.n_kappa];
     let mut results = Vec::new();
 
     for subject in &population.subjects {
