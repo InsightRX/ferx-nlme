@@ -43,6 +43,15 @@ pub fn run_foce_gn(
     let n_packed = x.len();
     let fixed_mask = packed_fixed_mask(init_params);
 
+    // Scaling: computed once from initial x; x itself stays in real packed space
+    // throughout the GN loop. Scaling only affects the linear system solve so
+    // the Hessian is better conditioned when log-space values differ in magnitude.
+    let gn_scale: Vec<f64> = if options.scale_params {
+        compute_scale(&x)
+    } else {
+        vec![1.0; n_packed]
+    };
+
     let mut warnings = Vec::new();
 
     // BHHH Information-matrix approximation degrades as the censoring fraction
@@ -133,17 +142,32 @@ pub fn run_foce_gn(
             }
         }
 
-        // ---- Levenberg-Marquardt damping ----
-        let mut h_lm = h_bhhh.clone();
+        // ---- Scale the linear system (better Hessian conditioning) ----
+        // g_s[i] = g[i] * scale[i],  H_s[i,j] = H[i,j] * scale[i] * scale[j]
+        // Solve H_s_lm * delta_s = -g_s, then delta[i] = delta_s[i] * scale[i].
+        // With identity scale (scale_params=false) this is a no-op.
+        let grad_s: DVector<f64> = DVector::from_iterator(
+            n_packed,
+            (0..n_packed).map(|i| grad[i] * gn_scale[i]),
+        );
+        let mut h_s = DMatrix::zeros(n_packed, n_packed);
         for i in 0..n_packed {
-            h_lm[(i, i)] += lambda * h_bhhh[(i, i)].max(1e-8);
+            for j in 0..n_packed {
+                h_s[(i, j)] = h_bhhh[(i, j)] * gn_scale[i] * gn_scale[j];
+            }
         }
 
-        // ---- Solve for step: H_lm * delta = -grad ----
-        let neg_grad = -&grad;
-        let chol = h_lm.clone().cholesky();
-        let delta = match chol {
-            Some(c) => c.solve(&neg_grad),
+        // ---- Levenberg-Marquardt damping (in scaled space) ----
+        let mut h_s_lm = h_s.clone();
+        for i in 0..n_packed {
+            h_s_lm[(i, i)] += lambda * h_s[(i, i)].max(1e-8);
+        }
+
+        // ---- Solve for step: H_s_lm * delta_s = -grad_s ----
+        let neg_grad_s = -&grad_s;
+        let chol = h_s_lm.clone().cholesky();
+        let delta_s = match chol {
+            Some(c) => c.solve(&neg_grad_s),
             None => {
                 // Fall back to regularized pseudo-inverse
                 if verbose {
@@ -153,6 +177,11 @@ pub fn run_foce_gn(
                 continue;
             }
         };
+        // Convert step back to real (unscaled) space
+        let delta = DVector::from_iterator(
+            n_packed,
+            (0..n_packed).map(|i| delta_s[i] * gn_scale[i]),
+        );
 
         // ---- Line search with backtracking ----
         let mut alpha = 1.0;

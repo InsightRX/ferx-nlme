@@ -563,6 +563,12 @@ pub struct FitOptions {
     /// When `true`, write a per-iteration optimizer trace CSV to a temp file
     /// and store its path in `FitResult::trace_path`. Default: `false`.
     pub optimizer_trace: bool,
+    /// Apply an additional scaling layer on top of the existing log/Cholesky
+    /// parameterization so that all transformed parameters are O(1) when
+    /// passed to the outer optimizer.  Scaling is mathematically transparent
+    /// (identical OFV and estimates by design); it only changes the internal
+    /// coordinate system seen by NLopt / BFGS / GN.  Default: `true`.
+    pub scale_params: bool,
 }
 
 impl Default for FitOptions {
@@ -599,6 +605,7 @@ impl Default for FitOptions {
             user_set_keys: Vec::new(),
             gradient_method: GradientMethod::default(),
             optimizer_trace: false,
+            scale_params: true,
         }
     }
 }
@@ -756,6 +763,7 @@ pub fn framework_keys() -> &'static [&'static str] {
         "gradient",
         "gradient_method",
         "optimizer_trace",
+        "scale_params",
     ]
 }
 

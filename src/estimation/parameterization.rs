@@ -271,6 +271,31 @@ pub fn compute_mu_k(model: &CompiledModel, theta: &[f64], enabled: bool) -> Vec<
     mu
 }
 
+/// Compute a scale vector for a packed log/Cholesky parameter vector.
+///
+/// Returns |v| for elements whose absolute value exceeds 0.1 (normalises
+/// log-space parameters to be O(1) for the outer optimizer), and 1.0
+/// otherwise. The threshold 0.1 is appropriate because a log-space value
+/// near zero means the natural-scale parameter is near 1.0 — no scaling
+/// needed there.
+pub fn compute_scale(x: &[f64]) -> Vec<f64> {
+    x.iter()
+        .map(|&v| if v.abs() > 0.1 { v.abs() } else { 1.0 })
+        .collect()
+}
+
+/// Divide each element of `x` by the corresponding scale factor.
+/// `x_s = x / scale` — the representation seen by the outer optimizer.
+pub fn apply_scale(x: &[f64], scale: &[f64]) -> Vec<f64> {
+    x.iter().zip(scale).map(|(v, s)| v / s).collect()
+}
+
+/// Multiply each element of `x_scaled` by the corresponding scale factor.
+/// `x = x_s * scale` — recovers the real packed vector.
+pub fn remove_scale(x_scaled: &[f64], scale: &[f64]) -> Vec<f64> {
+    x_scaled.iter().zip(scale).map(|(v, s)| v * s).collect()
+}
+
 /// Clamp a vector to box constraints
 pub fn clamp_to_bounds(x: &mut [f64], bounds: &PackedBounds) {
     for i in 0..x.len() {
@@ -699,6 +724,43 @@ mod tests {
         }
         assert!(bounds.lower[0] < bounds.upper[0]); // theta 0 free
         assert!(bounds.lower[5] < bounds.upper[5]); // sigma free
+    }
+
+    // ── scaling helpers ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_compute_scale_above_threshold() {
+        // |v| > 0.1 → scale = |v|
+        let x = vec![2.3, -4.5, 0.0, 0.05, -0.11];
+        let s = compute_scale(&x);
+        assert_relative_eq!(s[0], 2.3, epsilon = 1e-12);
+        assert_relative_eq!(s[1], 4.5, epsilon = 1e-12);
+        assert_relative_eq!(s[2], 1.0, epsilon = 1e-12); // 0.0 → 1.0
+        assert_relative_eq!(s[3], 1.0, epsilon = 1e-12); // 0.05 ≤ 0.1 → 1.0
+        assert_relative_eq!(s[4], 0.11, epsilon = 1e-12); // 0.11 > 0.1 → 0.11
+    }
+
+    #[test]
+    fn test_apply_remove_scale_round_trip() {
+        let x = vec![6.9, -2.3, 0.0, 1.5];
+        let s = compute_scale(&x);
+        let xs = apply_scale(&x, &s);
+        let xr = remove_scale(&xs, &s);
+        for (orig, rec) in x.iter().zip(xr.iter()) {
+            assert_relative_eq!(orig, rec, epsilon = 1e-12);
+        }
+    }
+
+    #[test]
+    fn test_apply_scale_normalises_to_unit_magnitude() {
+        // After apply_scale, all elements with |v| > 0.1 should have |x_s| ≈ 1
+        let x = vec![6.9, -2.3, 1.5, -0.05];
+        let s = compute_scale(&x);
+        let xs = apply_scale(&x, &s);
+        assert_relative_eq!(xs[0].abs(), 1.0, epsilon = 1e-12); // 6.9/6.9
+        assert_relative_eq!(xs[1].abs(), 1.0, epsilon = 1e-12); // -2.3/2.3
+        assert_relative_eq!(xs[2].abs(), 1.0, epsilon = 1e-12); // 1.5/1.5
+        assert_relative_eq!(xs[3], -0.05, epsilon = 1e-12);     // |v|≤0.1 → scale=1
     }
 
     #[test]
