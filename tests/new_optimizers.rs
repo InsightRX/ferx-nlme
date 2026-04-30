@@ -18,7 +18,7 @@ fn data_and_model() -> (
     let model =
         parse_model_file(Path::new("examples/warfarin.ferx")).expect("warfarin example must parse");
     let population =
-        read_nonmem_csv(Path::new("data/warfarin.csv"), None).expect("warfarin data must load");
+        read_nonmem_csv(Path::new("data/warfarin.csv"), None, None).expect("warfarin data must load");
     (model, population)
 }
 
