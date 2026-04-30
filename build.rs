@@ -23,9 +23,14 @@ fn main() {
         .unwrap_or_else(|| "unknown".into());
     println!("cargo:rustc-env=FERX_RUSTC_VERSION={}", output.trim());
 
-    let opt_level = std::env::var("OPT_LEVEL").unwrap_or_else(|_| "0".into());
-    let profile = if opt_level == "0" { "debug" } else { "release" };
+    let profile = std::env::var("PROFILE").unwrap_or_else(|_| "unknown".into());
     println!("cargo:rustc-env=FERX_BUILD_PROFILE={}", profile);
 
     println!("cargo:rerun-if-changed=Cargo.toml");
+    // Re-run when any input we read above changes, so the embedded metadata
+    // does not go stale across feature/profile/toolchain switches.
+    println!("cargo:rerun-if-env-changed=CARGO_FEATURE_AUTODIFF");
+    println!("cargo:rerun-if-env-changed=CARGO_FEATURE_CI");
+    println!("cargo:rerun-if-env-changed=PROFILE");
+    println!("cargo:rerun-if-env-changed=RUSTC");
 }

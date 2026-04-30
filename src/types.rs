@@ -892,12 +892,25 @@ pub struct ParsedModel {
     pub fit_options: FitOptions,
 }
 
+/// Factories that build minimal `CompiledModel` instances for unit tests.
+/// Exposed `pub(crate)` (gated on `#[cfg(test)]`) so other modules' tests
+/// can construct models without duplicating the boilerplate.
 #[cfg(test)]
-mod tests {
+pub(crate) mod test_helpers {
     use super::*;
     use std::collections::HashMap;
 
-    fn make_compiled_model(with_ode: bool) -> CompiledModel {
+    /// Build an analytical-PK model (`tv_fn = Some`, `ode_spec = None`).
+    pub(crate) fn analytical_model(gradient_method: GradientMethod) -> CompiledModel {
+        make_compiled_model(false, gradient_method)
+    }
+
+    /// Build an ODE-backed model (`tv_fn = None`, `ode_spec = Some`).
+    pub(crate) fn ode_model(gradient_method: GradientMethod) -> CompiledModel {
+        make_compiled_model(true, gradient_method)
+    }
+
+    fn make_compiled_model(with_ode: bool, gradient_method: GradientMethod) -> CompiledModel {
         CompiledModel {
             name: "test".into(),
             pk_model: PkModel::OneCptOral,
@@ -920,7 +933,12 @@ mod tests {
                 sigma_fixed: vec![false],
             },
             mu_refs: HashMap::new(),
-            tv_fn: None,
+            // Analytical models populate tv_fn; ODE models leave it None.
+            tv_fn: if with_ode {
+                None
+            } else {
+                Some(Box::new(|_t, _c| vec![1.0]))
+            },
             pk_indices: vec![],
             eta_map: vec![],
             pk_idx_f64: vec![],
@@ -937,19 +955,24 @@ mod tests {
             },
             bloq_method: BloqMethod::Drop,
             referenced_covariates: vec![],
-            gradient_method: GradientMethod::Auto,
+            gradient_method,
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
 
     #[test]
     fn is_ode_based_false_for_analytical() {
-        let m = make_compiled_model(false);
+        let m = test_helpers::analytical_model(GradientMethod::Auto);
         assert!(!m.is_ode_based());
     }
 
     #[test]
     fn is_ode_based_true_for_ode() {
-        let m = make_compiled_model(true);
+        let m = test_helpers::ode_model(GradientMethod::Auto);
         assert!(m.is_ode_based());
     }
 }

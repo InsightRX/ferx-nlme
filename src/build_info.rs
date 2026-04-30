@@ -1,4 +1,4 @@
-use crate::types::{EstimationMethod, Optimizer};
+use crate::types::{CompiledModel, EstimationMethod, GradientMethod, Optimizer};
 
 /// Compile-time build metadata embedded by `build.rs`.
 pub struct BuildInfo {
@@ -55,10 +55,14 @@ impl GradientMethodKind {
 
 /// Gradient method used in the inner (per-subject EBE) loop.
 ///
-/// Determined solely by the build variant — if autodiff is compiled in, the
-/// inner BFGS uses Enzyme AD for analytical models; otherwise finite differences.
-pub fn gradient_method_inner(build: &BuildInfo) -> GradientMethodKind {
-    if build.has_autodiff {
+/// Mirrors the runtime resolution in
+/// [`estimation::inner_optimizer::resolve_gradient_method`]: AD is used iff
+/// (a) the crate is compiled with the `autodiff` feature, (b) the model has
+/// an analytical PK path (`tv_fn` populated — ODE models have no AD path),
+/// and (c) the user did not force `gradient_method = Fd`. Otherwise FD.
+pub fn gradient_method_inner(build: &BuildInfo, model: &CompiledModel) -> GradientMethodKind {
+    let user_forces_fd = matches!(model.gradient_method, GradientMethod::Fd);
+    if build.has_autodiff && model.tv_fn.is_some() && !user_forces_fd {
         GradientMethodKind::EnzymeAD
     } else {
         GradientMethodKind::FiniteDifferences
@@ -67,15 +71,19 @@ pub fn gradient_method_inner(build: &BuildInfo) -> GradientMethodKind {
 
 /// Gradient method used in the outer (population parameter) loop.
 ///
-/// Depends on both the build variant and the chosen estimation method/optimizer:
-/// - NLopt-based: NLopt uses its own internal FD regardless of build variant.
+/// Depends on the chosen estimation method/optimizer:
+/// - NLopt-based: NLopt uses its own internal FD.
 /// - BOBYQA: derivative-free — no outer gradient at all.
-/// - Built-in BFGS/LBFGS: uses AD when available, else FD.
+/// - Built-in BFGS/LBFGS: always central finite differences (no outer AD path).
 /// - TrustRegion: FD Hessian via the argmin crate.
 /// - GN/GnHybrid: BHHH outer approximation — always FD.
 /// - SAEM: MH E-step has no gradient; M-step uses NLopt internally.
+///
+/// `_build` is accepted for API symmetry with [`gradient_method_inner`] and
+/// to leave room for a future outer-AD path; the current implementation does
+/// not consult it.
 pub fn gradient_method_outer(
-    build: &BuildInfo,
+    _build: &BuildInfo,
     method: EstimationMethod,
     optimizer: Optimizer,
 ) -> GradientMethodKind {
@@ -86,8 +94,9 @@ pub fn gradient_method_outer(
         }
         EstimationMethod::Foce | EstimationMethod::FoceI => match optimizer {
             Optimizer::Bobyqa => GradientMethodKind::NotApplicable,
-            Optimizer::Bfgs | Optimizer::Lbfgs => gradient_method_inner(build),
-            Optimizer::Slsqp
+            Optimizer::Bfgs
+            | Optimizer::Lbfgs
+            | Optimizer::Slsqp
             | Optimizer::NloptLbfgs
             | Optimizer::Mma
             | Optimizer::TrustRegion => GradientMethodKind::FiniteDifferences,
@@ -98,6 +107,7 @@ pub fn gradient_method_outer(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::test_helpers;
 
     fn ad_build() -> BuildInfo {
         BuildInfo {
@@ -122,17 +132,37 @@ mod tests {
     }
 
     #[test]
-    fn inner_ad_build_returns_enzyme() {
+    fn inner_ad_build_analytical_auto_returns_enzyme() {
+        let m = test_helpers::analytical_model(GradientMethod::Auto);
         assert_eq!(
-            gradient_method_inner(&ad_build()),
+            gradient_method_inner(&ad_build(), &m),
             GradientMethodKind::EnzymeAD
         );
     }
 
     #[test]
     fn inner_ci_build_returns_fd() {
+        let m = test_helpers::analytical_model(GradientMethod::Auto);
         assert_eq!(
-            gradient_method_inner(&ci_build()),
+            gradient_method_inner(&ci_build(), &m),
+            GradientMethodKind::FiniteDifferences
+        );
+    }
+
+    #[test]
+    fn inner_ode_model_returns_fd_even_with_ad_build() {
+        let m = test_helpers::ode_model(GradientMethod::Auto);
+        assert_eq!(
+            gradient_method_inner(&ad_build(), &m),
+            GradientMethodKind::FiniteDifferences
+        );
+    }
+
+    #[test]
+    fn inner_user_forces_fd_returns_fd_even_with_ad_build() {
+        let m = test_helpers::analytical_model(GradientMethod::Fd);
+        assert_eq!(
+            gradient_method_inner(&ad_build(), &m),
             GradientMethodKind::FiniteDifferences
         );
     }
@@ -160,15 +190,19 @@ mod tests {
     }
 
     #[test]
-    fn outer_bfgs_follows_build() {
-        assert_eq!(
-            gradient_method_outer(&ad_build(), EstimationMethod::Foce, Optimizer::Bfgs),
-            GradientMethodKind::EnzymeAD
-        );
-        assert_eq!(
-            gradient_method_outer(&ci_build(), EstimationMethod::Foce, Optimizer::Bfgs),
-            GradientMethodKind::FiniteDifferences
-        );
+    fn outer_bfgs_always_fd() {
+        // Built-in outer BFGS/LBFGS use central finite differences regardless
+        // of the build variant — there is no outer-AD path today.
+        for &build in &[&ad_build(), &ci_build()] {
+            for optimizer in [Optimizer::Bfgs, Optimizer::Lbfgs] {
+                assert_eq!(
+                    gradient_method_outer(build, EstimationMethod::Foce, optimizer),
+                    GradientMethodKind::FiniteDifferences,
+                    "expected FD for outer optimizer {:?}",
+                    optimizer
+                );
+            }
+        }
     }
 
     #[test]

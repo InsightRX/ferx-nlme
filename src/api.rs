@@ -316,13 +316,21 @@ fn fit_inner(
     let fixed_mask = crate::estimation::parameterization::packed_fixed_mask(init_params);
     let n_params_pre = fixed_mask.iter().filter(|&&b| !b).count();
 
-    // Probe NLopt algorithm availability; warn upfront if CRS2-LM is missing.
-    let nlopt_missing = probe_nlopt_algorithms();
+    // Probe NLopt algorithm availability only when global_search will actually
+    // run — otherwise the CRS2-LM warning is misleading for users who never
+    // requested it.
+    let nlopt_missing = if options.global_search {
+        probe_nlopt_algorithms()
+    } else {
+        Vec::new()
+    };
 
-    // Covariance step cost warning: fire before chain so user sees it immediately.
+    // Covariance step cost warning: fire before chain so user sees it
+    // immediately. Use checked_mul so an absurd parameter count cannot wrap
+    // and produce a bogus estimate; on overflow we still warn but suppress
+    // the numeric estimate.
     let covariance_n_evals_estimated = if options.run_covariance_step && n_params_pre > 30 {
-        let n_evals = n_params_pre * n_params_pre;
-        Some(n_evals)
+        n_params_pre.checked_mul(n_params_pre)
     } else {
         None
     };
@@ -335,12 +343,23 @@ fn fit_inner(
 
     // Emit NLopt / covariance warnings before any work starts.
     accumulated_warnings.extend(nlopt_missing.iter().cloned());
-    if let Some(n_evals) = covariance_n_evals_estimated {
-        accumulated_warnings.push(format!(
-            "Covariance step: {} parameters → {} OFV evaluations (finite-difference Hessian). \
-             This may take several minutes on complex models.",
-            n_params_pre, n_evals
-        ));
+    if options.run_covariance_step && n_params_pre > 30 {
+        if let Some(n_evals) = covariance_n_evals_estimated {
+            accumulated_warnings.push(format!(
+                "Covariance step: {} parameters → {} OFV evaluations \
+                 (finite-difference Hessian). This may take several minutes \
+                 on complex models.",
+                n_params_pre, n_evals
+            ));
+        } else {
+            // n_params² overflowed usize — warn without the (wrapped) number.
+            accumulated_warnings.push(format!(
+                "Covariance step: {} parameters → n² OFV evaluations \
+                 (finite-difference Hessian). Estimate exceeds usize range; \
+                 expect this to be very slow.",
+                n_params_pre
+            ));
+        }
     }
 
     let mut total_iterations: usize = 0;
@@ -412,23 +431,28 @@ fn fit_inner(
 
     // Thread efficiency warnings (post-chain, uses n_threads_used captured above).
     let n_subjects = population.subjects.len();
-    if n_threads_used > n_subjects {
+    if n_subjects > 0 && n_threads_used > n_subjects {
+        // `threads = 0` is not a valid Rayon pool size, so for n_subjects = 1
+        // we still suggest a 1-thread pool.
+        let suggested = n_subjects.max(1);
         result.warnings.push(format!(
-            "{} threads configured but only {} subjects — consider threads = {} to reduce \
+            "{} threads configured but only {} subject(s) — consider threads = {} to reduce \
              scheduling overhead (no speed benefit beyond n_subjects)",
-            n_threads_used, n_subjects, n_subjects
+            n_threads_used, n_subjects, suggested
         ));
     }
     // SAEM-specific: MH scheduling has higher per-subject overhead than FOCE.
-    if chain.iter().any(|&m| m == EstimationMethod::Saem)
-        && n_subjects > 0
-        && n_threads_used > n_subjects / 2
-    {
-        result.warnings.push(format!(
-            "SAEM with more threads than subjects/2 may be slower due to MH scheduling \
-             overhead. Consider threads = max(1, {}) for SAEM.",
-            n_subjects / 2
-        ));
+    // Skip when n_subjects < 2 (n_subjects/2 = 0 is meaningless and the prior
+    // warning already covers the n_threads > n_subjects case).
+    if chain.iter().any(|&m| m == EstimationMethod::Saem) && n_subjects >= 2 {
+        let suggested = (n_subjects / 2).max(1);
+        if n_threads_used > suggested {
+            result.warnings.push(format!(
+                "SAEM with more threads than subjects/2 may be slower due to MH scheduling \
+                 overhead. Consider threads = {} for SAEM.",
+                suggested
+            ));
+        }
     }
 
     // Compute per-subject diagnostics
@@ -522,7 +546,7 @@ fn fit_inner(
 
     let final_method = *chain.last().expect("chain non-empty");
     let grad_inner =
-        crate::build_info::gradient_method_inner(&crate::build_info::BUILD_INFO);
+        crate::build_info::gradient_method_inner(&crate::build_info::BUILD_INFO, model);
     let grad_outer = crate::build_info::gradient_method_outer(
         &crate::build_info::BUILD_INFO,
         final_method,
