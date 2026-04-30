@@ -164,7 +164,7 @@ pub fn find_ebe(
     // When the model has kappa declarations AND this subject has occasion labels,
     // optimize over the flat vector [bsv_eta (n_eta), kappa_1 (n_kappa), ..., kappa_K (n_kappa)].
     if model.n_kappa > 0 && !subject.occasions.is_empty() {
-        return find_ebe_iov(model, subject, params, max_iter, tol, eta_init);
+        return find_ebe_iov(model, subject, params, max_iter, tol, eta_init, mu_k);
     }
 
     // mu: shift vector (zeros when no mu-referencing)
@@ -344,7 +344,9 @@ pub fn find_ebe(
     }
 }
 
-/// IOV inner optimizer: optimizes [bsv_eta, kappa_1, ..., kappa_K] jointly.
+/// IOV inner optimizer: optimizes [bsv_psi, kappa_1, ..., kappa_K] jointly,
+/// where bsv_psi = bsv_eta + mu (matches the non-IOV path's mu-referencing
+/// shift). Kappas are zero-centered IOV draws and are not mu-shifted.
 /// Forces FD gradient (no AD path for IOV in Option A).
 fn find_ebe_iov(
     model: &CompiledModel,
@@ -353,6 +355,7 @@ fn find_ebe_iov(
     max_iter: usize,
     tol: f64,
     eta_init: Option<&[f64]>,
+    mu_k: Option<&[f64]>,
 ) -> EbeResult {
     let n_eta = model.n_eta;
     let n_kappa = model.n_kappa;
@@ -362,19 +365,28 @@ fn find_ebe_iov(
 
     let n_flat = n_eta + k_occasions * n_kappa;
 
-    // Initial flat vector: [bsv_eta_init, zeros for kappas]
-    let mut x: Vec<f64> = if let Some(warm) = eta_init {
-        let mut v = warm[..n_eta.min(warm.len())].to_vec();
-        v.resize(n_flat, 0.0);
-        v
-    } else {
-        vec![0.0; n_flat]
-    };
+    // BSV mu shift (zeros when no mu-referencing). Kappas are not shifted.
+    let mu: Vec<f64> = mu_k.map(|m| m.to_vec()).unwrap_or_else(|| vec![0.0; n_eta]);
+
+    // Initial flat vector: BSV portion is psi-space (warm + mu, defaulting
+    // to mu = prior mode); kappa portion starts at zero (prior mode for IOV).
+    let mut x = vec![0.0; n_flat];
+    x[..n_eta].copy_from_slice(&mu);
+    if let Some(warm) = eta_init {
+        for i in 0..n_eta.min(warm.len()) {
+            x[i] = warm[i] + mu[i];
+        }
+    }
 
     let omega_iov_ref = params.omega_iov.as_ref();
 
     let obj = |p: &[f64]| -> f64 {
-        let eta = &p[..n_eta];
+        // Recover bsv_eta = psi - mu; kappas pass through unchanged.
+        let eta_t: Vec<f64> = p[..n_eta]
+            .iter()
+            .zip(mu.iter())
+            .map(|(pi, mi)| pi - mi)
+            .collect();
         let kappas: Vec<Vec<f64>> = (0..k_occasions)
             .map(|k| p[n_eta + k * n_kappa..n_eta + (k + 1) * n_kappa].to_vec())
             .collect();
@@ -382,7 +394,7 @@ fn find_ebe_iov(
             model,
             subject,
             &params.theta,
-            eta,
+            &eta_t,
             &kappas,
             &params.omega,
             omega_iov_ref,
@@ -392,7 +404,9 @@ fn find_ebe_iov(
 
     let bfgs_converged = bfgs_minimize(&obj, &mut x, n_flat, max_iter, tol);
     let (nm_converged, used_fallback) = if !bfgs_converged {
+        // Reset to prior mode: bsv_psi = mu (eta_true = 0), kappas = 0.
         x = vec![0.0; n_flat];
+        x[..n_eta].copy_from_slice(&mu);
         let nm_ok = nelder_mead_minimize(&obj, &mut x, n_flat, max_iter * 5, tol);
         (nm_ok, true)
     } else {
@@ -400,7 +414,12 @@ fn find_ebe_iov(
     };
 
     let nll = obj(&x);
-    let bsv_eta: Vec<f64> = x[..n_eta].to_vec();
+    // Recover bsv_eta = psi - mu (mean-zero, NONMEM-compatible output).
+    let bsv_eta: Vec<f64> = x[..n_eta]
+        .iter()
+        .zip(mu.iter())
+        .map(|(p, m)| p - m)
+        .collect();
     let kappas_vec: Vec<DVector<f64>> = (0..k_occasions)
         .map(|k| {
             DVector::from_column_slice(&x[n_eta + k * n_kappa..n_eta + (k + 1) * n_kappa])
@@ -424,6 +443,14 @@ fn find_ebe_iov(
 
 /// Jacobian d(pred)/d(bsv_eta) with kappas fixed, per-occasion predictions.
 /// Returns an n_obs × n_eta matrix.
+///
+/// Shares the cross-occasion dose-carryover convention of `individual_nll_iov`:
+/// occasion-`k`'s predictions are computed using that occasion's combined eta
+/// against the full subject dose history, then only the occasion's obs rows
+/// are written into the Jacobian. This keeps the FD gradient consistent
+/// with the NLL value (both treat each dose's effect as governed by the
+/// observation's occasion, not the dose's). See the docstring on
+/// `individual_nll_iov` for the implications.
 fn compute_jacobian_fd_iov(
     model: &CompiledModel,
     subject: &Subject,
@@ -1106,5 +1133,33 @@ mod iov_tests {
         let params = model.default_params.clone();
         let result = find_ebe(&model, &subject, &params, 200, 1e-5, None, None);
         assert!(result.kappas.is_empty());
+    }
+
+    #[test]
+    fn test_find_ebe_iov_honors_mu_shift() {
+        // With mu-referencing, the IOV inner loop must shift its BSV optimization
+        // variable by mu so the returned EBE is mean-zero (psi - mu), matching
+        // the non-IOV path's NONMEM-compatible convention. Two equivalent fits
+        // — same data, same params, but expressed with vs. without a mu shift —
+        // should yield essentially the same returned BSV eta.
+        let model = make_iov_model();
+        let subject = make_iov_subject();
+        let params = model.default_params.clone();
+
+        // Fit without mu_k.
+        let r1 = find_ebe(&model, &subject, &params, 200, 1e-5, None, None);
+
+        // Fit with a non-zero mu_k. If mu were dropped, BSV eta would shift by
+        // -mu; with the fix, BSV eta is recovered as psi - mu and matches r1.
+        let mu = vec![0.1];
+        let r2 = find_ebe(&model, &subject, &params, 200, 1e-5, None, Some(&mu));
+
+        assert!(r1.converged && r2.converged);
+        assert!(
+            (r1.eta[0] - r2.eta[0]).abs() < 1e-4,
+            "mu shift not applied: r1.eta={}, r2.eta={}",
+            r1.eta[0],
+            r2.eta[0],
+        );
     }
 }
