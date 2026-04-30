@@ -600,6 +600,7 @@ fn fit_inner(
         sir_ci_omega: sir_result.as_ref().map(|s| s.ci_omega.clone()),
         sir_ci_sigma: sir_result.as_ref().map(|s| s.ci_sigma.clone()),
         sir_ess: sir_result.as_ref().map(|s| s.effective_sample_size),
+        saem_mu_ref_m_step_evals_saved: result.saem_mu_ref_m_step_evals_saved,
         gradient_method_inner: grad_inner.as_str().to_string(),
         gradient_method_outer: grad_outer.as_str().to_string(),
         uses_ode_solver: model.is_ode_based(),

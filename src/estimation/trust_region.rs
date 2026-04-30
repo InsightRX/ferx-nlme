@@ -282,6 +282,7 @@ pub fn optimize_trust_region(
         h_matrices: final_hms,
         covariance_matrix,
         warnings,
+        saem_mu_ref_m_step_evals_saved: None,
         ebe_convergence_warnings: 0,
         max_unconverged_subjects: 0,
         total_ebe_fallbacks: 0,

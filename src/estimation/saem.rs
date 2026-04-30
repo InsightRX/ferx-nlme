@@ -152,6 +152,14 @@ fn theta_sigma_mstep_light(
             let h = 1e-5;
             let mut xp = xv.to_vec();
             for i in 0..n {
+                // Pinned dims (lower == upper) cannot move; skip their FD
+                // evaluations entirely.  This is what makes the SAEM mu-ref
+                // gradient step actually save NLopt OFV evaluations — without
+                // it, NLopt's central FD would still hit each pinned dim.
+                if lower[i] == upper[i] {
+                    g[i] = 0.0;
+                    continue;
+                }
                 xp[i] = xv[i] + h;
                 let th_p: Vec<f64> = xp[..n_theta].iter().map(|&v| v.exp()).collect();
                 let sg_p: Vec<f64> = xp[n_theta..].iter().map(|&v| v.exp()).collect();
@@ -221,6 +229,37 @@ fn theta_sigma_mstep_light(
     (log_theta_new, log_sigma_new)
 }
 
+/// Observation NLL for a single subject with ETAs held fixed.
+///
+/// Under M3, CENS=1 rows contribute `-log Φ((LLOQ - f)/√V)`.
+fn obs_nll_single(
+    model: &CompiledModel,
+    subject: &Subject,
+    theta: &[f64],
+    sigma_values: &[f64],
+    eta: &[f64],
+) -> f64 {
+    let m3 = matches!(model.bloq_method, BloqMethod::M3);
+    let pk_params = (model.pk_param_fn)(theta, eta, &subject.covariates);
+    let preds = if let Some(ref ode_spec) = model.ode_spec {
+        crate::pk::compute_predictions_ode(ode_spec, subject, &pk_params.values)
+    } else {
+        crate::pk::compute_predictions(model.pk_model, subject, &pk_params)
+    };
+    let mut nll = 0.0;
+    for (j, (&y, &f)) in subject.observations.iter().zip(preds.iter()).enumerate() {
+        let f = f.max(1e-12);
+        let v = residual_variance(model.error_model, f, sigma_values).max(1e-12);
+        if m3 && subject.cens.get(j).copied().unwrap_or(0) != 0 {
+            let z = (y - f) / v.sqrt();
+            nll += -log_normal_cdf(z);
+        } else {
+            nll += 0.5 * (v.ln() + (y - f).powi(2) / v);
+        }
+    }
+    nll
+}
+
 /// Sum of observation log-likelihoods with ETAs held fixed.
 ///
 /// Under M3, CENS=1 rows contribute `-log Φ((LLOQ - f)/√V)` instead of the
@@ -234,32 +273,67 @@ fn obs_nll_sum(
     sigma_values: &[f64],
     etas: &[Vec<f64>],
 ) -> f64 {
-    let m3 = matches!(model.bloq_method, BloqMethod::M3);
     population
         .subjects
         .iter()
         .enumerate()
-        .map(|(i, subject)| {
-            let pk_params = (model.pk_param_fn)(theta, &etas[i], &subject.covariates);
-            let preds = if let Some(ref ode_spec) = model.ode_spec {
-                crate::pk::compute_predictions_ode(ode_spec, subject, &pk_params.values)
-            } else {
-                crate::pk::compute_predictions(model.pk_model, subject, &pk_params)
-            };
-            let mut nll = 0.0;
-            for (j, (&y, &f)) in subject.observations.iter().zip(preds.iter()).enumerate() {
-                let f = f.max(1e-12);
-                let v = residual_variance(model.error_model, f, sigma_values).max(1e-12);
-                if m3 && subject.cens.get(j).copied().unwrap_or(0) != 0 {
-                    let z = (y - f) / v.sqrt();
-                    nll += -log_normal_cdf(z);
-                } else {
-                    nll += 0.5 * (v.ln() + (y - f).powi(2) / v);
-                }
-            }
-            nll
-        })
+        .map(|(i, subject)| obs_nll_single(model, subject, theta, sigma_values, &etas[i]))
         .sum()
+}
+
+/// Build (theta_idx, eta_idx) pairs for log-transformed mu-references only.
+///
+/// Only `log_transformed = true` mu-refs (patterns `THETA*exp(ETA)` and
+/// `exp(log(THETA)+ETA)`) participate in the gradient-step M-step.  For these
+/// the chain rule gives `d/d_log(theta) = -Σᵢ d/d_eta`, which matches the
+/// update applied in the SAEM loop.  Additive mu-refs (`THETA + ETA`,
+/// `log_transformed = false`) require the extra factor of `theta` from the
+/// log-space chain rule and are deliberately excluded — they fall through to
+/// the regular NLopt M-step.
+fn get_mu_ref_pairs(model: &CompiledModel) -> Vec<(usize, usize)> {
+    let mut pairs = Vec::new();
+    for (eta_idx, eta_name) in model.eta_names.iter().enumerate() {
+        if let Some(mu_ref) = model.mu_refs.get(eta_name) {
+            if !mu_ref.log_transformed {
+                continue;
+            }
+            if let Some(theta_idx) = model
+                .theta_names
+                .iter()
+                .position(|n| n == &mu_ref.theta_name)
+            {
+                pairs.push((theta_idx, eta_idx));
+            }
+        }
+    }
+    pairs
+}
+
+/// Central finite-difference gradient of obs_nll_single w.r.t. eta,
+/// computed only for the eta indices listed in `eta_indices`.
+fn compute_eta_grad(
+    model: &CompiledModel,
+    subject: &Subject,
+    theta: &[f64],
+    sigma: &[f64],
+    eta: &[f64],
+    eta_indices: &[usize],
+) -> Vec<f64> {
+    let h = 1e-5;
+    let mut grad = vec![0.0; eta.len()];
+    let mut eta_p = eta.to_vec();
+    let mut eta_m = eta.to_vec();
+    for &idx in eta_indices {
+        eta_p[idx] = eta[idx] + h;
+        eta_m[idx] = eta[idx] - h;
+        let fp = obs_nll_single(model, subject, theta, sigma, &eta_p);
+        let fm = obs_nll_single(model, subject, theta, sigma, &eta_m);
+        let g = (fp - fm) / (2.0 * h);
+        grad[idx] = if g.is_finite() { g } else { 0.0 };
+        eta_p[idx] = eta[idx];
+        eta_m[idx] = eta[idx];
+    }
+    grad
 }
 
 // ---------------------------------------------------------------------------
@@ -367,6 +441,18 @@ pub fn run_saem(
         sigma_vals: sigma_cur,
     };
 
+    // Mu-referencing pairs for gradient step M-step: (theta_idx, eta_idx)
+    let mu_ref_pairs: Vec<(usize, usize)> = get_mu_ref_pairs(model);
+    let use_grad_step = options.mu_referencing && !mu_ref_pairs.is_empty();
+    let mu_ref_eta_indices: Vec<usize> = mu_ref_pairs.iter().map(|&(_, ei)| ei).collect();
+    // Accumulator for the `obs_nll_sum` (population OFV) evaluations skipped
+    // by pinning mu-ref dims out of NLopt's central-FD gradient.  Each pinned
+    // dim costs `2 * mstep_maxiter` `obs_nll_sum` calls inside NLopt — that's
+    // the value we add per M-step that takes the gradient-step branch.  We
+    // ignore the (smaller, single-subject) cost of `compute_eta_grad`; the
+    // metric is intentionally a gross-savings upper bound.
+    let mut mstep_grad_step_evals_saved: u64 = 0;
+
     // Main loop
     for k in 1..=n_iter {
         if crate::cancel::is_cancelled(&options.cancel) {
@@ -467,28 +553,95 @@ pub fn run_saem(
             }
         }
 
-        // ---- Step 4: M-step theta, sigma via lightweight NLopt (3 iters, warm-started) ----
+        // ---- Step 4: M-step theta, sigma (lightweight NLopt, warm-started) ----
         // Only run every few iterations during exploration to save time
         let run_mstep = k <= 5 || k % 3 == 0 || k > k1;
         if run_mstep {
             let mstep_maxiter = if k <= k1 { 3 } else { 5 }; // more precise in convergence phase
-            let (theta_new, sigma_new) = theta_sigma_mstep_light(
-                model,
-                population,
-                &state.etas,
-                &log_theta,
-                &log_sigma,
-                &log_theta_lower,
-                &log_theta_upper,
-                &log_sigma_lower,
-                &log_sigma_upper,
-                n_theta,
-                n_sigma,
-                mstep_maxiter,
-                options.scale_params,
-            );
-            log_theta = theta_new;
-            log_sigma = sigma_new;
+
+            if use_grad_step {
+                // Gradient step for mu-referenced thetas: ∂condNLL/∂mu_j = Σᵢ ∂obs_nll_i/∂eta_k
+                let subject_eta_grads: Vec<Vec<f64>> = {
+                    use rayon::prelude::*;
+                    let theta_ref = &state.theta;
+                    let sigma_ref = &state.sigma_vals;
+                    let eta_idx_ref = &mu_ref_eta_indices;
+                    state
+                        .etas
+                        .par_iter()
+                        .enumerate()
+                        .map(|(i, eta)| {
+                            compute_eta_grad(
+                                model,
+                                &population.subjects[i],
+                                theta_ref,
+                                sigma_ref,
+                                eta,
+                                eta_idx_ref,
+                            )
+                        })
+                        .collect()
+                };
+
+                // Update log_theta for each mu-ref pair and pin bounds for NLopt
+                let mut temp_theta_lower = log_theta_lower.clone();
+                let mut temp_theta_upper = log_theta_upper.clone();
+                for &(theta_idx, eta_idx) in &mu_ref_pairs {
+                    if init_params.theta_fixed.get(theta_idx).copied().unwrap_or(false) {
+                        continue;
+                    }
+                    let grad_sum: f64 = subject_eta_grads.iter().map(|g| g[eta_idx]).sum();
+                    log_theta[theta_idx] -= gamma * grad_sum;
+                    log_theta[theta_idx] = log_theta[theta_idx]
+                        .clamp(log_theta_lower[theta_idx], log_theta_upper[theta_idx]);
+                    // Pin so NLopt leaves gradient-stepped values unchanged
+                    temp_theta_lower[theta_idx] = log_theta[theta_idx];
+                    temp_theta_upper[theta_idx] = log_theta[theta_idx];
+                }
+                // Each pinned mu-ref dim avoids 2 obs_nll_sum calls per
+                // NLopt gradient request, capped at `mstep_maxiter` requests.
+                mstep_grad_step_evals_saved +=
+                    2 * mstep_maxiter as u64 * mu_ref_pairs.len() as u64;
+
+                // NLopt for non-mu-ref thetas (pinned) and sigma
+                let (theta_new, sigma_new) = theta_sigma_mstep_light(
+                    model,
+                    population,
+                    &state.etas,
+                    &log_theta,
+                    &log_sigma,
+                    &temp_theta_lower,
+                    &temp_theta_upper,
+                    &log_sigma_lower,
+                    &log_sigma_upper,
+                    n_theta,
+                    n_sigma,
+                    mstep_maxiter,
+                    options.scale_params,
+                );
+                log_theta = theta_new;
+                log_sigma = sigma_new;
+            } else {
+                // mu_referencing = false: full NLopt M-step for all thetas + sigma (unchanged)
+                let (theta_new, sigma_new) = theta_sigma_mstep_light(
+                    model,
+                    population,
+                    &state.etas,
+                    &log_theta,
+                    &log_sigma,
+                    &log_theta_lower,
+                    &log_theta_upper,
+                    &log_sigma_lower,
+                    &log_sigma_upper,
+                    n_theta,
+                    n_sigma,
+                    mstep_maxiter,
+                    options.scale_params,
+                );
+                log_theta = theta_new;
+                log_sigma = sigma_new;
+            }
+
             state.theta = log_theta.iter().map(|&v| v.exp()).collect();
             state.sigma_vals = log_sigma.iter().map(|&v| v.exp()).collect();
         }
@@ -638,6 +791,12 @@ pub fn run_saem(
         eprintln!("SAEM completed. Final OFV = {:.4}", ofv);
     }
 
+    let saem_mu_ref_m_step_evals_saved = if use_grad_step {
+        Some(mstep_grad_step_evals_saved)
+    } else {
+        None
+    };
+
     Ok(OuterResult {
         params: final_params,
         ofv,
@@ -647,8 +806,83 @@ pub fn run_saem(
         h_matrices,
         covariance_matrix,
         warnings,
+        saem_mu_ref_m_step_evals_saved,
         ebe_convergence_warnings: 0,
         max_unconverged_subjects: 0,
         total_ebe_fallbacks: 0,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::test_helpers::analytical_model;
+    use crate::types::{GradientMethod, MuRef};
+
+    fn model_with_mu_refs(
+        theta_names: &[&str],
+        eta_names: &[&str],
+        mu_refs: &[(&str, &str, bool)],
+    ) -> CompiledModel {
+        let mut m = analytical_model(GradientMethod::Auto);
+        m.theta_names = theta_names.iter().map(|s| (*s).to_string()).collect();
+        m.eta_names = eta_names.iter().map(|s| (*s).to_string()).collect();
+        m.n_theta = theta_names.len();
+        m.n_eta = eta_names.len();
+        m.mu_refs = mu_refs
+            .iter()
+            .map(|(eta, theta, log_t)| {
+                (
+                    (*eta).to_string(),
+                    MuRef {
+                        theta_name: (*theta).to_string(),
+                        log_transformed: *log_t,
+                    },
+                )
+            })
+            .collect();
+        m
+    }
+
+    #[test]
+    fn get_mu_ref_pairs_empty_when_no_mu_refs() {
+        let m = analytical_model(GradientMethod::Auto);
+        assert!(get_mu_ref_pairs(&m).is_empty());
+    }
+
+    #[test]
+    fn get_mu_ref_pairs_returns_log_transformed_pair() {
+        let m = model_with_mu_refs(
+            &["CL", "V"],
+            &["ETA_CL", "ETA_V"],
+            &[("ETA_CL", "CL", true), ("ETA_V", "V", true)],
+        );
+        let mut pairs = get_mu_ref_pairs(&m);
+        pairs.sort();
+        assert_eq!(pairs, vec![(0, 0), (1, 1)]);
+    }
+
+    #[test]
+    fn get_mu_ref_pairs_excludes_additive_mu_refs() {
+        // ETA_CL is lognormal (THETA*exp(ETA)) — included.
+        // ETA_V is additive (THETA+ETA) — excluded because the gradient-step
+        // chain rule used in run_saem assumes log-transformed parameters.
+        let m = model_with_mu_refs(
+            &["CL", "V"],
+            &["ETA_CL", "ETA_V"],
+            &[("ETA_CL", "CL", true), ("ETA_V", "V", false)],
+        );
+        assert_eq!(get_mu_ref_pairs(&m), vec![(0, 0)]);
+    }
+
+    #[test]
+    fn get_mu_ref_pairs_skips_orphaned_theta() {
+        // mu_ref points at a theta name that doesn't exist — silently skipped.
+        let m = model_with_mu_refs(
+            &["CL"],
+            &["ETA_CL"],
+            &[("ETA_CL", "MISSING", true)],
+        );
+        assert!(get_mu_ref_pairs(&m).is_empty());
+    }
 }
