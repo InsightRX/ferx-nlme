@@ -408,7 +408,7 @@ mod tests {
     fn test_write_foce_via_thread_local() {
         let path = unique_path("tl_foce");
         init(path.clone()).unwrap();
-        write_foce(7, "focei", 42.5, Some(0.125), None, "bobyqa");
+        write_foce(7, "focei", 42.5, Some(0.125), None, "bobyqa", None, None);
         finish();
 
         let contents = read_file(&path);
@@ -425,8 +425,8 @@ mod tests {
         // create any files.  This is the contract estimators rely on so they
         // can call trace::write_* unconditionally.
         assert!(!is_active());
-        write_foce(1, "foce", 1.0, None, None, "slsqp");
-        write_gn(1, "gn", "", 1.0, 0.0, 0.0, true);
+        write_foce(1, "foce", 1.0, None, None, "slsqp", None, None);
+        write_gn(1, "gn", "", 1.0, 0.0, 0.0, true, None, None);
         write_saem(1, "explore", 1.0, 1.0, 0.5);
         // No assertion on files — the assertion is "didn't panic".
     }
@@ -437,10 +437,10 @@ mod tests {
         init(path.clone()).unwrap();
         // Caller passes "foce" but override forces "gn_hybrid" + phase "focei".
         set_overrides(Some("gn_hybrid"), Some("focei"));
-        write_foce(2, "foce", 10.0, Some(0.1), Some(0.01), "slsqp");
+        write_foce(2, "foce", 10.0, Some(0.1), Some(0.01), "slsqp", None, None);
         set_overrides(None, None);
         // After clearing, caller-supplied method/phase apply.
-        write_foce(3, "foce", 9.0, Some(0.05), Some(0.005), "slsqp");
+        write_foce(3, "foce", 9.0, Some(0.05), Some(0.005), "slsqp", None, None);
         finish();
 
         let contents = read_file(&path);
@@ -464,9 +464,9 @@ mod tests {
         let path1 = unique_path("init1");
         let path2 = unique_path("init2");
         init(path1.clone()).unwrap();
-        write_foce(1, "foce", 1.0, None, None, "slsqp");
+        write_foce(1, "foce", 1.0, None, None, "slsqp", None, None);
         init(path2.clone()).unwrap();
-        write_foce(1, "foce", 2.0, None, None, "slsqp");
+        write_foce(1, "foce", 2.0, None, None, "slsqp", None, None);
         let returned = finish().unwrap();
         assert_eq!(returned, path2, "finish returns the most recent path");
 
@@ -492,7 +492,7 @@ mod tests {
         // NaN/Inf gradients should be serialised as "NA", not "NaN"/"inf".
         let path = unique_path("nonfinite");
         let mut w = TraceWriter::new(path.clone()).unwrap();
-        w.write_foce_row(1, "foce", "", 1.0, Some(f64::NAN), Some(f64::INFINITY), "bfgs");
+        w.write_foce_row(1, "foce", "", 1.0, Some(f64::NAN), Some(f64::INFINITY), "bfgs", None, None);
         w.flush();
         let row = read_file(&path).lines().nth(1).unwrap().to_string();
         let cols: Vec<&str> = row.split(',').collect();
@@ -505,7 +505,7 @@ mod tests {
     fn test_gn_step_rejected_serialised_as_zero() {
         let path = unique_path("gn_reject");
         let mut w = TraceWriter::new(path.clone()).unwrap();
-        w.write_gn_row(5, "gn", "", 100.0, 1.0, 2.0, false);
+        w.write_gn_row(5, "gn", "", 100.0, 1.0, 2.0, false, None, None);
         w.flush();
         let row = read_file(&path).lines().nth(1).unwrap().to_string();
         // step_accepted is the column right before cond_nll's NA stretch.
