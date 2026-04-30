@@ -447,6 +447,19 @@ pub struct SubjectResult {
     pub cwres: Vec<f64>,
     pub ofv_contribution: f64,
     pub cens: Vec<u8>,
+    /// Number of observations for this subject (MDV=0 rows).
+    pub n_obs: usize,
+}
+
+/// Outcome of the post-estimation covariance step.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CovarianceStatus {
+    /// User set `covariance = false`; step was not attempted.
+    NotRequested,
+    /// Covariance matrix was successfully computed.
+    Computed,
+    /// Step was attempted but failed (e.g. singular Hessian).
+    Failed,
 }
 
 /// Full fit result
@@ -489,6 +502,27 @@ pub struct FitResult {
     /// Path to the per-iteration optimizer trace CSV, present when
     /// `FitOptions::optimizer_trace = true`.
     pub trace_path: Option<String>,
+    /// Number of outer iterations in which at least one subject had an
+    /// unconverged EBE.  Always `0` for SAEM (which uses MH sampling).
+    pub ebe_convergence_warnings: u32,
+    /// Worst-case number of unconverged subjects in a single outer iteration.
+    pub max_unconverged_subjects: u32,
+    /// Total number of times the Nelder-Mead fallback was invoked across all
+    /// subjects and all outer iterations.  Always `0` for SAEM.
+    pub total_ebe_fallbacks: u32,
+    /// Outcome of the post-estimation covariance step.
+    pub covariance_status: CovarianceStatus,
+    /// ETA shrinkage per random effect: `1 - SD(eta_hat_k) / sqrt(omega_kk)`.
+    /// `NaN` when `omega_kk` is zero.
+    pub shrinkage_eta: Vec<f64>,
+    /// EPS shrinkage: `1 - SD(IWRES)`.  `NaN` when fewer than 2 valid residuals.
+    pub shrinkage_eps: f64,
+    /// Wall-clock time for the complete fit in seconds.
+    pub wall_time_secs: f64,
+    /// Model name (from the `.ferx` file or "Unnamed").
+    pub model_name: String,
+    /// ferx-nlme library version (from Cargo.toml at compile time).
+    pub ferx_version: String,
 }
 
 /// Options for fit()
@@ -569,6 +603,15 @@ pub struct FitOptions {
     /// (identical OFV and estimates by design); it only changes the internal
     /// coordinate system seen by NLopt / BFGS / GN.  Default: `true`.
     pub scale_params: bool,
+    /// Fraction of subjects allowed to have unconverged EBEs before the outer
+    /// optimizer rejects the current parameter step (returns OFV = ∞).  Set to
+    /// `1.0` to disable the guard (old behaviour).  Default: `0.1`.
+    pub max_unconverged_frac: f64,
+    /// Minimum number of observations a subject must have for its EBE to count
+    /// toward `max_unconverged_frac`.  Subjects below this threshold are
+    /// excluded from the convergence fraction but still run normally.
+    /// Default: `2`.
+    pub min_obs_for_convergence_check: u32,
 }
 
 impl Default for FitOptions {
@@ -606,6 +649,8 @@ impl Default for FitOptions {
             gradient_method: GradientMethod::default(),
             optimizer_trace: false,
             scale_params: true,
+            max_unconverged_frac: 0.1,
+            min_obs_for_convergence_check: 2,
         }
     }
 }
@@ -764,6 +809,8 @@ pub fn framework_keys() -> &'static [&'static str] {
         "gradient_method",
         "optimizer_trace",
         "scale_params",
+        "max_unconverged_frac",
+        "min_obs_for_convergence_check",
     ]
 }
 
