@@ -37,6 +37,7 @@ impl FoceiProblem<'_> {
             self.options.inner_tol,
             warm_ref,
             Some(&mu_k),
+            self.options.min_obs_for_convergence_check as usize,
         );
         *self.cached_etas.lock().unwrap() = etas.clone();
         (etas, h_mats)
@@ -230,6 +231,7 @@ pub fn optimize_trust_region(
         options.inner_tol,
         None,
         Some(&final_mu_k),
+        options.min_obs_for_convergence_check as usize,
     );
 
     let final_ofv = {
@@ -281,5 +283,8 @@ pub fn optimize_trust_region(
         covariance_matrix,
         warnings,
         saem_mu_ref_m_step_evals_saved: None,
+        ebe_convergence_warnings: 0,
+        max_unconverged_subjects: 0,
+        total_ebe_fallbacks: 0,
     }
 }
