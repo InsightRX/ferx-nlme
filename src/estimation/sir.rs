@@ -183,6 +183,7 @@ pub fn run_sir(
                 inner_tol,
                 Some(eta_hats),
                 Some(&sir_mu_k),
+                0, // SIR: no EBE convergence tracking
             );
 
             // Compute OFV
