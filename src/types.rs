@@ -508,7 +508,7 @@ pub struct FitResult {
     pub sir_ess: Option<f64>,
     /// Estimated OFV evaluations saved by the SAEM mu-ref gradient step M-step.
     /// Non-None only when method=saem and mu_referencing=true.
-    pub saem_mu_ref_m_step_evals_saved: Option<u32>,
+    pub saem_mu_ref_m_step_evals_saved: Option<u64>,
     /// Gradient method used in the inner (per-subject EBE) BFGS loop.
     pub gradient_method_inner: String,
     /// Gradient method used in the outer (population parameter) optimizer.

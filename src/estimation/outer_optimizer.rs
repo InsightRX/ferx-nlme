@@ -18,7 +18,7 @@ pub struct OuterResult {
     pub warnings: Vec<String>,
     /// Estimated OFV evaluations saved by the SAEM mu-ref gradient step M-step.
     /// Non-None only when method=saem and mu_referencing=true.
-    pub saem_mu_ref_m_step_evals_saved: Option<u32>,
+    pub saem_mu_ref_m_step_evals_saved: Option<u64>,
     pub ebe_convergence_warnings: u32,
     pub max_unconverged_subjects: u32,
     pub total_ebe_fallbacks: u32,

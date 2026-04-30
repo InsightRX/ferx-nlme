@@ -152,6 +152,14 @@ fn theta_sigma_mstep_light(
             let h = 1e-5;
             let mut xp = xv.to_vec();
             for i in 0..n {
+                // Pinned dims (lower == upper) cannot move; skip their FD
+                // evaluations entirely.  This is what makes the SAEM mu-ref
+                // gradient step actually save NLopt OFV evaluations — without
+                // it, NLopt's central FD would still hit each pinned dim.
+                if lower[i] == upper[i] {
+                    g[i] = 0.0;
+                    continue;
+                }
                 xp[i] = xv[i] + h;
                 let th_p: Vec<f64> = xp[..n_theta].iter().map(|&v| v.exp()).collect();
                 let sg_p: Vec<f64> = xp[n_theta..].iter().map(|&v| v.exp()).collect();
@@ -273,11 +281,22 @@ fn obs_nll_sum(
         .sum()
 }
 
-/// Build (theta_idx, eta_idx) pairs for all detected mu-referenced parameters.
+/// Build (theta_idx, eta_idx) pairs for log-transformed mu-references only.
+///
+/// Only `log_transformed = true` mu-refs (patterns `THETA*exp(ETA)` and
+/// `exp(log(THETA)+ETA)`) participate in the gradient-step M-step.  For these
+/// the chain rule gives `d/d_log(theta) = -Σᵢ d/d_eta`, which matches the
+/// update applied in the SAEM loop.  Additive mu-refs (`THETA + ETA`,
+/// `log_transformed = false`) require the extra factor of `theta` from the
+/// log-space chain rule and are deliberately excluded — they fall through to
+/// the regular NLopt M-step.
 fn get_mu_ref_pairs(model: &CompiledModel) -> Vec<(usize, usize)> {
     let mut pairs = Vec::new();
     for (eta_idx, eta_name) in model.eta_names.iter().enumerate() {
         if let Some(mu_ref) = model.mu_refs.get(eta_name) {
+            if !mu_ref.log_transformed {
+                continue;
+            }
             if let Some(theta_idx) = model
                 .theta_names
                 .iter()
@@ -426,7 +445,13 @@ pub fn run_saem(
     let mu_ref_pairs: Vec<(usize, usize)> = get_mu_ref_pairs(model);
     let use_grad_step = options.mu_referencing && !mu_ref_pairs.is_empty();
     let mu_ref_eta_indices: Vec<usize> = mu_ref_pairs.iter().map(|&(_, ei)| ei).collect();
-    let mut mstep_grad_step_count: u32 = 0;
+    // Accumulator for the `obs_nll_sum` (population OFV) evaluations skipped
+    // by pinning mu-ref dims out of NLopt's central-FD gradient.  Each pinned
+    // dim costs `2 * mstep_maxiter` `obs_nll_sum` calls inside NLopt — that's
+    // the value we add per M-step that takes the gradient-step branch.  We
+    // ignore the (smaller, single-subject) cost of `compute_eta_grad`; the
+    // metric is intentionally a gross-savings upper bound.
+    let mut mstep_grad_step_evals_saved: u64 = 0;
 
     // Main loop
     for k in 1..=n_iter {
@@ -573,7 +598,10 @@ pub fn run_saem(
                     temp_theta_lower[theta_idx] = log_theta[theta_idx];
                     temp_theta_upper[theta_idx] = log_theta[theta_idx];
                 }
-                mstep_grad_step_count += 1;
+                // Each pinned mu-ref dim avoids 2 obs_nll_sum calls per
+                // NLopt gradient request, capped at `mstep_maxiter` requests.
+                mstep_grad_step_evals_saved +=
+                    2 * mstep_maxiter as u64 * mu_ref_pairs.len() as u64;
 
                 // NLopt for non-mu-ref thetas (pinned) and sigma
                 let (theta_new, sigma_new) = theta_sigma_mstep_light(
@@ -764,7 +792,7 @@ pub fn run_saem(
     }
 
     let saem_mu_ref_m_step_evals_saved = if use_grad_step {
-        Some(mstep_grad_step_count * mu_ref_pairs.len() as u32 * 3)
+        Some(mstep_grad_step_evals_saved)
     } else {
         None
     };
@@ -783,4 +811,78 @@ pub fn run_saem(
         max_unconverged_subjects: 0,
         total_ebe_fallbacks: 0,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::test_helpers::analytical_model;
+    use crate::types::{GradientMethod, MuRef};
+
+    fn model_with_mu_refs(
+        theta_names: &[&str],
+        eta_names: &[&str],
+        mu_refs: &[(&str, &str, bool)],
+    ) -> CompiledModel {
+        let mut m = analytical_model(GradientMethod::Auto);
+        m.theta_names = theta_names.iter().map(|s| (*s).to_string()).collect();
+        m.eta_names = eta_names.iter().map(|s| (*s).to_string()).collect();
+        m.n_theta = theta_names.len();
+        m.n_eta = eta_names.len();
+        m.mu_refs = mu_refs
+            .iter()
+            .map(|(eta, theta, log_t)| {
+                (
+                    (*eta).to_string(),
+                    MuRef {
+                        theta_name: (*theta).to_string(),
+                        log_transformed: *log_t,
+                    },
+                )
+            })
+            .collect();
+        m
+    }
+
+    #[test]
+    fn get_mu_ref_pairs_empty_when_no_mu_refs() {
+        let m = analytical_model(GradientMethod::Auto);
+        assert!(get_mu_ref_pairs(&m).is_empty());
+    }
+
+    #[test]
+    fn get_mu_ref_pairs_returns_log_transformed_pair() {
+        let m = model_with_mu_refs(
+            &["CL", "V"],
+            &["ETA_CL", "ETA_V"],
+            &[("ETA_CL", "CL", true), ("ETA_V", "V", true)],
+        );
+        let mut pairs = get_mu_ref_pairs(&m);
+        pairs.sort();
+        assert_eq!(pairs, vec![(0, 0), (1, 1)]);
+    }
+
+    #[test]
+    fn get_mu_ref_pairs_excludes_additive_mu_refs() {
+        // ETA_CL is lognormal (THETA*exp(ETA)) — included.
+        // ETA_V is additive (THETA+ETA) — excluded because the gradient-step
+        // chain rule used in run_saem assumes log-transformed parameters.
+        let m = model_with_mu_refs(
+            &["CL", "V"],
+            &["ETA_CL", "ETA_V"],
+            &[("ETA_CL", "CL", true), ("ETA_V", "V", false)],
+        );
+        assert_eq!(get_mu_ref_pairs(&m), vec![(0, 0)]);
+    }
+
+    #[test]
+    fn get_mu_ref_pairs_skips_orphaned_theta() {
+        // mu_ref points at a theta name that doesn't exist — silently skipped.
+        let m = model_with_mu_refs(
+            &["CL"],
+            &["ETA_CL"],
+            &[("ETA_CL", "MISSING", true)],
+        );
+        assert!(get_mu_ref_pairs(&m).is_empty());
+    }
 }
