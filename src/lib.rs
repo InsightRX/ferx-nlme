@@ -11,6 +11,7 @@ compile_error!(
 
 pub mod ad;
 pub mod api;
+pub mod build_info;
 pub mod cancel;
 pub mod estimation;
 pub mod io;

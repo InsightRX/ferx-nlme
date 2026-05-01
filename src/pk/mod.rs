@@ -140,6 +140,8 @@ mod tests {
             covariates: HashMap::new(),
             tvcov: HashMap::new(),
             cens: vec![0; 4],
+            occasions: Vec::new(),
+            dose_occasions: Vec::new(),
         };
         let pk = make_pk_params(10.0, 100.0);
         let preds = compute_predictions(PkModel::OneCptIvBolus, &subject, &pk);

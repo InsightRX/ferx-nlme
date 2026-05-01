@@ -90,6 +90,14 @@ Notes:
   of packed parameters is small. Increase `steihaug_max_iters` when the
   parameter count exceeds the default of 50.
 
+## Parameter Scaling and EBE Convergence
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `scale_params` | `true` | Scale packed parameters to O(1) before passing to the optimizer. Improves conditioning when log-transformed parameters span several orders of magnitude. Set to `false` to disable (reproduces pre-PR2 behaviour). |
+| `max_unconverged_frac` | `0.1` | Fraction of subjects (with at least `min_obs_for_convergence_check` observations) allowed to have unconverged EBEs before the outer optimizer rejects the step (returns OFV = ∞). Set to `1.0` to disable the guard. |
+| `min_obs_for_convergence_check` | `2` | Subjects with fewer than this many observations are excluded from the `max_unconverged_frac` check (they still run normally). |
+
 ## Options That Don't Apply to the Selected Method
 
 If you set an option that the chosen estimation method doesn't consume

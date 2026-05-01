@@ -1,5 +1,5 @@
 use crate::pk;
-use crate::stats::likelihood::individual_nll;
+use crate::stats::likelihood::{individual_nll, individual_nll_iov, split_obs_by_occasion};
 use crate::types::*;
 use nalgebra::{DMatrix, DVector};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -116,8 +116,27 @@ pub(crate) static GRADIENT_TIMINGS: GradientTimings = GradientTimings::new();
 pub struct EbeResult {
     pub eta: DVector<f64>,
     pub h_matrix: DMatrix<f64>,
+    /// True when the optimizer (BFGS or Nelder-Mead) met its tolerance criterion.
+    /// False on iteration-limit exit regardless of which optimizer was used.
     pub converged: bool,
+    /// True when the BFGS optimizer failed and Nelder-Mead was invoked as fallback.
+    pub used_fallback: bool,
+    /// L2 gradient norm at the solution; 0.0 when Nelder-Mead was used.
+    pub grad_norm: f64,
     pub nll: f64,
+    /// Per-occasion kappas (empty when n_kappa == 0).
+    /// `kappas[k]` corresponds to the k-th unique occasion (same order as
+    /// `split_obs_by_occasion`).
+    pub kappas: Vec<DVector<f64>>,
+}
+
+/// Aggregate statistics from running the inner loop over all subjects.
+#[derive(Debug, Default, Clone)]
+pub struct InnerLoopStats {
+    /// Subjects whose optimizer did not meet the convergence tolerance.
+    pub n_unconverged: usize,
+    /// Subjects for which the BFGS→Nelder-Mead fallback was triggered.
+    pub n_fallback: usize,
 }
 
 /// Find Empirical Bayes Estimates (EBEs) for a single subject via BFGS.
@@ -140,6 +159,13 @@ pub fn find_ebe(
     mu_k: Option<&[f64]>,
 ) -> EbeResult {
     let n_eta = model.n_eta;
+
+    // ── IOV branch ─────────────────────────────────────────────────────────
+    // When the model has kappa declarations AND this subject has occasion labels,
+    // optimize over the flat vector [bsv_eta (n_eta), kappa_1 (n_kappa), ..., kappa_K (n_kappa)].
+    if model.n_kappa > 0 && !subject.occasions.is_empty() {
+        return find_ebe_iov(model, subject, params, max_iter, tol, eta_init, mu_k);
+    }
 
     // mu: shift vector (zeros when no mu-referencing)
     let mu: Vec<f64> = mu_k.map(|m| m.to_vec()).unwrap_or_else(|| vec![0.0; n_eta]);
@@ -203,7 +229,10 @@ pub fn find_ebe(
                         eta: DVector::zeros(n_eta),
                         h_matrix: DMatrix::zeros(0, 0),
                         converged: false,
+                        used_fallback: false,
+                        grad_norm: 0.0,
                         nll: 1e20,
+                        kappas: Vec::new(),
                     };
                 };
             }
@@ -252,11 +281,16 @@ pub fn find_ebe(
     };
 
     // If BFGS failed, try Nelder-Mead from the prior mode (psi = mu, eta_true = 0)
-    if !result {
+    let bfgs_converged = result;
+    let (nm_converged, used_fallback) = if !bfgs_converged {
         psi = mu.clone();
-        nelder_mead_minimize(&obj, &mut psi, n_eta, max_iter * 5, tol);
-    }
+        let nm_ok = nelder_mead_minimize(&obj, &mut psi, n_eta, max_iter * 5, tol);
+        (nm_ok, true)
+    } else {
+        (false, false)
+    };
 
+    let ebe_converged = bfgs_converged || nm_converged;
     let nll = obj(&psi);
 
     // Recover eta_true = psi - mu (mean-zero, NONMEM-compatible output)
@@ -302,9 +336,173 @@ pub fn find_ebe(
     EbeResult {
         eta: DVector::from_column_slice(&eta_true),
         h_matrix,
-        converged: nll.is_finite(),
+        converged: ebe_converged,
+        used_fallback,
+        grad_norm: 0.0, // not computed to avoid extra FD calls; available via nll.is_finite()
         nll,
+        kappas: Vec::new(),
     }
+}
+
+/// IOV inner optimizer: optimizes [bsv_psi, kappa_1, ..., kappa_K] jointly,
+/// where bsv_psi = bsv_eta + mu (matches the non-IOV path's mu-referencing
+/// shift). Kappas are zero-centered IOV draws and are not mu-shifted.
+/// Forces FD gradient (no AD path for IOV in Option A).
+///
+/// When `mu_k` is provided the BSV block is optimised in psi-space
+/// (`psi = eta_true + mu_k`) so mu-referencing benefits also apply to the BSV
+/// etas when IOV is active.  The returned `EbeResult.eta` is always `eta_true`.
+fn find_ebe_iov(
+    model: &CompiledModel,
+    subject: &Subject,
+    params: &ModelParameters,
+    max_iter: usize,
+    tol: f64,
+    eta_init: Option<&[f64]>,
+    mu_k: Option<&[f64]>,
+) -> EbeResult {
+    let n_eta = model.n_eta;
+    let n_kappa = model.n_kappa;
+
+    let occ_groups = split_obs_by_occasion(subject);
+    let k_occasions = occ_groups.len();
+
+    let n_flat = n_eta + k_occasions * n_kappa;
+
+    // BSV mu shift (zeros when no mu-referencing). Kappas are not shifted.
+    let mu: Vec<f64> = mu_k.map(|m| m.to_vec()).unwrap_or_else(|| vec![0.0; n_eta]);
+
+    // Initial flat vector: BSV portion is psi-space (warm + mu, defaulting
+    // to mu = prior mode); kappa portion starts at zero (prior mode for IOV).
+    let mut x = vec![0.0; n_flat];
+    x[..n_eta].copy_from_slice(&mu);
+    if let Some(warm) = eta_init {
+        for i in 0..n_eta.min(warm.len()) {
+            x[i] = warm[i] + mu[i];
+        }
+    }
+
+    let omega_iov_ref = params.omega_iov.as_ref();
+
+    let obj = |p: &[f64]| -> f64 {
+        // Recover bsv_eta = psi - mu; kappas pass through unchanged.
+        let eta_t: Vec<f64> = p[..n_eta]
+            .iter()
+            .zip(mu.iter())
+            .map(|(pi, mi)| pi - mi)
+            .collect();
+        let kappas: Vec<Vec<f64>> = (0..k_occasions)
+            .map(|k| p[n_eta + k * n_kappa..n_eta + (k + 1) * n_kappa].to_vec())
+            .collect();
+        individual_nll_iov(
+            model,
+            subject,
+            &params.theta,
+            &eta_t,
+            &kappas,
+            &params.omega,
+            omega_iov_ref,
+            &params.sigma.values,
+        )
+    };
+
+    let bfgs_converged = bfgs_minimize(&obj, &mut x, n_flat, max_iter, tol);
+    let (nm_converged, used_fallback) = if !bfgs_converged {
+        // Reset to prior mode: bsv_psi = mu (eta_true = 0), kappas = 0.
+        x = vec![0.0; n_flat];
+        x[..n_eta].copy_from_slice(&mu);
+        let nm_ok = nelder_mead_minimize(&obj, &mut x, n_flat, max_iter * 5, tol);
+        (nm_ok, true)
+    } else {
+        (false, false)
+    };
+
+    let nll = obj(&x);
+    // Recover bsv_eta = psi - mu (mean-zero, NONMEM-compatible output).
+    let bsv_eta: Vec<f64> = x[..n_eta]
+        .iter()
+        .zip(mu.iter())
+        .map(|(p, m)| p - m)
+        .collect();
+    let kappas_vec: Vec<DVector<f64>> = (0..k_occasions)
+        .map(|k| {
+            DVector::from_column_slice(&x[n_eta + k * n_kappa..n_eta + (k + 1) * n_kappa])
+        })
+        .collect();
+
+    // H-matrix: BSV columns only, perturbing eta with kappas fixed at EBE values
+    let kappas_slices: Vec<Vec<f64>> = kappas_vec.iter().map(|k| k.as_slice().to_vec()).collect();
+    let h_matrix = compute_jacobian_fd_iov(model, subject, &params.theta, &bsv_eta, &kappas_slices, &occ_groups);
+
+    EbeResult {
+        eta: DVector::from_column_slice(&bsv_eta),
+        h_matrix,
+        converged: (bfgs_converged || nm_converged) && nll.is_finite(),
+        used_fallback,
+        grad_norm: 0.0,
+        nll,
+        kappas: kappas_vec,
+    }
+}
+
+/// Jacobian d(pred)/d(bsv_eta) with kappas fixed, per-occasion predictions.
+/// Returns an n_obs × n_eta matrix.
+///
+/// Shares the cross-occasion dose-carryover convention of `individual_nll_iov`:
+/// occasion-`k`'s predictions are computed using that occasion's combined eta
+/// against the full subject dose history, then only the occasion's obs rows
+/// are written into the Jacobian. This keeps the FD gradient consistent
+/// with the NLL value (both treat each dose's effect as governed by the
+/// observation's occasion, not the dose's). See the docstring on
+/// `individual_nll_iov` for the implications.
+fn compute_jacobian_fd_iov(
+    model: &CompiledModel,
+    subject: &Subject,
+    theta: &[f64],
+    eta: &[f64],
+    kappas: &[Vec<f64>],
+    occ_groups: &[(u32, Vec<usize>)],
+) -> DMatrix<f64> {
+    let n_obs = subject.obs_times.len();
+    let n_eta = eta.len();
+    let eps = 1e-6;
+    let mut h = DMatrix::zeros(n_obs, n_eta);
+    let mut eta_pert = eta.to_vec();
+
+    for col in 0..n_eta {
+        let h_step = eps * (1.0 + eta[col].abs());
+        for (k, (_, obs_indices)) in occ_groups.iter().enumerate() {
+            if k >= kappas.len() {
+                break;
+            }
+            let mut combined_plus: Vec<f64> = eta_pert.clone();
+            combined_plus[col] = eta[col] + h_step;
+            combined_plus.extend_from_slice(&kappas[k]);
+            let pk_plus = (model.pk_param_fn)(theta, &combined_plus, &subject.covariates);
+            let preds_plus = if let Some(ref ode_spec) = model.ode_spec {
+                pk::compute_predictions_ode(ode_spec, subject, &pk_plus.values)
+            } else {
+                pk::compute_predictions(model.pk_model, subject, &pk_plus)
+            };
+
+            let mut combined_minus: Vec<f64> = eta_pert.clone();
+            combined_minus[col] = eta[col] - h_step;
+            combined_minus.extend_from_slice(&kappas[k]);
+            let pk_minus = (model.pk_param_fn)(theta, &combined_minus, &subject.covariates);
+            let preds_minus = if let Some(ref ode_spec) = model.ode_spec {
+                pk::compute_predictions_ode(ode_spec, subject, &pk_minus.values)
+            } else {
+                pk::compute_predictions(model.pk_model, subject, &pk_minus)
+            };
+
+            for &j in obs_indices {
+                h[(j, col)] = (preds_plus[j] - preds_minus[j]) / (2.0 * h_step);
+            }
+        }
+        eta_pert[col] = eta[col];
+    }
+
+    h
 }
 
 /// BFGS minimization with backtracking line search.
@@ -666,14 +864,26 @@ pub fn run_inner_loop(
     params: &ModelParameters,
     max_iter: usize,
     tol: f64,
-) -> (Vec<DVector<f64>>, Vec<DMatrix<f64>>, bool) {
-    run_inner_loop_warm(model, population, params, max_iter, tol, None, None)
+) -> (
+    Vec<DVector<f64>>,
+    Vec<DMatrix<f64>>,
+    InnerLoopStats,
+    Vec<Vec<DVector<f64>>>,
+) {
+    run_inner_loop_warm(model, population, params, max_iter, tol, None, None, 0)
 }
 
 /// Run inner loop with optional warm-start EBEs and optional mu-referencing shift.
 ///
-/// `prev_etas`: previous-iteration EBEs in eta_true space (used as warm starts).
-/// `mu_k`: mu shift vector from `compute_mu_k`; `None` means no mu-referencing.
+/// `prev_etas` — previous-iteration EBEs in eta_true space (used as warm starts).
+/// `mu_k`      — mu shift vector from `compute_mu_k`; `None` means no mu-referencing.
+/// `min_obs`   — subjects with fewer observations than this are excluded from the
+///               `n_unconverged` count in `InnerLoopStats` (but still run normally).
+///               Pass `0` to count all subjects regardless of observation count.
+///
+/// Returns `(eta_hats, h_matrices, stats, kappas_per_subject)`.
+/// `kappas_per_subject[i]` contains per-occasion kappa EBEs for subject i; it is
+/// empty for non-IOV subjects or when `model.n_kappa == 0`.
 pub fn run_inner_loop_warm(
     model: &CompiledModel,
     population: &Population,
@@ -682,7 +892,13 @@ pub fn run_inner_loop_warm(
     tol: f64,
     prev_etas: Option<&[DVector<f64>]>,
     mu_k: Option<&[f64]>,
-) -> (Vec<DVector<f64>>, Vec<DMatrix<f64>>, bool) {
+    min_obs: usize,
+) -> (
+    Vec<DVector<f64>>,
+    Vec<DMatrix<f64>>,
+    InnerLoopStats,
+    Vec<Vec<DVector<f64>>>,
+) {
     use rayon::prelude::*;
 
     let results: Vec<EbeResult> = population
@@ -695,9 +911,271 @@ pub fn run_inner_loop_warm(
         })
         .collect();
 
-    let any_failed = results.iter().any(|r| !r.converged);
+    let stats = InnerLoopStats {
+        n_unconverged: results
+            .iter()
+            .zip(population.subjects.iter())
+            .filter(|(r, s)| !r.converged && s.observations.len() >= min_obs.max(1))
+            .count(),
+        n_fallback: results.iter().filter(|r| r.used_fallback).count(),
+    };
     let eta_hats: Vec<DVector<f64>> = results.iter().map(|r| r.eta.clone()).collect();
     let h_matrices: Vec<DMatrix<f64>> = results.iter().map(|r| r.h_matrix.clone()).collect();
+    let kappas: Vec<Vec<DVector<f64>>> = results.into_iter().map(|r| r.kappas).collect();
 
-    (eta_hats, h_matrices, any_failed)
+    (eta_hats, h_matrices, stats, kappas)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_inner_loop_stats_default() {
+        let s = InnerLoopStats::default();
+        assert_eq!(s.n_unconverged, 0);
+        assert_eq!(s.n_fallback, 0);
+    }
+
+    #[test]
+    fn test_ebe_result_converged_flag() {
+        // Verify EbeResult struct has the expected fields.
+        let r = EbeResult {
+            eta: nalgebra::DVector::zeros(2),
+            h_matrix: nalgebra::DMatrix::identity(2, 2),
+            converged: true,
+            used_fallback: false,
+            grad_norm: 0.0,
+            nll: 1.5,
+            kappas: Vec::new(),
+        };
+        assert!(r.converged);
+        assert!(!r.used_fallback);
+        assert_eq!(r.grad_norm, 0.0);
+    }
+
+    #[test]
+    fn test_inner_loop_stats_min_obs_filter() {
+        // min_obs filter: subjects with fewer obs than min_obs are excluded
+        // from n_unconverged count. We exercise this logic by constructing
+        // InnerLoopStats manually (simulating what run_inner_loop_warm does).
+        let results = vec![
+            EbeResult {
+                eta: nalgebra::DVector::zeros(1),
+                h_matrix: nalgebra::DMatrix::identity(1, 1),
+                converged: false, // unconverged
+                used_fallback: false,
+                grad_norm: 0.0,
+                nll: 1.0,
+                kappas: Vec::new(),
+            },
+            EbeResult {
+                eta: nalgebra::DVector::zeros(1),
+                h_matrix: nalgebra::DMatrix::identity(1, 1),
+                converged: false, // also unconverged
+                used_fallback: true,
+                grad_norm: 0.0,
+                nll: 2.0,
+                kappas: Vec::new(),
+            },
+        ];
+        // Simulate filter: first subject has 1 obs (below min_obs=2), second has 3 obs.
+        let obs_counts = [1_usize, 3_usize];
+        let min_obs = 2_usize;
+        let n_unconverged = results
+            .iter()
+            .zip(obs_counts.iter())
+            .filter(|(r, &n_obs)| !r.converged && n_obs >= min_obs.max(1))
+            .count();
+        let n_fallback = results.iter().filter(|r| r.used_fallback).count();
+        // Only second subject counts (3 obs >= 2); first is filtered out.
+        assert_eq!(n_unconverged, 1);
+        // Both fallback counts regardless of min_obs.
+        assert_eq!(n_fallback, 1);
+    }
+}
+
+#[cfg(test)]
+mod iov_tests {
+    use super::*;
+    use crate::types::{BloqMethod, DoseEvent, ErrorModel, GradientMethod, OmegaMatrix, PkModel,
+                       PkParams, SigmaVector};
+    use std::collections::HashMap;
+
+    fn make_iov_model() -> CompiledModel {
+        let omega = OmegaMatrix::from_diagonal(&[0.09], vec!["ETA_CL".into()]);
+        let omega_iov = OmegaMatrix::from_diagonal(&[0.04], vec!["KAPPA_CL".into()]);
+        let default_params = crate::types::ModelParameters {
+            theta: vec![5.0, 50.0],
+            theta_names: vec!["TVCL".into(), "TVV".into()],
+            theta_lower: vec![0.01, 1.0],
+            theta_upper: vec![100.0, 500.0],
+            theta_fixed: vec![false; 2],
+            omega,
+            omega_fixed: vec![false],
+            sigma: SigmaVector { values: vec![0.05], names: vec!["PROP_ERR".into()] },
+            sigma_fixed: vec![false],
+            omega_iov: Some(omega_iov),
+            kappa_fixed: vec![false],
+        };
+        CompiledModel {
+            name: "iov_test".into(),
+            pk_model: PkModel::OneCptIvBolus,
+            error_model: ErrorModel::Proportional,
+            pk_param_fn: Box::new(|theta: &[f64], eta: &[f64], _: &HashMap<String, f64>| {
+                let mut p = PkParams::default();
+                // eta[0] = bsv, eta[1] = kappa (combined)
+                p.values[0] = theta[0] * eta[0].exp();
+                p.values[1] = theta[1];
+                p
+            }),
+            n_theta: 2,
+            n_eta: 1,
+            n_epsilon: 1,
+            n_kappa: 1,
+            kappa_names: vec!["KAPPA_CL".into()],
+            theta_names: vec!["TVCL".into(), "TVV".into()],
+            eta_names: vec!["ETA_CL".into()],
+            default_params,
+            mu_refs: HashMap::new(),
+            tv_fn: None,
+            pk_indices: vec![0, 1],
+            eta_map: vec![0],
+            pk_idx_f64: vec![0.0, 1.0],
+            sel_flat: vec![1.0, 0.0],
+            ode_spec: None,
+            bloq_method: BloqMethod::Drop,
+            referenced_covariates: Vec::new(),
+            gradient_method: GradientMethod::default(),
+        }
+    }
+
+    fn make_iov_subject() -> Subject {
+        Subject {
+            id: "1".into(),
+            doses: vec![DoseEvent::new(0.0, 100.0, 1, 0.0, false, 0.0)],
+            obs_times: vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            observations: vec![40.0, 32.0, 25.0, 38.0, 30.0, 22.0],
+            obs_cmts: vec![1; 6],
+            covariates: HashMap::new(),
+            tvcov: HashMap::new(),
+            cens: vec![0; 6],
+            occasions: vec![1, 1, 1, 2, 2, 2],
+            dose_occasions: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn test_find_ebe_iov_two_occasions_returns_two_kappas() {
+        let model = make_iov_model();
+        let subject = make_iov_subject();
+        let params = model.default_params.clone();
+        let result = find_ebe(&model, &subject, &params, 200, 1e-5, None, None);
+        assert_eq!(result.kappas.len(), 2, "Expected 2 kappas for 2 occasions");
+        assert_eq!(result.kappas[0].len(), 1);
+        assert_eq!(result.kappas[1].len(), 1);
+        assert!(result.converged || result.nll.is_finite());
+    }
+
+    #[test]
+    fn test_find_ebe_iov_h_matrix_dimensions() {
+        let model = make_iov_model();
+        let subject = make_iov_subject();
+        let params = model.default_params.clone();
+        let result = find_ebe(&model, &subject, &params, 200, 1e-5, None, None);
+        // H-matrix: n_obs × n_eta (BSV only, kappas fixed)
+        assert_eq!(result.h_matrix.nrows(), subject.obs_times.len());
+        assert_eq!(result.h_matrix.ncols(), model.n_eta);
+    }
+
+    #[test]
+    fn test_find_ebe_no_iov_kappas_empty() {
+        // A model without IOV should return empty kappas
+        let omega = OmegaMatrix::from_diagonal(&[0.09], vec!["ETA_CL".into()]);
+        let default_params = crate::types::ModelParameters {
+            theta: vec![5.0, 50.0],
+            theta_names: vec!["TVCL".into(), "TVV".into()],
+            theta_lower: vec![0.01, 1.0],
+            theta_upper: vec![100.0, 500.0],
+            theta_fixed: vec![false; 2],
+            omega,
+            omega_fixed: vec![false],
+            sigma: SigmaVector { values: vec![0.05], names: vec!["PROP_ERR".into()] },
+            sigma_fixed: vec![false],
+            omega_iov: None,
+            kappa_fixed: Vec::new(),
+        };
+        let model = CompiledModel {
+            name: "no_iov".into(),
+            pk_model: PkModel::OneCptIvBolus,
+            error_model: ErrorModel::Proportional,
+            pk_param_fn: Box::new(|theta: &[f64], eta: &[f64], _: &HashMap<String, f64>| {
+                let mut p = PkParams::default();
+                p.values[0] = theta[0] * eta[0].exp();
+                p.values[1] = theta[1];
+                p
+            }),
+            n_theta: 2,
+            n_eta: 1,
+            n_epsilon: 1,
+            n_kappa: 0,
+            kappa_names: Vec::new(),
+            theta_names: vec!["TVCL".into(), "TVV".into()],
+            eta_names: vec!["ETA_CL".into()],
+            default_params,
+            mu_refs: HashMap::new(),
+            tv_fn: None,
+            pk_indices: vec![0, 1],
+            eta_map: vec![0],
+            pk_idx_f64: vec![0.0, 1.0],
+            sel_flat: vec![1.0, 0.0],
+            ode_spec: None,
+            bloq_method: BloqMethod::Drop,
+            referenced_covariates: Vec::new(),
+            gradient_method: GradientMethod::default(),
+        };
+        let subject = Subject {
+            id: "1".into(),
+            doses: vec![DoseEvent::new(0.0, 100.0, 1, 0.0, false, 0.0)],
+            obs_times: vec![1.0, 2.0, 4.0],
+            observations: vec![40.0, 32.0, 20.0],
+            obs_cmts: vec![1; 3],
+            covariates: HashMap::new(),
+            tvcov: HashMap::new(),
+            cens: vec![0; 3],
+            occasions: Vec::new(),
+            dose_occasions: Vec::new(),
+        };
+        let params = model.default_params.clone();
+        let result = find_ebe(&model, &subject, &params, 200, 1e-5, None, None);
+        assert!(result.kappas.is_empty());
+    }
+
+    #[test]
+    fn test_find_ebe_iov_honors_mu_shift() {
+        // With mu-referencing, the IOV inner loop must shift its BSV optimization
+        // variable by mu so the returned EBE is mean-zero (psi - mu), matching
+        // the non-IOV path's NONMEM-compatible convention. Two equivalent fits
+        // — same data, same params, but expressed with vs. without a mu shift —
+        // should yield essentially the same returned BSV eta.
+        let model = make_iov_model();
+        let subject = make_iov_subject();
+        let params = model.default_params.clone();
+
+        // Fit without mu_k.
+        let r1 = find_ebe(&model, &subject, &params, 200, 1e-5, None, None);
+
+        // Fit with a non-zero mu_k. If mu were dropped, BSV eta would shift by
+        // -mu; with the fix, BSV eta is recovered as psi - mu and matches r1.
+        let mu = vec![0.1];
+        let r2 = find_ebe(&model, &subject, &params, 200, 1e-5, None, Some(&mu));
+
+        assert!(r1.converged && r2.converged);
+        assert!(
+            (r1.eta[0] - r2.eta[0]).abs() < 1e-4,
+            "mu shift not applied: r1.eta={}, r2.eta={}",
+            r1.eta[0],
+            r2.eta[0],
+        );
+    }
 }
