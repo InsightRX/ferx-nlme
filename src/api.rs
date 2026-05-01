@@ -1008,8 +1008,12 @@ fn extract_standard_errors(
             let idx = if template.omega.diagonal {
                 omega_start + i
             } else {
-                // Index of diagonal element i in packed lower triangle
-                omega_start + i * (i + 1) / 2 + i
+                // L[i,i] in column-major lower-triangle packing (see `pack_params`):
+                // packed entries before column j are sum_{k<j} (n_eta - k), so the
+                // i-th diagonal sits at i*n_eta - i*(i-1)/2.  The previous formula
+                // i*(i+1)/2 + i was row-major and gave the wrong index for n_eta ≥ 3
+                // (e.g. picked L[2,0] instead of L[1,1] for n_eta=3).
+                omega_start + i * n_eta - i * i.saturating_sub(1) / 2
             };
             if idx < n {
                 2.0 * template.omega.matrix[(i, i)] * se_packed[idx]
@@ -1487,6 +1491,9 @@ mod extract_se_tests {
     use crate::types::*;
     use nalgebra::DMatrix;
 
+    /// Helper for tests where the BSV omega is a single diagonal eta and only
+    /// the IOV block varies. BSV-omega tests below build their own template
+    /// inline because they need a 3-eta block omega.
     fn make_template(omega_iov: Option<OmegaMatrix>, kappa_fixed: Vec<bool>) -> ModelParameters {
         let omega = OmegaMatrix::from_diagonal(&[0.09], vec!["ETA_CL".into()]);
         ModelParameters {
@@ -1503,6 +1510,90 @@ mod extract_se_tests {
             kappa_fixed,
         }
     }
+
+    // ── BSV omega ────────────────────────────────────────────────────────────
+
+    /// Block omega with n_eta = 3.  The packed Cholesky layout is column-major
+    /// (see `pack_params`): L[0,0]=0, L[1,0]=1, L[2,0]=2, L[1,1]=3, L[2,1]=4,
+    /// L[2,2]=5.  The previous index formula `i*(i+1)/2 + i` was row-major and
+    /// returned offsets 0, 2, 5 — picking L[2,0] for the L[1,1] slot.
+    /// For n_eta ≤ 2 the row- and column-major formulas coincide, which is why
+    /// this regressed silently.
+    #[test]
+    fn test_se_omega_block_n3_uses_column_major_indexing() {
+        let mut mat = DMatrix::<f64>::zeros(3, 3);
+        mat[(0, 0)] = 0.04;
+        mat[(1, 1)] = 0.09;
+        mat[(2, 2)] = 0.16;
+        let chol = mat.clone().cholesky().unwrap().l();
+        let omega = OmegaMatrix {
+            matrix: mat,
+            chol,
+            eta_names: vec!["E1".into(), "E2".into(), "E3".into()],
+            diagonal: false,
+        };
+        let template = ModelParameters {
+            theta: vec![5.0],
+            theta_names: vec!["TVCL".into()],
+            theta_lower: vec![0.1],
+            theta_upper: vec![50.0],
+            theta_fixed: vec![false],
+            omega,
+            omega_fixed: vec![false; 3],
+            sigma: SigmaVector { values: vec![0.05], names: vec!["PROP_ERR".into()] },
+            sigma_fixed: vec![false],
+            omega_iov: None,
+            kappa_fixed: vec![],
+        };
+        // Packed layout: theta(1) + omega_block(6) + sigma(1) = 8.
+        // Within the omega block (start = 1): L[0,0] at idx 1, L[1,1] at idx 4,
+        // L[2,2] at idx 6.  Use distinct cov diagonals so we can tell which one
+        // each SE pulls from.
+        let n = 8;
+        let mut cov = DMatrix::<f64>::zeros(n, n);
+        for i in 0..n {
+            cov[(i, i)] = ((i + 1) as f64).powi(2); // se_packed[i] = i + 1
+        }
+        let (_, se_omega, _, _) = extract_standard_errors(&Some(cov), &template);
+        let se = se_omega.unwrap();
+        // L[0,0] at packed idx 1 → se_packed = 2 → se_omega[0] = 2 * 0.04 * 2 = 0.16
+        assert!((se[0] - 2.0 * 0.04 * 2.0).abs() < 1e-12, "got {}", se[0]);
+        // L[1,1] at packed idx 4 → se_packed = 5 → se_omega[1] = 2 * 0.09 * 5 = 0.90
+        // Pre-fix this would have used idx 3 (= L[2,0]) → 2 * 0.09 * 4 = 0.72.
+        assert!((se[1] - 2.0 * 0.09 * 5.0).abs() < 1e-12, "got {}", se[1]);
+        // L[2,2] at packed idx 6 → se_packed = 7 → se_omega[2] = 2 * 0.16 * 7 = 2.24
+        assert!((se[2] - 2.0 * 0.16 * 7.0).abs() < 1e-12, "got {}", se[2]);
+    }
+
+    /// Diagonal omega path is unaffected by the fix; this guards the simple case.
+    #[test]
+    fn test_se_omega_diagonal_unchanged() {
+        let omega = OmegaMatrix::from_diagonal(
+            &[0.04, 0.09],
+            vec!["E1".into(), "E2".into()],
+        );
+        let template = ModelParameters {
+            theta: vec![5.0],
+            theta_names: vec!["TVCL".into()],
+            theta_lower: vec![0.1],
+            theta_upper: vec![50.0],
+            theta_fixed: vec![false],
+            omega,
+            omega_fixed: vec![false; 2],
+            sigma: SigmaVector { values: vec![0.05], names: vec!["PROP_ERR".into()] },
+            sigma_fixed: vec![false],
+            omega_iov: None,
+            kappa_fixed: vec![],
+        };
+        // Packed layout: theta(1) + omega_diag(2) + sigma(1) = 4. Identity cov.
+        let cov = Some(DMatrix::<f64>::identity(4, 4));
+        let (_, se_omega, _, _) = extract_standard_errors(&cov, &template);
+        let se = se_omega.unwrap();
+        assert!((se[0] - 2.0 * 0.04).abs() < 1e-12);
+        assert!((se[1] - 2.0 * 0.09).abs() < 1e-12);
+    }
+
+    // ── IOV (kappa) ──────────────────────────────────────────────────────────
 
     /// Identity covariance matrix gives unit SEs on the packed scale.  After
     /// the delta-method transform `SE(var_i) = 2 * var_i * SE(log L_ii)`, the
@@ -1524,10 +1615,9 @@ mod extract_se_tests {
         assert!((se[1] - 2.0 * 0.09).abs() < 1e-12);
     }
 
-    /// Block kappa with n=3: the column-major Cholesky packing places L[1,1]
-    /// at offset 3 and L[2,2] at offset 5 within the IOV block. A bug in the
-    /// (otherwise mirrored) BSV omega code uses `i*(i+1)/2 + i` which would
-    /// give offset 2 for L[1,1] — this test catches that regression.
+    /// Block kappa with n=3: column-major Cholesky packing places L[1,1] at
+    /// offset 3 and L[2,2] at offset 5 within the IOV block.  Mirrors the BSV
+    /// regression test above.
     #[test]
     fn test_se_kappa_block_n3_column_major_indexing() {
         let mut mat = DMatrix::<f64>::zeros(3, 3);
