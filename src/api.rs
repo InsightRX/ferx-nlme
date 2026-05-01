@@ -3,7 +3,9 @@ use crate::estimation::saem;
 use crate::io::datareader::read_nonmem_csv;
 use crate::io::output;
 use crate::pk;
-use crate::stats::likelihood::{compute_cwres, foce_subject_nll};
+use crate::stats::likelihood::{
+    compute_cwres, foce_subject_nll, foce_subject_nll_iov, split_obs_by_occasion,
+};
 use crate::stats::residual_error::compute_iwres;
 use crate::types::*;
 use nalgebra::{DMatrix, DVector};
@@ -488,6 +490,7 @@ fn fit_inner(
         &result.params,
         &result.eta_hats,
         &result.h_matrices,
+        &result.kappas,
         options.interaction,
     );
 
@@ -499,7 +502,7 @@ fn fit_inner(
     let bic = ofv + n_params as f64 * (n_obs as f64).ln();
 
     // Extract SEs from covariance matrix using converged parameter values
-    let (se_theta, se_omega, se_sigma) =
+    let (se_theta, se_omega, se_sigma, se_kappa) =
         extract_standard_errors(&result.covariance_matrix, &result.params);
 
     // Optional SIR step
@@ -629,7 +632,7 @@ fn fit_inner(
         omega_iov: result.params.omega_iov.as_ref().map(|m| m.matrix.clone()),
         kappa_names: model.kappa_names.clone(),
         kappa_fixed: result.params.kappa_fixed.clone(),
-        se_kappa: None,
+        se_kappa,
         shrinkage_kappa: Vec::new(),
         ebe_kappas: result.kappas.clone(),
         saem_mu_ref_m_step_evals_saved: result.saem_mu_ref_m_step_evals_saved,
@@ -703,6 +706,7 @@ fn compute_subject_results(
     params: &ModelParameters,
     eta_hats: &[DVector<f64>],
     h_matrices: &[DMatrix<f64>],
+    kappas_per_subject: &[Vec<DVector<f64>>],
     interaction: bool,
 ) -> Vec<SubjectResult> {
     population
@@ -712,15 +716,38 @@ fn compute_subject_results(
         .map(|(i, subject)| {
             let eta = &eta_hats[i];
             let h = &h_matrices[i];
+            let kappas: &[DVector<f64>] = if i < kappas_per_subject.len() {
+                kappas_per_subject[i].as_slice()
+            } else {
+                &[]
+            };
 
-            // Individual predictions: f(eta_hat)
-            let pk_params_ind =
-                (model.pk_param_fn)(&params.theta, eta.as_slice(), &subject.covariates);
-            let ipred = model_preds(model, subject, &pk_params_ind);
+            // Individual predictions: f(eta_hat), with occasion-specific kappas for IOV.
+            let ipred = if !kappas.is_empty() {
+                let occ_groups = split_obs_by_occasion(subject);
+                let mut ipreds = vec![0.0; subject.obs_times.len()];
+                for (k, (_, obs_indices)) in occ_groups.iter().enumerate() {
+                    let kap: &[f64] =
+                        if k < kappas.len() { kappas[k].as_slice() } else { &[] };
+                    let combined: Vec<f64> =
+                        eta.iter().copied().chain(kap.iter().copied()).collect();
+                    let pk = (model.pk_param_fn)(&params.theta, &combined, &subject.covariates);
+                    let all_preds = model_preds(model, subject, &pk);
+                    for &j in obs_indices {
+                        ipreds[j] = all_preds[j];
+                    }
+                }
+                ipreds
+            } else {
+                let pk_params_ind =
+                    (model.pk_param_fn)(&params.theta, eta.as_slice(), &subject.covariates);
+                model_preds(model, subject, &pk_params_ind)
+            };
 
-            // Population predictions: f(eta = 0)
-            let zero_eta = vec![0.0; model.n_eta];
-            let pk_params_pop = (model.pk_param_fn)(&params.theta, &zero_eta, &subject.covariates);
+            // Population predictions: f(eta = 0, kappa = 0).
+            let zero_eta = vec![0.0_f64; model.n_eta + model.n_kappa];
+            let pk_params_pop =
+                (model.pk_param_fn)(&params.theta, &zero_eta, &subject.covariates);
             let pred = model_preds(model, subject, &pk_params_pop);
 
             // IWRES (NaN on BLOQ rows — see compute_cwres for CWRES handling).
@@ -748,16 +775,35 @@ fn compute_subject_results(
             );
 
             // OFV contribution
-            let ofv_i = foce_subject_nll(
-                model,
-                subject,
-                &params.theta,
-                eta,
-                h,
-                &params.omega,
-                &params.sigma.values,
-                interaction,
-            );
+            let ofv_i = if !kappas.is_empty() {
+                let omega_iov = params
+                    .omega_iov
+                    .as_ref()
+                    .expect("omega_iov present when kappas non-empty");
+                foce_subject_nll_iov(
+                    model,
+                    subject,
+                    &params.theta,
+                    eta,
+                    h,
+                    &params.omega,
+                    &params.sigma.values,
+                    interaction,
+                    kappas,
+                    omega_iov,
+                )
+            } else {
+                foce_subject_nll(
+                    model,
+                    subject,
+                    &params.theta,
+                    eta,
+                    h,
+                    &params.omega,
+                    &params.sigma.values,
+                    interaction,
+                )
+            };
 
             SubjectResult {
                 id: subject.id.clone(),
@@ -918,10 +964,15 @@ mod tests {
 fn extract_standard_errors(
     cov: &Option<DMatrix<f64>>,
     template: &ModelParameters,
-) -> (Option<Vec<f64>>, Option<Vec<f64>>, Option<Vec<f64>>) {
+) -> (
+    Option<Vec<f64>>,
+    Option<Vec<f64>>,
+    Option<Vec<f64>>,
+    Option<Vec<f64>>,
+) {
     let cov = match cov {
         Some(c) => c,
-        None => return (None, None, None),
+        None => return (None, None, None, None),
     };
 
     let n = cov.nrows();
@@ -990,7 +1041,33 @@ fn extract_standard_errors(
         })
         .collect();
 
-    (Some(se_theta), Some(se_omega), Some(se_sigma))
+    // IOV (kappa): SE for diagonal variances of omega_iov.
+    //
+    // The packed Cholesky layout is column-major (see `pack_params`):
+    // L[i,i] sits at offset `i*n - i*(i-1)/2` within the IOV block.
+    // Same delta-method approximation as `se_omega`: SE(var_i) ≈ 2 * var_i * SE(log L_ii),
+    // which is exact for diagonal IOV and a first-order approximation for block_kappa.
+    // Off-diagonal covariance SEs are not currently reported (matches BSV omega).
+    let kappa_start = sigma_start + n_sigma;
+    let se_kappa: Option<Vec<f64>> = template.omega_iov.as_ref().map(|iov| {
+        let n_kappa = iov.dim();
+        (0..n_kappa)
+            .map(|i| {
+                let idx = if iov.diagonal {
+                    kappa_start + i
+                } else {
+                    kappa_start + i * n_kappa - i * (i.saturating_sub(1)) / 2
+                };
+                if idx < n {
+                    2.0 * iov.matrix[(i, i)] * se_packed[idx]
+                } else {
+                    0.0
+                }
+            })
+            .collect()
+    });
+
+    (Some(se_theta), Some(se_omega), Some(se_sigma), se_kappa)
 }
 
 /// Simulate observations from a model with given parameters (random seed).
@@ -1033,11 +1110,12 @@ fn simulate_inner<R: rand::Rng>(
 
     for sim_idx in 0..n_sim {
         for subject in &population.subjects {
-            // Sample eta from N(0, Omega)
+            // Sample eta from N(0, Omega); append zero kappas for IOV models.
             let z: Vec<f64> = (0..n_eta).map(|_| rng.sample(normal)).collect();
             let z_vec = DVector::from_column_slice(&z);
             let eta = &params.omega.chol * z_vec;
-            let eta_slice: Vec<f64> = eta.iter().copied().collect();
+            let mut eta_slice: Vec<f64> = eta.iter().copied().collect();
+            eta_slice.resize(n_eta + model.n_kappa, 0.0);
 
             // Compute individual parameters
             let pk_params = (model.pk_param_fn)(&params.theta, &eta_slice, &subject.covariates);
@@ -1085,7 +1163,7 @@ pub fn predict(
     population: &Population,
     params: &ModelParameters,
 ) -> Vec<PredictionResult> {
-    let zero_eta = vec![0.0; model.n_eta];
+    let zero_eta = vec![0.0_f64; model.n_eta + model.n_kappa];
     let mut results = Vec::new();
 
     for subject in &population.subjects {
@@ -1413,10 +1491,32 @@ mod extract_se_tests {
     use crate::types::*;
     use nalgebra::DMatrix;
 
+    /// Helper for tests where the BSV omega is a single diagonal eta and only
+    /// the IOV block varies. BSV-omega tests below build their own template
+    /// inline because they need a 3-eta block omega.
+    fn make_template(omega_iov: Option<OmegaMatrix>, kappa_fixed: Vec<bool>) -> ModelParameters {
+        let omega = OmegaMatrix::from_diagonal(&[0.09], vec!["ETA_CL".into()]);
+        ModelParameters {
+            theta: vec![5.0],
+            theta_names: vec!["TVCL".into()],
+            theta_lower: vec![0.1],
+            theta_upper: vec![50.0],
+            theta_fixed: vec![false],
+            omega,
+            omega_fixed: vec![false],
+            sigma: SigmaVector { values: vec![0.05], names: vec!["PROP_ERR".into()] },
+            sigma_fixed: vec![false],
+            omega_iov,
+            kappa_fixed,
+        }
+    }
+
+    // ── BSV omega ────────────────────────────────────────────────────────────
+
     /// Block omega with n_eta = 3.  The packed Cholesky layout is column-major
     /// (see `pack_params`): L[0,0]=0, L[1,0]=1, L[2,0]=2, L[1,1]=3, L[2,1]=4,
-    /// L[2,2]=5.  The previous index formula `i*(i+1)/2 + i` is row-major and
-    /// returns offsets 0, 2, 5 — picking L[2,0] for the L[1,1] slot.
+    /// L[2,2]=5.  The previous index formula `i*(i+1)/2 + i` was row-major and
+    /// returned offsets 0, 2, 5 — picking L[2,0] for the L[1,1] slot.
     /// For n_eta ≤ 2 the row- and column-major formulas coincide, which is why
     /// this regressed silently.
     #[test]
@@ -1454,7 +1554,7 @@ mod extract_se_tests {
         for i in 0..n {
             cov[(i, i)] = ((i + 1) as f64).powi(2); // se_packed[i] = i + 1
         }
-        let (_, se_omega, _) = extract_standard_errors(&Some(cov), &template);
+        let (_, se_omega, _, _) = extract_standard_errors(&Some(cov), &template);
         let se = se_omega.unwrap();
         // L[0,0] at packed idx 1 → se_packed = 2 → se_omega[0] = 2 * 0.04 * 2 = 0.16
         assert!((se[0] - 2.0 * 0.04 * 2.0).abs() < 1e-12, "got {}", se[0]);
@@ -1487,9 +1587,84 @@ mod extract_se_tests {
         };
         // Packed layout: theta(1) + omega_diag(2) + sigma(1) = 4. Identity cov.
         let cov = Some(DMatrix::<f64>::identity(4, 4));
-        let (_, se_omega, _) = extract_standard_errors(&cov, &template);
+        let (_, se_omega, _, _) = extract_standard_errors(&cov, &template);
         let se = se_omega.unwrap();
         assert!((se[0] - 2.0 * 0.04).abs() < 1e-12);
         assert!((se[1] - 2.0 * 0.09).abs() < 1e-12);
+    }
+
+    // ── IOV (kappa) ──────────────────────────────────────────────────────────
+
+    /// Identity covariance matrix gives unit SEs on the packed scale.  After
+    /// the delta-method transform `SE(var_i) = 2 * var_i * SE(log L_ii)`, the
+    /// returned se_kappa[i] equals 2 * variance_i for diagonal IOV.
+    #[test]
+    fn test_se_kappa_diagonal_uses_correct_index() {
+        let iov = OmegaMatrix::from_diagonal(
+            &[0.04, 0.09],
+            vec!["KAPPA_CL".into(), "KAPPA_V".into()],
+        );
+        let template = make_template(Some(iov), vec![false, false]);
+        // Packed layout: [theta, omega(1), sigma, kappa_1, kappa_2] → 5 entries.
+        // Identity cov means se_packed = [1, 1, 1, 1, 1].
+        let cov = Some(DMatrix::<f64>::identity(5, 5));
+        let (_, _, _, se_kappa) = extract_standard_errors(&cov, &template);
+        let se = se_kappa.expect("se_kappa should be Some when omega_iov is set");
+        assert_eq!(se.len(), 2);
+        assert!((se[0] - 2.0 * 0.04).abs() < 1e-12);
+        assert!((se[1] - 2.0 * 0.09).abs() < 1e-12);
+    }
+
+    /// Block kappa with n=3: column-major Cholesky packing places L[1,1] at
+    /// offset 3 and L[2,2] at offset 5 within the IOV block.  Mirrors the BSV
+    /// regression test above.
+    #[test]
+    fn test_se_kappa_block_n3_column_major_indexing() {
+        let mut mat = DMatrix::<f64>::zeros(3, 3);
+        mat[(0, 0)] = 0.04;
+        mat[(1, 1)] = 0.09;
+        mat[(2, 2)] = 0.16;
+        let chol = mat.clone().cholesky().unwrap().l();
+        let iov = OmegaMatrix {
+            matrix: mat,
+            chol,
+            eta_names: vec!["K1".into(), "K2".into(), "K3".into()],
+            diagonal: false,
+        };
+        let template = make_template(Some(iov), vec![false; 3]);
+        // Packed layout: theta(1) + omega_diag(1) + sigma(1) + kappa_block(6) = 9
+        // Within the kappa block (start = 3): L11=0, L21=1, L31=2, L22=3, L32=4, L33=5
+        // → diagonals at packed indices 3, 6, 8.
+        // Build a cov matrix with distinct diagonal entries so we can verify
+        // which index each SE pulls from.
+        let n = 9;
+        let mut cov = DMatrix::<f64>::zeros(n, n);
+        for i in 0..n {
+            cov[(i, i)] = ((i + 1) as f64).powi(2); // se_packed[i] = i + 1
+        }
+        let (_, _, _, se_kappa) = extract_standard_errors(&Some(cov), &template);
+        let se = se_kappa.unwrap();
+        // L[0,0] at idx 3 → se_packed = 4 → se_kappa[0] = 2 * 0.04 * 4 = 0.32
+        assert!((se[0] - 2.0 * 0.04 * 4.0).abs() < 1e-12, "got {}", se[0]);
+        // L[1,1] at idx 6 → se_packed = 7 → se_kappa[1] = 2 * 0.09 * 7 = 1.26
+        assert!((se[1] - 2.0 * 0.09 * 7.0).abs() < 1e-12, "got {}", se[1]);
+        // L[2,2] at idx 8 → se_packed = 9 → se_kappa[2] = 2 * 0.16 * 9 = 2.88
+        assert!((se[2] - 2.0 * 0.16 * 9.0).abs() < 1e-12, "got {}", se[2]);
+    }
+
+    #[test]
+    fn test_se_kappa_none_when_no_iov() {
+        let template = make_template(None, vec![]);
+        let cov = Some(DMatrix::<f64>::identity(3, 3));
+        let (_, _, _, se_kappa) = extract_standard_errors(&cov, &template);
+        assert!(se_kappa.is_none());
+    }
+
+    #[test]
+    fn test_se_kappa_none_when_no_cov() {
+        let iov = OmegaMatrix::from_diagonal(&[0.04], vec!["KAPPA_CL".into()]);
+        let template = make_template(Some(iov), vec![false]);
+        let (_, _, _, se_kappa) = extract_standard_errors(&None, &template);
+        assert!(se_kappa.is_none());
     }
 }
