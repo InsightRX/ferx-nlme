@@ -143,6 +143,33 @@ pub fn print_results(result: &FitResult) {
                 name, var, cv, se_str
             );
         }
+        // Off-diagonal covariances/correlations (block_kappa)
+        let has_offdiag =
+            (0..n_kappa).any(|i| (0..i).any(|j| iov[(i, j)].abs() > 1e-15));
+        if has_offdiag {
+            eprintln!("  --- Correlations ---");
+            for i in 0..n_kappa {
+                for j in 0..i {
+                    let cov = iov[(i, j)];
+                    if cov.abs() <= 1e-15 {
+                        continue;
+                    }
+                    let var_i = iov[(i, i)];
+                    let var_j = iov[(j, j)];
+                    let corr = if var_i > 0.0 && var_j > 0.0 {
+                        cov / (var_i.sqrt() * var_j.sqrt())
+                    } else {
+                        0.0
+                    };
+                    let name_i = result.kappa_names.get(i).map(|s| s.as_str()).unwrap_or("KAPPA");
+                    let name_j = result.kappa_names.get(j).map(|s| s.as_str()).unwrap_or("KAPPA");
+                    eprintln!(
+                        "  {} × {} = {:.6}  (corr = {:.4})",
+                        name_i, name_j, cov, corr,
+                    );
+                }
+            }
+        }
     }
 
     // SIR results
@@ -459,6 +486,37 @@ pub fn write_estimates_yaml(result: &FitResult, path: &str) -> Result<(), String
                     Some(sv) => writeln!(f, "    se: {:.6}", sv).map_err(|e| e.to_string())?,
                     None => writeln!(f, "    se: ~").map_err(|e| e.to_string())?,
                 }
+            }
+        }
+        // Off-diagonal covariances/correlations (block_kappa). Keyed as
+        // `{name_i}__{name_j}` to keep the per-name structure of the diagonal
+        // entries; falls back to numeric indices if names are missing.
+        for i in 0..n_kappa {
+            for j in 0..i {
+                let cov = iov[(i, j)];
+                if cov.abs() <= 1e-15 {
+                    continue;
+                }
+                let var_i = iov[(i, i)];
+                let var_j = iov[(j, j)];
+                let corr = if var_i > 0.0 && var_j > 0.0 {
+                    cov / (var_i.sqrt() * var_j.sqrt())
+                } else {
+                    0.0
+                };
+                let name_i = result
+                    .kappa_names
+                    .get(i)
+                    .cloned()
+                    .unwrap_or_else(|| format!("kappa_{}", i + 1));
+                let name_j = result
+                    .kappa_names
+                    .get(j)
+                    .cloned()
+                    .unwrap_or_else(|| format!("kappa_{}", j + 1));
+                writeln!(f, "  {}__{}:", name_i, name_j).map_err(|e| e.to_string())?;
+                writeln!(f, "    covariance: {:.6}", cov).map_err(|e| e.to_string())?;
+                writeln!(f, "    correlation: {:.6}", corr).map_err(|e| e.to_string())?;
             }
         }
     }
