@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "ayu";
-            window.path_to_searchindex_js = "../searchindex-77dc1448.js";
+            window.path_to_searchindex_js = "../searchindex-2dabf1ba.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-911e3088.js"></script>
@@ -203,9 +203,47 @@
 <tr><td><code>sqrt()</code></td><td><code>sqrt(WT)</code></td></tr>
 <tr><td><code>abs()</code></td><td><code>abs(ETA_CL)</code></td></tr>
 <tr><td>Parentheses</td><td><code>TVCL * (WT/70)^0.75</code></td></tr>
+<tr><td>Comparisons (in <code>if</code> conditions)</td><td><code>WT &gt; 70</code>, <code>SEX == 1</code>, <code>AGE != 0</code></td></tr>
+<tr><td>Logical (in <code>if</code> conditions)</td><td><code>&amp;&amp;</code> (and), <code>||</code> (or), <code>!</code> (not)</td></tr>
+<tr><td>Inline conditional</td><td><code>if (SEX == 1) TVCL * 1.5 else TVCL</code></td></tr>
 </tbody>
 </table>
 </div>
+<h2 id="conditional-logic-if--else"><a class="header" href="#conditional-logic-if--else">Conditional Logic (<code>if</code> / <code>else</code>)</a></h2>
+<p>Two forms are supported and may be combined freely.</p>
+<h3 id="block-form"><a class="header" href="#block-form">Block form</a></h3>
+<pre><code>[individual_parameters]
+  if (WT &gt; 70) {
+    CL = TVCL * (WT / 70)^0.75 * exp(ETA_CL)
+  } else if (SEX == 1) {
+    CL = TVCL * 1.2 * exp(ETA_CL)
+  } else {
+    CL = TVCL * exp(ETA_CL)
+  }
+  V = TVV * exp(ETA_V)
+</code></pre>
+<p>The block form is appropriate when the body contains multiple statements or
+when several alternative branches are needed. Conditions support comparison
+operators (<code>&lt;</code>, <code>&lt;=</code>, <code>&gt;</code>, <code>&gt;=</code>, <code>==</code>, <code>!=</code>) and logical operators (<code>&amp;&amp;</code>,
+<code>||</code>, <code>!</code>); parentheses group sub-conditions.</p>
+<h3 id="inline-ternary-form"><a class="header" href="#inline-ternary-form">Inline (ternary) form</a></h3>
+<pre><code>[individual_parameters]
+  CL = if (SEX == 1) TVCL * 1.5 else TVCL
+  V  = TVV  * exp(ETA_V)
+</code></pre>
+<p>The inline form produces a value and can appear anywhere an expression is
+allowed. Both <code>then</code> and <code>else</code> branches are required.</p>
+<h3 id="interaction-with-mu-referencing"><a class="header" href="#interaction-with-mu-referencing">Interaction with mu-referencing</a></h3>
+<p>When the assignment to a parameter is wrapped in an <code>if</code> block, the
+<code>(ETA → THETA)</code> relationship is no longer unconditional, so ferx skips
+mu-reference detection for that parameter. Unconditional assignments in the
+same block continue to be detected normally.</p>
+<blockquote>
+<p><strong>Tip:</strong> if you want mu-referencing for a covariate-adjusted parameter,
+keep the assignment unconditional and bury the conditional inside the
+covariate term (e.g.
+<code>CL = TVCL * (if (WT &gt; 70) (WT / 70)^0.75 else 1.0) * exp(ETA_CL)</code>).</p>
+</blockquote>
 <h2 id="common-parameterizations"><a class="header" href="#common-parameterizations">Common Parameterizations</a></h2>
 <h3 id="exponential-log-normal-random-effects"><a class="header" href="#exponential-log-normal-random-effects">Exponential (log-normal) random effects</a></h3>
 <p>The standard approach for PK parameters that must be positive:</p>

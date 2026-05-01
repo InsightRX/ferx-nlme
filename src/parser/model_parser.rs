@@ -56,10 +56,111 @@ fn extract_eta_indices(expr: &Expression) -> Vec<usize> {
                 walk(b, out);
                 walk(e, out);
             }
+            Expression::Conditional(cond, t, els) => {
+                walk_eta_in_condition(cond, out);
+                walk(t, out);
+                walk(els, out);
+            }
             _ => {}
         }
     }
+    fn walk_eta_in_condition(cond: &Condition, out: &mut Vec<usize>) {
+        match cond {
+            Condition::Compare(l, _, r) => {
+                walk(l, out);
+                walk(r, out);
+            }
+            Condition::And(l, r) | Condition::Or(l, r) => {
+                walk_eta_in_condition(l, out);
+                walk_eta_in_condition(r, out);
+            }
+            Condition::Not(c) => walk_eta_in_condition(c, out),
+        }
+    }
     walk(expr, &mut out);
+    out
+}
+
+/// All variable names assigned anywhere in the statement tree, in
+/// first-occurrence order, deduplicated. Used by `[individual_parameters]`
+/// to enumerate "tv" parameters for the AD path and to populate the per-var
+/// `vars` map for the ODE RHS. `DiffEq` statements are excluded since they
+/// produce derivative outputs, not vars.
+fn assigned_vars_in_order(stmts: &[Statement]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    fn walk(stmts: &[Statement], out: &mut Vec<String>) {
+        for s in stmts {
+            match s {
+                Statement::Assign(name, _) => {
+                    if !out.iter().any(|n| n == name) {
+                        out.push(name.clone());
+                    }
+                }
+                Statement::DiffEq(_, _) => {}
+                Statement::If { branches, else_body } => {
+                    for (_, body) in branches {
+                        walk(body, out);
+                    }
+                    if let Some(eb) = else_body {
+                        walk(eb, out);
+                    }
+                }
+            }
+        }
+    }
+    walk(stmts, &mut out);
+    out
+}
+
+/// Find a top-level (not nested in an if/else) `Assign` to `var_name` and
+/// return its RHS expression. Used by mu-ref detection, which only matches
+/// unconditional patterns like `CL = TVCL * exp(ETA_CL)`. Variables only
+/// assigned inside conditional branches return `None` and skip mu-ref.
+#[allow(dead_code)]
+fn find_top_level_assignment<'a>(
+    stmts: &'a [Statement],
+    var_name: &str,
+) -> Option<&'a Expression> {
+    for s in stmts {
+        if let Statement::Assign(name, expr) = s {
+            if name == var_name {
+                return Some(expr);
+            }
+        }
+    }
+    None
+}
+
+/// Union of eta indices touched by every assignment to `var_name` anywhere in
+/// the statement tree (top level OR nested inside if/else bodies). Used to
+/// build the per-tv `eta_map` for the AD path; if-wrapped assignments
+/// contribute their RHS eta references to the union.
+fn extract_eta_indices_for_var(stmts: &[Statement], var_name: &str) -> Vec<usize> {
+    let mut out: Vec<usize> = Vec::new();
+    fn walk(stmts: &[Statement], target: &str, out: &mut Vec<usize>) {
+        for s in stmts {
+            match s {
+                Statement::Assign(name, expr) | Statement::DiffEq(name, expr) => {
+                    if name == target {
+                        for idx in extract_eta_indices(expr) {
+                            if !out.contains(&idx) {
+                                out.push(idx);
+                            }
+                        }
+                    }
+                }
+                Statement::If { branches, else_body } => {
+                    for (_, body) in branches {
+                        walk(body, target, out);
+                    }
+                    if let Some(eb) = else_body {
+                        walk(eb, target, out);
+                    }
+                }
+            }
+        }
+    }
+    walk(stmts, var_name, &mut out);
     out
 }
 
@@ -112,33 +213,29 @@ fn detect_pattern(expr: &Expression) -> Option<(usize, usize, bool)> {
     }
 }
 
-/// Analyse [individual_parameters] lines and detect mu-referencing relationships.
+/// Analyse parsed `[individual_parameters]` statements and detect
+/// mu-referencing relationships. Only top-level (unconditional) assignments
+/// participate — a variable defined inside `if (...) { CL = ... }` cannot
+/// participate in mu-referencing because the inner-loop re-centering only
+/// holds when the relationship is unconditional.
 fn detect_mu_refs(
-    indiv_lines: &[String],
+    stmts: &[Statement],
     theta_names: &[String],
     eta_names: &[String],
 ) -> HashMap<String, MuRef> {
     let mut result = HashMap::new();
-    for line in indiv_lines {
-        let parts: Vec<&str> = line.splitn(2, '=').collect();
-        if parts.len() != 2 {
-            continue;
-        }
-        let expr_str = parts[1].trim();
-        let ctx = ParseCtx::new(theta_names, eta_names, &[]);
-        let expr = match parse_expression(expr_str, ctx) {
-            Ok(e) => e,
-            Err(_) => continue,
-        };
-        if let Some((eta_idx, theta_idx, log_transformed)) = detect_pattern(&expr) {
-            if eta_idx < eta_names.len() && theta_idx < theta_names.len() {
-                result.insert(
-                    eta_names[eta_idx].clone(),
-                    MuRef {
-                        theta_name: theta_names[theta_idx].clone(),
-                        log_transformed,
-                    },
-                );
+    for s in stmts {
+        if let Statement::Assign(_, expr) = s {
+            if let Some((eta_idx, theta_idx, log_transformed)) = detect_pattern(expr) {
+                if eta_idx < eta_names.len() && theta_idx < theta_names.len() {
+                    result.insert(
+                        eta_names[eta_idx].clone(),
+                        MuRef {
+                            theta_name: theta_names[theta_idx].clone(),
+                            log_transformed,
+                        },
+                    );
+                }
             }
         }
     }
@@ -207,6 +304,22 @@ pub fn parse_full_model(content: &str) -> Result<ParsedModel, String> {
         .chain(kappa_names.iter().cloned())
         .collect();
 
+    // Parse the `[individual_parameters]` block into statements once. The block
+    // may contain plain assignments AND multi-line `if (...) { ... } else { ... }`
+    // constructs, so we reconstruct it as a single text buffer (newlines
+    // separate statements) and run the recursive-descent statement parser.
+    //
+    // Two passes: the first resolves identifiers without local-var awareness,
+    // just to discover every assigned name. The second re-parses with that
+    // full set registered as defined_vars so any in-block reference (forward
+    // or backward) resolves as Variable rather than Covariate.
+    let indiv_text = indiv_lines.join("\n");
+    let bare_ctx = ParseCtx::new(&theta_names, &eta_names, &[]);
+    let pre_stmts = parse_block_statements(&indiv_text, bare_ctx, StatementMode::Plain)?;
+    let indiv_var_names = assigned_vars_in_order(&pre_stmts);
+    let indiv_ctx = ParseCtx::new(&theta_names, &eta_names, &indiv_var_names);
+    let indiv_stmts = parse_block_statements(&indiv_text, indiv_ctx, StatementMode::Plain)?;
+
     // Detect ODE vs analytical model
     let is_ode = struct_lines
         .iter()
@@ -217,18 +330,11 @@ pub fn parse_full_model(content: &str) -> Result<ParsedModel, String> {
         let ode_lines = blocks
             .get("odes")
             .ok_or("ODE model requires [odes] block")?;
-        // Extract individual parameter names (LHS of assignments)
-        let indiv_param_names: Vec<String> = indiv_lines
-            .iter()
-            .filter_map(|l| l.splitn(2, '=').next().map(|s| s.trim().to_string()))
-            .collect();
         let ode_spec = build_ode_spec(
             ode_lines,
             &state_names,
             &obs_cmt_name,
-            &theta_names,
-            &eta_names,
-            &indiv_param_names,
+            &indiv_var_names,
         )?;
         // PK model not used for ODE, but we need a placeholder + empty param map
         (PkModel::OneCptOral, HashMap::new(), Some(ode_spec))
@@ -239,7 +345,7 @@ pub fn parse_full_model(content: &str) -> Result<ParsedModel, String> {
 
     // Build pk_param_fn with the extended eta context (BSV + kappa names).
     let (pk_param_fn, referenced_covariates) =
-        build_pk_param_fn(indiv_lines, &theta_names, &eta_names, &pk_param_map)?;
+        build_pk_param_fn(indiv_stmts.clone(), &pk_param_map, &indiv_var_names)?;
 
     let theta_values: Vec<f64> = thetas.iter().map(|t| t.init).collect();
     let theta_lower: Vec<f64> = thetas.iter().map(|t| t.lower).collect();
@@ -302,40 +408,28 @@ pub fn parse_full_model(content: &str) -> Result<ParsedModel, String> {
     // This gives covariate-adjusted typical values for the AD inner loop.
     // tv_fn uses the extended eta context (BSV + kappa) so KAPPA_* vars evaluate
     // to 0 at population-typical predictions, which is correct.
-    let tv_assignments = indiv_lines.clone();
-    let tv_theta_names = theta_names.clone();
     let tv_eta_names = eta_names.clone(); // extended (BSV + kappa)
     let tv_fn: Option<Box<dyn Fn(&[f64], &HashMap<String, f64>) -> Vec<f64> + Send + Sync>> =
         if !is_ode {
-            let mut assignments: Vec<(String, Expression)> = Vec::new();
-            let mut tv_defined: Vec<String> = Vec::new();
-            for line in tv_assignments.iter() {
-                let parts: Vec<&str> = line.splitn(2, '=').collect();
-                if parts.len() != 2 {
-                    continue;
-                }
-                let var_name = parts[0].trim().to_string();
-                let expr_str = parts[1].trim();
-                let ctx = ParseCtx::new(&tv_theta_names, &tv_eta_names, &tv_defined);
-                if let Ok(expr) = parse_expression(expr_str, ctx) {
-                    assignments.push((var_name.clone(), expr));
-                    tv_defined.push(var_name);
-                }
-            }
-
+            let stmts_for_tv = indiv_stmts.clone();
+            let var_names_for_tv = indiv_var_names.clone();
             Some(Box::new(
                 move |theta: &[f64], covariates: &HashMap<String, f64>| {
                     let zero_eta = vec![0.0; tv_eta_names.len()];
                     let mut vars: HashMap<String, f64> = HashMap::new();
-                    let mut tv_values = Vec::new();
-
-                    for (var_name, expr) in &assignments {
-                        let val = eval_expression(expr, theta, &zero_eta, covariates, &vars);
-                        vars.insert(var_name.clone(), val);
-                        tv_values.push(val);
-                    }
-
-                    tv_values
+                    eval_statements(
+                        &stmts_for_tv,
+                        theta,
+                        &zero_eta,
+                        covariates,
+                        &mut vars,
+                        None,
+                        None,
+                    );
+                    var_names_for_tv
+                        .iter()
+                        .map(|n| vars.get(n).copied().unwrap_or(0.0))
+                        .collect()
                 },
             ))
         } else {
@@ -344,7 +438,7 @@ pub fn parse_full_model(content: &str) -> Result<ParsedModel, String> {
 
     // Detect mu-referencing relationships from [individual_parameters].
     // Use BSV-only eta names — kappas don't participate in mu-referencing.
-    let mu_refs = detect_mu_refs(indiv_lines, &theta_names, &eta_names_bsv);
+    let mu_refs = detect_mu_refs(&indiv_stmts, &theta_names, &eta_names_bsv);
 
     // Build pk_indices: maps each individual parameter (by declaration order)
     // to its PK parameter index. Needed for AD to place values in correct slots.
@@ -354,12 +448,11 @@ pub fn parse_full_model(content: &str) -> Result<ParsedModel, String> {
             .iter()
             .map(|(pk_name, var_name)| (var_name.to_uppercase(), pk_name.clone()))
             .collect();
-        indiv_lines
+        indiv_var_names
             .iter()
-            .filter_map(|line| line.splitn(2, '=').next().map(|s| s.trim().to_uppercase()))
             .map(|var_name| {
                 var_to_pk
-                    .get(&var_name)
+                    .get(&var_name.to_uppercase())
                     .and_then(|pk_name| PkParams::name_to_index(pk_name))
                     .unwrap_or(0)
             })
@@ -369,30 +462,20 @@ pub fn parse_full_model(content: &str) -> Result<ParsedModel, String> {
         (0..n_eta).collect()
     };
 
-    // Per-tv eta index: for each [individual_parameters] line, find which BSV eta
-    // its expression references (or -1 for none). Kappa indices (>= n_eta) map to
-    // -1 here since the AD path is disabled when IOV is active. Used only by the
-    // AD inner loop, which checks n_kappa > 0 and falls back to FD automatically.
-    let eta_map: Vec<i32> = indiv_lines
+    // Per-tv eta index: for each individual parameter, find which BSV eta its
+    // assignment(s) reference (or -1 for none). Kappa indices (>= n_eta) map
+    // to -1 here since the AD path is disabled when IOV is active. For
+    // if-wrapped assignments we union the eta references across every branch
+    // that targets the same var. Used only by the AD inner loop, which checks
+    // n_kappa > 0 and falls back to FD automatically.
+    let eta_map: Vec<i32> = indiv_var_names
         .iter()
-        .map(|line| {
-            let parts: Vec<&str> = line.splitn(2, '=').collect();
-            if parts.len() != 2 {
-                return -1i32;
-            }
-            // Use extended context so KAPPA_* parses without error
-            let ctx = ParseCtx::new(&theta_names, &eta_names, &[]);
-            match parse_expression(parts[1].trim(), ctx) {
-                Ok(expr) => {
-                    // Only map BSV eta indices; kappa indices → -1
-                    extract_eta_indices(&expr)
-                        .into_iter()
-                        .find(|&i| i < n_eta)
-                        .map(|i| i as i32)
-                        .unwrap_or(-1)
-                }
-                Err(_) => -1,
-            }
+        .map(|var_name| {
+            extract_eta_indices_for_var(&indiv_stmts, var_name)
+                .into_iter()
+                .find(|&i| i < n_eta)
+                .map(|i| i as i32)
+                .unwrap_or(-1)
         })
         .collect();
 
@@ -755,8 +838,6 @@ fn build_ode_spec(
     lines: &[String],
     state_names: &[String],
     obs_cmt_name: &str,
-    _theta_names: &[String],
-    _eta_names: &[String],
     indiv_param_names: &[String],
 ) -> Result<crate::ode::OdeSpec, String> {
     let n_states = state_names.len();
@@ -770,44 +851,75 @@ fn build_ode_spec(
             )
         })?;
 
-    // Parse each d/dt(state) = expression
-    let ddt_re = Regex::new(r"d/dt\((\w+)\)\s*=\s*(.+)").unwrap();
-    let mut ode_exprs: Vec<(String, Expression)> = Vec::new();
-
     // For ODE RHS expressions, states + individual params get injected into the
     // `vars` map at eval time, so every bare identifier should resolve to a
     // Variable (not a Covariate). ParseCtx::ode() flips the fallback accordingly.
-    let ode_defined: Vec<String> = state_names
+    // Local intermediate vars assigned within the [odes] block (e.g. inside an
+    // if-body) are also collected from a pre-pass below so they parse as
+    // Variable too.
+    let block_text = lines.join("\n");
+    let pre_defined: Vec<String> = state_names
         .iter()
         .cloned()
         .chain(indiv_param_names.iter().cloned())
         .collect();
-    let ode_ctx = ParseCtx::ode(&ode_defined);
+    let pre_ctx = ParseCtx::ode(&pre_defined);
+    let pre_stmts = parse_block_statements(&block_text, pre_ctx, StatementMode::Ode)?;
+    let local_vars = assigned_vars_in_order(&pre_stmts);
 
-    for line in lines {
-        if let Some(caps) = ddt_re.captures(line) {
-            let state = caps[1].to_string();
-            let expr_str = caps[2].trim();
-            let expr = parse_expression(expr_str, ode_ctx)?;
-            ode_exprs.push((state, expr));
+    let mut ode_defined = pre_defined.clone();
+    for v in &local_vars {
+        if !ode_defined.iter().any(|n| n == v) {
+            ode_defined.push(v.clone());
+        }
+    }
+    let ode_ctx = ParseCtx::ode(&ode_defined);
+    let stmts = parse_block_statements(&block_text, ode_ctx, StatementMode::Ode)?;
+
+    // Validate that every declared state has a d/dt assignment somewhere in
+    // the block (top level OR inside an if-body). Whether the if-body actually
+    // fires at run time is the user's problem — our job is to verify that the
+    // block at least mentions each state.
+    let mut diffeq_states: std::collections::HashSet<String> = std::collections::HashSet::new();
+    fn collect_diffeqs(
+        stmts: &[Statement],
+        out: &mut std::collections::HashSet<String>,
+    ) {
+        for s in stmts {
+            match s {
+                Statement::DiffEq(name, _) => {
+                    out.insert(name.clone());
+                }
+                Statement::If { branches, else_body } => {
+                    for (_, body) in branches {
+                        collect_diffeqs(body, out);
+                    }
+                    if let Some(eb) = else_body {
+                        collect_diffeqs(eb, out);
+                    }
+                }
+                Statement::Assign(_, _) => {}
+            }
+        }
+    }
+    collect_diffeqs(&stmts, &mut diffeq_states);
+    for s in state_names {
+        if !diffeq_states.contains(s) {
+            return Err(format!(
+                "[odes]: missing d/dt({}) for declared state",
+                s
+            ));
         }
     }
 
-    if ode_exprs.len() != n_states {
-        return Err(format!(
-            "Expected {} ODE equations (one per state), found {}",
-            n_states,
-            ode_exprs.len()
-        ));
-    }
-
-    // Build RHS closure: (u, params_flat, t, du)
-    // u[i] = state values, params_flat = PkParams.values
-    // The individual parameter names from [individual_parameters] are stored in params_flat
-    // via PkParams indexing. We need to map state names and parameter names to indices.
     let state_names_owned = state_names.to_vec();
     let indiv_names_owned = indiv_param_names.to_vec();
-    let ode_exprs_owned = ode_exprs;
+    let stmts_owned = stmts;
+    let state_index: HashMap<String, usize> = state_names_owned
+        .iter()
+        .enumerate()
+        .map(|(i, n)| (n.clone(), i))
+        .collect();
 
     let rhs: Box<dyn Fn(&[f64], &[f64], f64, &mut [f64]) + Send + Sync> =
         Box::new(move |u: &[f64], params: &[f64], _t: f64, du: &mut [f64]| {
@@ -830,13 +942,25 @@ fn build_ode_spec(
                 }
             }
 
+            // Reset du so that a state without a firing d/dt this iteration
+            // (e.g. inside an untaken if-branch) gets 0.0 rather than stale
+            // memory.
+            for slot in du.iter_mut() {
+                *slot = 0.0;
+            }
+
             let empty_theta: [f64; 0] = [];
             let empty_eta: [f64; 0] = [];
-            let empty_cov = HashMap::new();
-
-            for (i, (_, expr)) in ode_exprs_owned.iter().enumerate() {
-                du[i] = eval_expression(expr, &empty_theta, &empty_eta, &empty_cov, &vars);
-            }
+            let empty_cov: HashMap<String, f64> = HashMap::new();
+            eval_statements(
+                &stmts_owned,
+                &empty_theta,
+                &empty_eta,
+                &empty_cov,
+                &mut vars,
+                Some(du),
+                Some(&state_index),
+            );
         });
 
     Ok(crate::ode::OdeSpec {
@@ -925,7 +1049,9 @@ fn extract_model_name(content: &str) -> String {
 
 fn extract_blocks(content: &str) -> Result<HashMap<String, Vec<String>>, String> {
     let mut blocks: HashMap<String, Vec<String>> = HashMap::new();
-    let block_re = Regex::new(r"\[(\w+)\]").unwrap();
+    // Anchor on the whole line so things like `states=[central]` inside an
+    // ODE structural definition aren't misread as a block-tag opener.
+    let block_re = Regex::new(r"^\[(\w+)\]$").unwrap();
 
     let mut current_block: Option<String> = None;
 
@@ -1324,62 +1450,39 @@ fn parse_error_model(lines: &[String]) -> Result<(ErrorModel, Vec<String>), Stri
 
 // --- Individual parameter function builder ---
 
-/// Build the PK parameter function from [individual_parameters] block.
+/// Build the PK parameter function from a parsed `[individual_parameters]`
+/// statement list. The block may contain plain assignments, inline `if (...) ... else ...`
+/// expressions, or full `if (...) { ... } else { ... }` statements.
 ///
-/// Each line is an assignment like:
-///   CL = TVCL * exp(ETA_CL) * (WT/70)^0.75
-///   V  = TVV * exp(ETA_V)
-///   KA = TVKA
-///
-/// We parse these into a closure that maps (theta, eta, covariates) -> PkParams.
+/// `var_names` is the deduplicated list of all variables ever assigned in the
+/// block (in first-occurrence order). For analytical PK models the assignment
+/// order doubles as the slot ordering for `PkParams.values`.
 fn build_pk_param_fn(
-    lines: &[String],
-    theta_names: &[String],
-    eta_names: &[String],
+    stmts: Vec<Statement>,
     pk_param_map: &HashMap<String, String>,
+    var_names: &[String],
 ) -> Result<(PkParamFn, Vec<String>), String> {
-    let mut assignments: Vec<(String, Expression)> = Vec::new();
-
-    let mut defined_vars: Vec<String> = Vec::new();
-    for line in lines {
-        let parts: Vec<&str> = line.splitn(2, '=').collect();
-        if parts.len() != 2 {
-            return Err(format!("Invalid individual parameter line: {}", line));
-        }
-        let var_name = parts[0].trim().to_string();
-        let expr_str = parts[1].trim();
-        let ctx = ParseCtx::new(theta_names, eta_names, &defined_vars);
-        let expr = parse_expression(expr_str, ctx)?;
-        assignments.push((var_name.clone(), expr));
-        defined_vars.push(var_name);
-    }
-
-    // Covariate names referenced by any individual_parameters expression.
-    // Sorted for deterministic error messages downstream.
+    // Covariates referenced anywhere in the block (including inside if-bodies
+    // and condition expressions). Sorted for deterministic error messages.
     let mut cov_set: std::collections::HashSet<String> = std::collections::HashSet::new();
-    for (_, expr) in &assignments {
-        collect_covariates(expr, &mut cov_set);
-    }
+    collect_covariates_in_stmts(&stmts, &mut cov_set);
     let mut referenced_covariates: Vec<String> = cov_set.into_iter().collect();
     referenced_covariates.sort();
 
     let pk_map: HashMap<String, String> = pk_param_map.clone();
-    let assignments_owned = assignments;
+    let stmts_owned = stmts;
+    let vars_in_order = var_names.to_vec();
 
     let pk_param_fn: PkParamFn = Box::new(
         move |theta: &[f64], eta: &[f64], covariates: &HashMap<String, f64>| {
             let mut vars: HashMap<String, f64> = HashMap::new();
-
-            for (var_name, expr) in &assignments_owned {
-                let val = eval_expression(expr, theta, eta, covariates, &vars);
-                vars.insert(var_name.clone(), val);
-            }
+            eval_statements(&stmts_owned, theta, eta, covariates, &mut vars, None, None);
 
             let mut p = PkParams::default();
 
             if pk_map.is_empty() {
                 // ODE model or no pk_param_map: store individual params by declaration order
-                for (i, (var_name, _)) in assignments_owned.iter().enumerate() {
+                for (i, var_name) in vars_in_order.iter().enumerate() {
                     if i < MAX_PK_PARAMS {
                         if let Some(&val) = vars.get(var_name) {
                             p.values[i] = val;
@@ -1417,6 +1520,8 @@ enum Expression {
     BinOp(Box<Expression>, BinOp, Box<Expression>),
     UnaryFn(String, Box<Expression>),
     Power(Box<Expression>, Box<Expression>),
+    /// `if (cond) then_expr else else_expr` — value-producing inline conditional.
+    Conditional(Box<Condition>, Box<Expression>, Box<Expression>),
 }
 
 #[derive(Debug, Clone)]
@@ -1425,6 +1530,39 @@ enum BinOp {
     Sub,
     Mul,
     Div,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum CmpOp {
+    Lt,
+    Le,
+    Gt,
+    Ge,
+    Eq,
+    Ne,
+}
+
+#[derive(Debug, Clone)]
+enum Condition {
+    Compare(Expression, CmpOp, Expression),
+    And(Box<Condition>, Box<Condition>),
+    Or(Box<Condition>, Box<Condition>),
+    Not(Box<Condition>),
+}
+
+/// A statement in a model block. Supports plain assignments, derivative
+/// assignments (only valid in `[odes]`), and if/else-if/else blocks.
+#[derive(Debug, Clone)]
+enum Statement {
+    Assign(String, Expression),
+    /// `d/dt(NAME) = expr` — only legal in `[odes]` blocks.
+    DiffEq(String, Expression),
+    /// One or more `if (cond) { ... }` arms followed by an optional `else { ... }`.
+    /// Each arm in `branches` is `(condition, body)`.
+    If {
+        branches: Vec<(Condition, Vec<Statement>)>,
+        else_body: Option<Vec<Statement>>,
+    },
 }
 
 /// Context threaded through the recursive-descent parser so that every bare
@@ -1464,6 +1602,7 @@ impl<'a> ParseCtx<'a> {
     }
 }
 
+#[allow(dead_code)]
 fn parse_expression(s: &str, ctx: ParseCtx<'_>) -> Result<Expression, String> {
     let tokens = tokenize(s)?;
     let (expr, _) = parse_add_sub(&tokens, 0, ctx)?;
@@ -1485,7 +1624,51 @@ fn collect_covariates(expr: &Expression, out: &mut std::collections::HashSet<Str
             collect_covariates(base, out);
             collect_covariates(exp, out);
         }
+        Expression::Conditional(cond, t, e) => {
+            collect_covariates_in_condition(cond, out);
+            collect_covariates(t, out);
+            collect_covariates(e, out);
+        }
         _ => {}
+    }
+}
+
+fn collect_covariates_in_condition(
+    cond: &Condition,
+    out: &mut std::collections::HashSet<String>,
+) {
+    match cond {
+        Condition::Compare(l, _, r) => {
+            collect_covariates(l, out);
+            collect_covariates(r, out);
+        }
+        Condition::And(l, r) | Condition::Or(l, r) => {
+            collect_covariates_in_condition(l, out);
+            collect_covariates_in_condition(r, out);
+        }
+        Condition::Not(c) => collect_covariates_in_condition(c, out),
+    }
+}
+
+/// Walk a list of statements (assignments and if-blocks) and accumulate every
+/// covariate name they reference.
+fn collect_covariates_in_stmts(
+    stmts: &[Statement],
+    out: &mut std::collections::HashSet<String>,
+) {
+    for s in stmts {
+        match s {
+            Statement::Assign(_, e) | Statement::DiffEq(_, e) => collect_covariates(e, out),
+            Statement::If { branches, else_body } => {
+                for (cond, body) in branches {
+                    collect_covariates_in_condition(cond, out);
+                    collect_covariates_in_stmts(body, out);
+                }
+                if let Some(eb) = else_body {
+                    collect_covariates_in_stmts(eb, out);
+                }
+            }
+        }
     }
 }
 
@@ -1533,6 +1716,111 @@ fn eval_expression(
             let e = eval_expression(exp, theta, eta, covariates, vars);
             b.powf(e)
         }
+        Expression::Conditional(cond, t, e) => {
+            if eval_condition(cond, theta, eta, covariates, vars) {
+                eval_expression(t, theta, eta, covariates, vars)
+            } else {
+                eval_expression(e, theta, eta, covariates, vars)
+            }
+        }
+    }
+}
+
+fn eval_condition(
+    cond: &Condition,
+    theta: &[f64],
+    eta: &[f64],
+    covariates: &HashMap<String, f64>,
+    vars: &HashMap<String, f64>,
+) -> bool {
+    match cond {
+        Condition::Compare(l, op, r) => {
+            let lv = eval_expression(l, theta, eta, covariates, vars);
+            let rv = eval_expression(r, theta, eta, covariates, vars);
+            match op {
+                CmpOp::Lt => lv < rv,
+                CmpOp::Le => lv <= rv,
+                CmpOp::Gt => lv > rv,
+                CmpOp::Ge => lv >= rv,
+                CmpOp::Eq => lv == rv,
+                CmpOp::Ne => lv != rv,
+            }
+        }
+        Condition::And(l, r) => {
+            eval_condition(l, theta, eta, covariates, vars)
+                && eval_condition(r, theta, eta, covariates, vars)
+        }
+        Condition::Or(l, r) => {
+            eval_condition(l, theta, eta, covariates, vars)
+                || eval_condition(r, theta, eta, covariates, vars)
+        }
+        Condition::Not(c) => !eval_condition(c, theta, eta, covariates, vars),
+    }
+}
+
+/// Execute a list of statements, mutating `vars` with each assignment. ODE
+/// `DiffEq` statements write into the optional `du` slice using the
+/// `state_index` lookup. For `[individual_parameters]` callers, pass `None`
+/// for `du` and `state_index` — encountering a `DiffEq` is then an error.
+fn eval_statements(
+    stmts: &[Statement],
+    theta: &[f64],
+    eta: &[f64],
+    covariates: &HashMap<String, f64>,
+    vars: &mut HashMap<String, f64>,
+    du: Option<&mut [f64]>,
+    state_index: Option<&HashMap<String, usize>>,
+) {
+    // The `du` borrow has to be re-passed into each recursive sub-block, so
+    // shuttle it through an Option that we re-grab on each iteration.
+    let mut du_opt = du;
+    for s in stmts {
+        match s {
+            Statement::Assign(name, expr) => {
+                let v = eval_expression(expr, theta, eta, covariates, vars);
+                vars.insert(name.clone(), v);
+            }
+            Statement::DiffEq(name, expr) => {
+                let v = eval_expression(expr, theta, eta, covariates, vars);
+                let idx = state_index
+                    .and_then(|m| m.get(name).copied())
+                    .expect("DiffEq encountered without state_index — internal error");
+                if let Some(buf) = du_opt.as_deref_mut() {
+                    buf[idx] = v;
+                }
+            }
+            Statement::If { branches, else_body } => {
+                let mut taken = false;
+                for (cond, body) in branches {
+                    if eval_condition(cond, theta, eta, covariates, vars) {
+                        eval_statements(
+                            body,
+                            theta,
+                            eta,
+                            covariates,
+                            vars,
+                            du_opt.as_deref_mut(),
+                            state_index,
+                        );
+                        taken = true;
+                        break;
+                    }
+                }
+                if !taken {
+                    if let Some(eb) = else_body {
+                        eval_statements(
+                            eb,
+                            theta,
+                            eta,
+                            covariates,
+                            vars,
+                            du_opt.as_deref_mut(),
+                            state_index,
+                        );
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -1544,11 +1832,32 @@ enum Token {
     Ident(String),
     LParen,
     RParen,
+    LBrace,
+    RBrace,
     Plus,
     Minus,
     Star,
     Slash,
     Caret,
+    /// `=` — used by the statement parser as the assignment operator. The
+    /// expression parser never accepts it, so `==` (`Token::EqEq`) is the
+    /// correct choice for equality comparisons inside conditions.
+    Eq,
+    EqEq,
+    Ne,
+    Lt,
+    Le,
+    Gt,
+    Ge,
+    AndAnd,
+    OrOr,
+    Bang,
+    Comma,
+    /// Logical line separator. Consumed only by the statement parser, where
+    /// it acts as an "end of statement" marker. Newlines inside `(...)` and
+    /// `[...]` are stripped by `strip_newlines_in_groups` so users can break
+    /// long expressions across lines.
+    Newline,
 }
 
 fn tokenize(s: &str) -> Result<Vec<Token>, String> {
@@ -1558,7 +1867,88 @@ fn tokenize(s: &str) -> Result<Vec<Token>, String> {
 
     while i < chars.len() {
         match chars[i] {
-            ' ' | '\t' => i += 1,
+            ' ' | '\t' | '\r' => i += 1,
+            '\n' => {
+                // Collapse adjacent newlines so the statement parser doesn't
+                // see runs of empty lines as separate terminators.
+                if !matches!(tokens.last(), Some(Token::Newline)) {
+                    tokens.push(Token::Newline);
+                }
+                i += 1;
+            }
+            '#' => {
+                // Line comment — skip to next newline. Block-level comments
+                // were already stripped by extract_blocks, but inline `# ...`
+                // tails inside a multi-line if-block (which we re-join with
+                // newlines) need to be tolerated here too.
+                while i < chars.len() && chars[i] != '\n' {
+                    i += 1;
+                }
+            }
+            '{' => {
+                tokens.push(Token::LBrace);
+                i += 1;
+            }
+            '}' => {
+                tokens.push(Token::RBrace);
+                i += 1;
+            }
+            ',' => {
+                tokens.push(Token::Comma);
+                i += 1;
+            }
+            '<' => {
+                if i + 1 < chars.len() && chars[i + 1] == '=' {
+                    tokens.push(Token::Le);
+                    i += 2;
+                } else {
+                    tokens.push(Token::Lt);
+                    i += 1;
+                }
+            }
+            '>' => {
+                if i + 1 < chars.len() && chars[i + 1] == '=' {
+                    tokens.push(Token::Ge);
+                    i += 2;
+                } else {
+                    tokens.push(Token::Gt);
+                    i += 1;
+                }
+            }
+            '=' => {
+                if i + 1 < chars.len() && chars[i + 1] == '=' {
+                    tokens.push(Token::EqEq);
+                    i += 2;
+                } else {
+                    tokens.push(Token::Eq);
+                    i += 1;
+                }
+            }
+            '!' => {
+                if i + 1 < chars.len() && chars[i + 1] == '=' {
+                    tokens.push(Token::Ne);
+                    i += 2;
+                } else {
+                    tokens.push(Token::Bang);
+                    i += 1;
+                }
+            }
+            '&' => {
+                if i + 1 < chars.len() && chars[i + 1] == '&' {
+                    tokens.push(Token::AndAnd);
+                    i += 2;
+                } else {
+                    return Err("Unexpected '&' (use '&&' for logical and)".to_string());
+                }
+            }
+            '|' => {
+                if i + 1 < chars.len() && chars[i + 1] == '|' {
+                    tokens.push(Token::OrOr);
+                    i += 2;
+                } else {
+                    return Err("Unexpected '|' (use '||' for logical or)".to_string());
+                }
+            }
             '(' => {
                 tokens.push(Token::LParen);
                 i += 1;
@@ -1578,11 +1968,24 @@ fn tokenize(s: &str) -> Result<Vec<Token>, String> {
                         tokens.last(),
                         Some(
                             Token::LParen
+                                | Token::LBrace
                                 | Token::Plus
                                 | Token::Minus
                                 | Token::Star
                                 | Token::Slash
                                 | Token::Caret
+                                | Token::Eq
+                                | Token::EqEq
+                                | Token::Ne
+                                | Token::Lt
+                                | Token::Le
+                                | Token::Gt
+                                | Token::Ge
+                                | Token::AndAnd
+                                | Token::OrOr
+                                | Token::Bang
+                                | Token::Comma
+                                | Token::Newline
                         )
                     );
                 if is_unary
@@ -1753,6 +2156,40 @@ fn parse_atom(
             Ok((expr, p + 1))
         }
         Token::Ident(name) => {
+            // Inline conditional expression: `if (cond) then_expr else else_expr`
+            // Used as a value (e.g. `CL = if (SEX == 1) TVCL * 1.2 else TVCL`).
+            if name.eq_ignore_ascii_case("if") {
+                let p = pos + 1;
+                if p >= tokens.len() || tokens[p] != Token::LParen {
+                    return Err("`if` must be followed by `(`".to_string());
+                }
+                let (cond, p) = parse_condition(tokens, p + 1, ctx)?;
+                if p >= tokens.len() || tokens[p] != Token::RParen {
+                    return Err("Missing closing `)` after if-condition".to_string());
+                }
+                let (then_expr, p) = parse_add_sub(tokens, p + 1, ctx)?;
+                if p >= tokens.len() {
+                    return Err("Inline `if` expression missing `else` branch".to_string());
+                }
+                match &tokens[p] {
+                    Token::Ident(kw) if kw.eq_ignore_ascii_case("else") => {}
+                    _ => {
+                        return Err(
+                            "Inline `if` expression must end with `else <expr>`".to_string()
+                        );
+                    }
+                }
+                let (else_expr, p) = parse_add_sub(tokens, p + 1, ctx)?;
+                return Ok((
+                    Expression::Conditional(
+                        Box::new(cond),
+                        Box::new(then_expr),
+                        Box::new(else_expr),
+                    ),
+                    p,
+                ));
+            }
+
             // Check if it's a function call: name(expr)
             if pos + 1 < tokens.len() && tokens[pos + 1] == Token::LParen {
                 let func_name = name.to_lowercase();
@@ -1792,6 +2229,338 @@ fn parse_atom(
         }
         other => Err(format!("Unexpected token: {:?}", other)),
     }
+}
+
+// ── Condition parser ────────────────────────────────────────────────────────
+//
+// Precedence (lowest first):  ||  >  &&  >  !  >  comparison.
+// The condition grammar lives in its own recursive-descent stack so that the
+// arithmetic expression parser doesn't need to understand boolean operators.
+
+fn parse_condition(
+    tokens: &[Token],
+    pos: usize,
+    ctx: ParseCtx<'_>,
+) -> Result<(Condition, usize), String> {
+    parse_cond_or(tokens, pos, ctx)
+}
+
+fn parse_cond_or(
+    tokens: &[Token],
+    pos: usize,
+    ctx: ParseCtx<'_>,
+) -> Result<(Condition, usize), String> {
+    let (mut left, mut pos) = parse_cond_and(tokens, pos, ctx)?;
+    while pos < tokens.len() && tokens[pos] == Token::OrOr {
+        let (right, p) = parse_cond_and(tokens, pos + 1, ctx)?;
+        left = Condition::Or(Box::new(left), Box::new(right));
+        pos = p;
+    }
+    Ok((left, pos))
+}
+
+fn parse_cond_and(
+    tokens: &[Token],
+    pos: usize,
+    ctx: ParseCtx<'_>,
+) -> Result<(Condition, usize), String> {
+    let (mut left, mut pos) = parse_cond_not(tokens, pos, ctx)?;
+    while pos < tokens.len() && tokens[pos] == Token::AndAnd {
+        let (right, p) = parse_cond_not(tokens, pos + 1, ctx)?;
+        left = Condition::And(Box::new(left), Box::new(right));
+        pos = p;
+    }
+    Ok((left, pos))
+}
+
+fn parse_cond_not(
+    tokens: &[Token],
+    pos: usize,
+    ctx: ParseCtx<'_>,
+) -> Result<(Condition, usize), String> {
+    if pos < tokens.len() && tokens[pos] == Token::Bang {
+        let (inner, p) = parse_cond_not(tokens, pos + 1, ctx)?;
+        return Ok((Condition::Not(Box::new(inner)), p));
+    }
+    parse_cond_atom(tokens, pos, ctx)
+}
+
+fn parse_cond_atom(
+    tokens: &[Token],
+    pos: usize,
+    ctx: ParseCtx<'_>,
+) -> Result<(Condition, usize), String> {
+    // Parenthesised sub-condition: `(cond)`. We have to disambiguate from
+    // `(expr) <op> (expr)` since both start with `LParen`. Try parsing as a
+    // condition first; if the inner contents don't form a valid condition,
+    // fall back to the comparison path.
+    if pos < tokens.len() && tokens[pos] == Token::LParen {
+        // Lookahead: is there a logical operator (||, &&, !) at depth-1
+        // inside the parens? If so, treat as a sub-condition.
+        let mut depth = 1;
+        let mut i = pos + 1;
+        let mut has_logic = false;
+        while i < tokens.len() && depth > 0 {
+            match tokens[i] {
+                Token::LParen => depth += 1,
+                Token::RParen => depth -= 1,
+                Token::OrOr | Token::AndAnd if depth == 1 => has_logic = true,
+                _ => {}
+            }
+            i += 1;
+        }
+        if has_logic {
+            let (inner, p) = parse_condition(tokens, pos + 1, ctx)?;
+            if p >= tokens.len() || tokens[p] != Token::RParen {
+                return Err("Missing closing `)` in condition".to_string());
+            }
+            return Ok((inner, p + 1));
+        }
+        // Otherwise fall through to the comparison parser below.
+    }
+
+    // comparison: expr <cmpop> expr
+    let (lhs, p) = parse_add_sub(tokens, pos, ctx)?;
+    if p >= tokens.len() {
+        return Err("Expected comparison operator in condition".to_string());
+    }
+    let op = match tokens[p] {
+        Token::Lt => CmpOp::Lt,
+        Token::Le => CmpOp::Le,
+        Token::Gt => CmpOp::Gt,
+        Token::Ge => CmpOp::Ge,
+        Token::EqEq => CmpOp::Eq,
+        Token::Ne => CmpOp::Ne,
+        ref other => {
+            return Err(format!(
+                "Expected comparison operator (<, <=, >, >=, ==, !=) in condition, got {:?}",
+                other
+            ));
+        }
+    };
+    let (rhs, p) = parse_add_sub(tokens, p + 1, ctx)?;
+    Ok((Condition::Compare(lhs, op, rhs), p))
+}
+
+// ── Statement parser ────────────────────────────────────────────────────────
+//
+// A "statement" is one of:
+//   NAME = expr                       (Assign)
+//   d/dt(NAME) = expr                 (DiffEq — only legal in [odes])
+//   if (cond) { stmts } [else if (cond) { stmts }]* [else { stmts }]?
+//
+// Statements are separated by `Token::Newline`. Blank lines and inline `# ...`
+// comments are tolerated by the tokenizer. Newlines inside `(...)` and `[...]`
+// are stripped by `strip_newlines_in_groups` so users can split long
+// expressions across lines (newlines inside `{...}` are preserved because they
+// separate statements within a body).
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum StatementMode {
+    /// `[individual_parameters]` and similar — DiffEqs are forbidden.
+    Plain,
+    /// `[odes]` — `d/dt(NAME) = expr` is a DiffEq statement.
+    Ode,
+}
+
+/// Strip `Token::Newline` tokens that occur inside `(...)` or `[...]` groups,
+/// so they don't terminate an expression. Newlines inside `{...}` are kept
+/// because they separate statements within a block body.
+fn strip_newlines_in_groups(tokens: Vec<Token>) -> Vec<Token> {
+    let mut out = Vec::with_capacity(tokens.len());
+    let mut paren_depth = 0i32;
+    for t in tokens {
+        match t {
+            Token::LParen => {
+                paren_depth += 1;
+                out.push(Token::LParen);
+            }
+            Token::RParen => {
+                paren_depth -= 1;
+                out.push(Token::RParen);
+            }
+            Token::Newline if paren_depth > 0 => {
+                // drop
+            }
+            other => out.push(other),
+        }
+    }
+    out
+}
+
+fn skip_newlines(tokens: &[Token], mut pos: usize) -> usize {
+    while pos < tokens.len() && tokens[pos] == Token::Newline {
+        pos += 1;
+    }
+    pos
+}
+
+/// Parse a complete block of statements from raw text. Used by both
+/// `[individual_parameters]` (Plain mode) and `[odes]` (Ode mode).
+fn parse_block_statements(
+    s: &str,
+    ctx: ParseCtx<'_>,
+    mode: StatementMode,
+) -> Result<Vec<Statement>, String> {
+    let toks = tokenize(s)?;
+    let toks = strip_newlines_in_groups(toks);
+    let (stmts, p) = parse_statements_until(&toks, 0, ctx, mode, /*stop_on_rbrace=*/ false)?;
+    let p = skip_newlines(&toks, p);
+    if p != toks.len() {
+        return Err(format!(
+            "Unexpected token after statements: {:?}",
+            tokens_pretty_tail(&toks, p)
+        ));
+    }
+    Ok(stmts)
+}
+
+fn tokens_pretty_tail(tokens: &[Token], pos: usize) -> Vec<&Token> {
+    tokens.iter().skip(pos).take(5).collect()
+}
+
+fn parse_statements_until(
+    tokens: &[Token],
+    pos: usize,
+    ctx: ParseCtx<'_>,
+    mode: StatementMode,
+    stop_on_rbrace: bool,
+) -> Result<(Vec<Statement>, usize), String> {
+    let mut out: Vec<Statement> = Vec::new();
+    let mut pos = skip_newlines(tokens, pos);
+    while pos < tokens.len() {
+        if stop_on_rbrace && tokens[pos] == Token::RBrace {
+            return Ok((out, pos));
+        }
+        let (stmt, p) = parse_one_statement(tokens, pos, ctx, mode)?;
+        out.push(stmt);
+        pos = skip_newlines(tokens, p);
+    }
+    Ok((out, pos))
+}
+
+fn parse_one_statement(
+    tokens: &[Token],
+    pos: usize,
+    ctx: ParseCtx<'_>,
+    mode: StatementMode,
+) -> Result<(Statement, usize), String> {
+    if pos >= tokens.len() {
+        return Err("Unexpected end of block while parsing statement".to_string());
+    }
+    // if-statement: `if (cond) { ... } [else if (cond) { ... }]* [else { ... }]?`
+    if let Token::Ident(name) = &tokens[pos] {
+        if name.eq_ignore_ascii_case("if") {
+            return parse_if_statement(tokens, pos, ctx, mode);
+        }
+        // d/dt(NAME) = expr  →  DiffEq (ODE block only). Tokenizes as
+        //   Ident("d") Slash Ident("dt") LParen Ident(name) RParen Eq ...
+        if mode == StatementMode::Ode
+            && name == "d"
+            && pos + 5 < tokens.len()
+            && tokens[pos + 1] == Token::Slash
+            && matches!(&tokens[pos + 2], Token::Ident(s) if s == "dt")
+            && tokens[pos + 3] == Token::LParen
+        {
+            let state_name = match &tokens[pos + 4] {
+                Token::Ident(n) => n.clone(),
+                other => {
+                    return Err(format!(
+                        "d/dt(...) expected an identifier, got {:?}",
+                        other
+                    ));
+                }
+            };
+            if tokens[pos + 5] != Token::RParen {
+                return Err("d/dt(NAME): missing `)`".to_string());
+            }
+            let p = pos + 6;
+            if p >= tokens.len() || tokens[p] != Token::Eq {
+                return Err("d/dt(NAME): expected `=` after closing `)`".to_string());
+            }
+            let (expr, p) = parse_add_sub(tokens, p + 1, ctx)?;
+            return Ok((Statement::DiffEq(state_name, expr), p));
+        }
+        // Plain assignment: `NAME = expr`
+        if pos + 1 < tokens.len() && tokens[pos + 1] == Token::Eq {
+            let var = name.clone();
+            let (expr, p) = parse_add_sub(tokens, pos + 2, ctx)?;
+            return Ok((Statement::Assign(var, expr), p));
+        }
+    }
+    Err(format!(
+        "Expected an assignment, an `if` block, or `d/dt(...)`, got {:?}",
+        &tokens[pos]
+    ))
+}
+
+fn parse_if_statement(
+    tokens: &[Token],
+    pos: usize,
+    ctx: ParseCtx<'_>,
+    mode: StatementMode,
+) -> Result<(Statement, usize), String> {
+    // pos points at the `if` Ident.
+    let mut p = pos + 1;
+    let mut branches: Vec<(Condition, Vec<Statement>)> = Vec::new();
+    let mut else_body: Option<Vec<Statement>> = None;
+
+    loop {
+        // Expect `(` <cond> `)`
+        if p >= tokens.len() || tokens[p] != Token::LParen {
+            return Err("Expected `(` after `if`".to_string());
+        }
+        let (cond, p2) = parse_condition(tokens, p + 1, ctx)?;
+        if p2 >= tokens.len() || tokens[p2] != Token::RParen {
+            return Err("Missing `)` after if-condition".to_string());
+        }
+        // Expect `{` <body> `}`
+        let p3 = skip_newlines(tokens, p2 + 1);
+        if p3 >= tokens.len() || tokens[p3] != Token::LBrace {
+            return Err("Expected `{` after if-condition".to_string());
+        }
+        let (body, p4) =
+            parse_statements_until(tokens, p3 + 1, ctx, mode, /*stop_on_rbrace=*/ true)?;
+        if p4 >= tokens.len() || tokens[p4] != Token::RBrace {
+            return Err("Missing `}` at end of if-body".to_string());
+        }
+        branches.push((cond, body));
+        p = p4 + 1;
+
+        // Look for `else` (possibly across newlines)
+        let look = skip_newlines(tokens, p);
+        match tokens.get(look) {
+            Some(Token::Ident(kw)) if kw.eq_ignore_ascii_case("else") => {
+                let after_else = skip_newlines(tokens, look + 1);
+                // `else if (...)` chains a new branch
+                if let Some(Token::Ident(kw2)) = tokens.get(after_else) {
+                    if kw2.eq_ignore_ascii_case("if") {
+                        p = after_else + 1;
+                        continue;
+                    }
+                }
+                // `else { ... }` final block
+                if tokens.get(after_else) == Some(&Token::LBrace) {
+                    let (body, end) = parse_statements_until(
+                        tokens,
+                        after_else + 1,
+                        ctx,
+                        mode,
+                        /*stop_on_rbrace=*/ true,
+                    )?;
+                    if end >= tokens.len() || tokens[end] != Token::RBrace {
+                        return Err("Missing `}` at end of else-body".to_string());
+                    }
+                    else_body = Some(body);
+                    p = end + 1;
+                    break;
+                }
+                return Err("`else` must be followed by `if (...) {...}` or `{...}`".to_string());
+            }
+            _ => break,
+        }
+    }
+    Ok((Statement::If { branches, else_body }, p))
 }
 
 #[cfg(test)]
@@ -2249,7 +3018,9 @@ mod tests {
     fn detect_one(line: &str, theta_names: &[&str], eta_names: &[&str]) -> Option<MuRef> {
         let tn: Vec<String> = theta_names.iter().map(|s| s.to_string()).collect();
         let en: Vec<String> = eta_names.iter().map(|s| s.to_string()).collect();
-        let refs = detect_mu_refs(&[line.to_string()], &tn, &en);
+        let ctx = ParseCtx::new(&tn, &en, &[]);
+        let stmts = parse_block_statements(line, ctx, StatementMode::Plain).ok()?;
+        let refs = detect_mu_refs(&stmts, &tn, &en);
         // Return the one detected mu-ref (if any). Tests assume a single line.
         refs.into_iter().next().map(|(_, v)| v)
     }
@@ -2355,18 +3126,16 @@ mod tests {
     #[test]
     fn test_detect_mu_ref_multiple_parameters() {
         // Detect across several lines; each eta maps to its own theta.
-        let lines = vec![
-            "CL = TVCL * exp(ETA_CL)".to_string(),
-            "V  = TVV  * exp(ETA_V)".to_string(),
-            "KA = TVKA * exp(ETA_KA)".to_string(),
-        ];
+        let block = "CL = TVCL * exp(ETA_CL)\nV  = TVV  * exp(ETA_V)\nKA = TVKA * exp(ETA_KA)";
         let tn = vec!["TVCL".to_string(), "TVV".to_string(), "TVKA".to_string()];
         let en = vec![
             "ETA_CL".to_string(),
             "ETA_V".to_string(),
             "ETA_KA".to_string(),
         ];
-        let refs = detect_mu_refs(&lines, &tn, &en);
+        let ctx = ParseCtx::new(&tn, &en, &[]);
+        let stmts = parse_block_statements(block, ctx, StatementMode::Plain).unwrap();
+        let refs = detect_mu_refs(&stmts, &tn, &en);
         assert_eq!(refs.len(), 3);
         assert_eq!(refs["ETA_CL"].theta_name, "TVCL");
         assert_eq!(refs["ETA_V"].theta_name, "TVV");
@@ -3070,5 +3839,407 @@ mod tests {
         assert!((iov.matrix[(0, 1)] - 0.002).abs() < 1e-12);
         assert!((iov.matrix[(1, 0)] - 0.002).abs() < 1e-12);
         assert!((iov.matrix[(1, 1)] - 0.005).abs() < 1e-12);
+    }
+
+    // ── if-statement support ───────────────────────────────────────────────
+    //
+    // Tests the multi-line `if (cond) { ... } else if (...) { ... } else { ... }`
+    // syntax and the inline `if (cond) expr else expr` ternary. Coverage:
+    // tokenizer, statement parser, evaluator, integration with mu-ref
+    // detection, and ODE bodies.
+
+    fn empty_ctx() -> ParseCtx<'static> {
+        const TN: &[String] = &[];
+        const EN: &[String] = &[];
+        const DV: &[String] = &[];
+        ParseCtx::new(TN, EN, DV)
+    }
+
+    #[test]
+    fn test_tokenize_comparison_and_logical_operators() {
+        let toks = tokenize("a >= 1 && !(b == 2 || c <= 3)").unwrap();
+        // We only assert that the two-character ops landed as single tokens —
+        // the rest of the stream is asserted indirectly via parser tests.
+        assert!(toks.contains(&Token::Ge));
+        assert!(toks.contains(&Token::AndAnd));
+        assert!(toks.contains(&Token::Bang));
+        assert!(toks.contains(&Token::EqEq));
+        assert!(toks.contains(&Token::OrOr));
+        assert!(toks.contains(&Token::Le));
+    }
+
+    #[test]
+    fn test_tokenize_newlines_and_braces() {
+        let toks = tokenize("if (x > 0) {\n  y = 1\n}").unwrap();
+        assert!(toks.contains(&Token::LBrace));
+        assert!(toks.contains(&Token::RBrace));
+        assert!(toks.contains(&Token::Newline));
+        assert!(toks.contains(&Token::Eq));
+        assert!(toks.contains(&Token::Gt));
+    }
+
+    #[test]
+    fn test_strip_newlines_keeps_brace_separators() {
+        let toks =
+            tokenize("if (a >\n  1) {\n  y = 2\n}").unwrap();
+        let stripped = strip_newlines_in_groups(toks);
+        // Newline inside the parens is gone; newlines inside the braces stay
+        // (statement separators). Two newlines are typed inside the brace body
+        // (one after `{` and one after `y = 2`); both survive.
+        let n_newlines = stripped.iter().filter(|t| **t == Token::Newline).count();
+        assert_eq!(n_newlines, 2);
+    }
+
+    #[test]
+    fn test_inline_if_expression_parses_and_evaluates() {
+        let tn = vec!["TVCL".to_string()];
+        let en: Vec<String> = vec![];
+        let ctx = ParseCtx::new(&tn, &en, &[]);
+        let stmts =
+            parse_block_statements("CL = if (WT > 70) TVCL * 1.2 else TVCL", ctx, StatementMode::Plain)
+                .unwrap();
+        assert_eq!(stmts.len(), 1);
+
+        let mut vars = HashMap::new();
+        let theta = vec![5.0];
+        let mut covs = HashMap::new();
+        covs.insert("WT".to_string(), 80.0);
+        eval_statements(&stmts, &theta, &[], &covs, &mut vars, None, None);
+        assert!((vars["CL"] - 6.0).abs() < 1e-12, "CL should pick the then-branch");
+
+        covs.insert("WT".to_string(), 60.0);
+        let mut vars2 = HashMap::new();
+        eval_statements(&stmts, &theta, &[], &covs, &mut vars2, None, None);
+        assert!((vars2["CL"] - 5.0).abs() < 1e-12, "CL should pick the else-branch");
+    }
+
+    #[test]
+    fn test_multiline_if_else_block_evaluates() {
+        let tn = vec!["TVCL".to_string()];
+        let block = "
+if (WT > 70) {
+  CL = TVCL * (WT/70)
+} else {
+  CL = TVCL
+}
+";
+        let ctx = ParseCtx::new(&tn, &[], &[]);
+        let stmts = parse_block_statements(block, ctx, StatementMode::Plain).unwrap();
+        assert_eq!(stmts.len(), 1, "single top-level if-statement");
+
+        let theta = vec![10.0];
+        for (wt, expected) in [(80.0, 10.0 * (80.0 / 70.0)), (50.0, 10.0)] {
+            let mut covs = HashMap::new();
+            covs.insert("WT".to_string(), wt);
+            let mut vars = HashMap::new();
+            eval_statements(&stmts, &theta, &[], &covs, &mut vars, None, None);
+            assert!((vars["CL"] - expected).abs() < 1e-12, "WT={} → expected CL={}", wt, expected);
+        }
+    }
+
+    #[test]
+    fn test_else_if_chain_picks_first_match() {
+        let tn = vec!["TVCL".to_string()];
+        let block = "
+if (X < 10) {
+  CL = TVCL * 0.5
+} else if (X < 20) {
+  CL = TVCL
+} else if (X < 30) {
+  CL = TVCL * 1.5
+} else {
+  CL = TVCL * 2.0
+}
+";
+        let ctx = ParseCtx::new(&tn, &[], &[]);
+        let stmts = parse_block_statements(block, ctx, StatementMode::Plain).unwrap();
+        let theta = vec![10.0];
+        for (x, expected) in [(5.0, 5.0), (15.0, 10.0), (25.0, 15.0), (40.0, 20.0)] {
+            let mut covs = HashMap::new();
+            covs.insert("X".to_string(), x);
+            let mut vars = HashMap::new();
+            eval_statements(&stmts, &theta, &[], &covs, &mut vars, None, None);
+            assert!(
+                (vars["CL"] - expected).abs() < 1e-12,
+                "X={x} should pick branch giving CL={expected}, got {}",
+                vars["CL"]
+            );
+        }
+    }
+
+    #[test]
+    fn test_logical_operators_in_condition() {
+        let tn = vec!["TVCL".to_string()];
+        let block =
+            "CL = if ((SEX == 1 && WT > 70) || AGE >= 65) TVCL * 1.5 else TVCL";
+        let ctx = ParseCtx::new(&tn, &[], &[]);
+        let stmts = parse_block_statements(block, ctx, StatementMode::Plain).unwrap();
+        let theta = vec![10.0];
+        let cases = [
+            // (sex, wt, age, expected)
+            (1.0, 80.0, 30.0, 15.0), // && true → boost
+            (1.0, 60.0, 30.0, 10.0), // && false, || false → no boost
+            (0.0, 50.0, 70.0, 15.0), // age >= 65 → boost
+            (0.0, 50.0, 64.999, 10.0),
+        ];
+        for (sex, wt, age, expected) in cases {
+            let mut covs = HashMap::new();
+            covs.insert("SEX".to_string(), sex);
+            covs.insert("WT".to_string(), wt);
+            covs.insert("AGE".to_string(), age);
+            let mut vars = HashMap::new();
+            eval_statements(&stmts, &theta, &[], &covs, &mut vars, None, None);
+            assert!(
+                (vars["CL"] - expected).abs() < 1e-12,
+                "sex={sex} wt={wt} age={age} expected CL={expected}, got {}",
+                vars["CL"]
+            );
+        }
+    }
+
+    #[test]
+    fn test_if_statement_disables_mu_ref_for_var() {
+        // CL is assigned only inside an if-block — it must NOT participate in
+        // mu-referencing because the (eta, theta) relationship is conditional.
+        // V is unconditional and SHOULD still mu-ref.
+        let content = r#"
+[parameters]
+  theta TVCL(0.2, 0.001, 10.0)
+  theta TVV(10.0, 0.1, 500.0)
+
+  omega ETA_CL ~ 0.09
+  omega ETA_V  ~ 0.04
+
+  sigma PROP_ERR ~ 0.02
+
+[individual_parameters]
+  if (WT > 70) {
+    CL = TVCL * (WT/70) * exp(ETA_CL)
+  } else {
+    CL = TVCL * exp(ETA_CL)
+  }
+  V = TVV * exp(ETA_V)
+
+[structural_model]
+  pk one_cpt_iv_bolus(cl=CL, v=V)
+
+[error_model]
+  DV ~ proportional(PROP_ERR)
+"#;
+        let parsed = parse_full_model(content).expect("model should parse");
+        // Only ETA_V participates in mu-referencing.
+        assert!(parsed.model.mu_refs.contains_key("ETA_V"));
+        assert!(!parsed.model.mu_refs.contains_key("ETA_CL"));
+    }
+
+    #[test]
+    fn test_if_statement_collects_covariates_from_all_branches() {
+        // Covariates referenced inside any branch (including the condition)
+        // must show up in the model's referenced_covariates list.
+        let content = r#"
+[parameters]
+  theta TVCL(0.2, 0.001, 10.0)
+  theta TVV(10.0, 0.1, 500.0)
+
+  omega ETA_CL ~ 0.09
+  omega ETA_V  ~ 0.04
+
+  sigma PROP_ERR ~ 0.02
+
+[individual_parameters]
+  if (SEX == 1) {
+    CL = TVCL * (WT/70) * exp(ETA_CL)
+  } else {
+    CL = TVCL * (CRCL/100) * exp(ETA_CL)
+  }
+  V = TVV * exp(ETA_V)
+
+[structural_model]
+  pk one_cpt_iv_bolus(cl=CL, v=V)
+
+[error_model]
+  DV ~ proportional(PROP_ERR)
+"#;
+        let parsed = parse_full_model(content).expect("model should parse");
+        let covs = &parsed.model.referenced_covariates;
+        assert!(covs.contains(&"SEX".to_string()));
+        assert!(covs.contains(&"WT".to_string()));
+        assert!(covs.contains(&"CRCL".to_string()));
+    }
+
+    #[test]
+    fn test_pk_param_fn_runs_branch_at_runtime() {
+        // End-to-end: parse a model with an if-block, run pk_param_fn at two
+        // different covariate values, and confirm CL takes different values.
+        let content = r#"
+[parameters]
+  theta TVCL(2.0, 0.001, 10.0)
+  theta TVV(10.0, 0.1, 500.0)
+
+  omega ETA_CL ~ 0.09
+  omega ETA_V  ~ 0.04
+
+  sigma PROP_ERR ~ 0.02
+
+[individual_parameters]
+  if (WT > 70) {
+    CL = TVCL * 2.0
+  } else {
+    CL = TVCL
+  }
+  V = TVV
+
+[structural_model]
+  pk one_cpt_iv_bolus(cl=CL, v=V)
+
+[error_model]
+  DV ~ proportional(PROP_ERR)
+"#;
+        let parsed = parse_full_model(content).unwrap();
+        let theta = vec![2.0, 10.0];
+        let eta = vec![0.0, 0.0];
+
+        let mut covs_heavy = HashMap::new();
+        covs_heavy.insert("WT".to_string(), 100.0);
+        let p_heavy = (parsed.model.pk_param_fn)(&theta, &eta, &covs_heavy);
+        assert!((p_heavy.values[0] - 4.0).abs() < 1e-12, "WT=100 → CL=4");
+
+        let mut covs_light = HashMap::new();
+        covs_light.insert("WT".to_string(), 50.0);
+        let p_light = (parsed.model.pk_param_fn)(&theta, &eta, &covs_light);
+        assert!((p_light.values[0] - 2.0).abs() < 1e-12, "WT=50 → CL=2");
+    }
+
+    #[test]
+    fn test_ode_block_supports_if_statements() {
+        // ODE block with an if-statement that switches the elimination term
+        // depending on whether central is above a threshold (Michaelis-Menten
+        // approximation toggle).
+        let content = r#"
+[parameters]
+  theta TVCL(2.0, 0.001, 10.0)
+  theta TVV(10.0, 0.1, 500.0)
+
+  omega ETA_CL ~ 0.09
+  omega ETA_V  ~ 0.04
+
+  sigma PROP_ERR ~ 0.02
+
+[individual_parameters]
+  CL = TVCL * exp(ETA_CL)
+  V  = TVV  * exp(ETA_V)
+
+[structural_model]
+  ode(obs_cmt=central, states=[depot, central])
+
+[odes]
+  d/dt(depot) = 0
+  if (central > 0) {
+    d/dt(central) = -CL/V * central
+  } else {
+    d/dt(central) = 0
+  }
+
+[error_model]
+  DV ~ proportional(PROP_ERR)
+"#;
+        let parsed = parse_full_model(content).expect("ODE model should parse");
+        let ode = parsed.model.ode_spec.as_ref().expect("ode_spec present");
+        // States are [depot, central]; params are [CL, V] (declaration order in
+        // [individual_parameters]). du must match n_states.
+        let params = vec![2.0, 10.0];
+
+        // central > 0 → if-branch fires, du[central] = -CL/V * central
+        let u_pos = vec![0.0, 5.0];
+        let mut du_pos = vec![0.0, 0.0];
+        (ode.rhs)(&u_pos, &params, 0.0, &mut du_pos);
+        assert!((du_pos[1] - (-2.0 / 10.0 * 5.0)).abs() < 1e-12);
+
+        // central == 0 → else-branch fires, du[central] = 0. Pre-seed with junk
+        // so the test would fail if the branch silently no-op'd instead of
+        // assigning zero.
+        let u_zero = vec![0.0, 0.0];
+        let mut du_zero = vec![999.0, 999.0];
+        (ode.rhs)(&u_zero, &params, 0.0, &mut du_zero);
+        assert!(du_zero[1].abs() < 1e-12, "else-branch should emit 0, got {}", du_zero[1]);
+    }
+
+    #[test]
+    fn test_inline_if_in_parameter_assignment() {
+        // Inline ternary form used directly as the RHS of a [individual_parameters]
+        // assignment — this is the most concise form and should produce a
+        // working pk_param_fn.
+        let content = r#"
+[parameters]
+  theta TVCL(2.0, 0.001, 10.0)
+  theta TVV(10.0, 0.1, 500.0)
+
+  omega ETA_CL ~ 0.09
+  omega ETA_V  ~ 0.04
+
+  sigma PROP_ERR ~ 0.02
+
+[individual_parameters]
+  CL = if (SEX == 1) TVCL * 1.5 else TVCL
+  V  = TVV
+
+[structural_model]
+  pk one_cpt_iv_bolus(cl=CL, v=V)
+
+[error_model]
+  DV ~ proportional(PROP_ERR)
+"#;
+        let parsed = parse_full_model(content).unwrap();
+        let theta = vec![2.0, 10.0];
+        let eta = vec![0.0, 0.0];
+
+        let mut male = HashMap::new();
+        male.insert("SEX".to_string(), 1.0);
+        let p_male = (parsed.model.pk_param_fn)(&theta, &eta, &male);
+        assert!((p_male.values[0] - 3.0).abs() < 1e-12);
+
+        let mut female = HashMap::new();
+        female.insert("SEX".to_string(), 0.0);
+        let p_female = (parsed.model.pk_param_fn)(&theta, &eta, &female);
+        assert!((p_female.values[0] - 2.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_missing_else_branch_in_inline_if_errors() {
+        let ctx = empty_ctx();
+        let res = parse_block_statements("CL = if (1 > 0) 5", ctx, StatementMode::Plain);
+        assert!(res.is_err(), "inline if without else must error");
+    }
+
+    #[test]
+    fn test_missing_brace_in_if_block_errors() {
+        let ctx = empty_ctx();
+        let res = parse_block_statements(
+            "if (1 > 0) CL = 5",
+            ctx,
+            StatementMode::Plain,
+        );
+        assert!(res.is_err(), "block-form if without `{{` must error");
+    }
+
+    #[test]
+    fn test_assigned_vars_in_order_includes_nested() {
+        // Vars assigned inside if-bodies still count toward the ordered list
+        // (so they're reachable as Variables in later expressions and end up
+        // in the per-tv tables).
+        let block = "
+A = 1
+if (1 > 0) {
+  B = 2
+  C = A + B
+} else {
+  D = 99
+}
+E = C + 1
+";
+        let ctx = empty_ctx();
+        let stmts = parse_block_statements(block, ctx, StatementMode::Plain).unwrap();
+        let names = assigned_vars_in_order(&stmts);
+        assert_eq!(names, vec!["A", "B", "C", "D", "E"]);
     }
 }

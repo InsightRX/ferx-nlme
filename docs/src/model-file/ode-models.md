@@ -25,6 +25,25 @@ Expressions can reference:
 - State variables by name
 - Individual parameters defined in `[individual_parameters]`
 - Arithmetic operators and functions (`exp`, `log`, `sqrt`, etc.)
+- Conditional logic with the same `if (cond) { ... } else { ... }` and inline
+  `if (cond) expr else expr` syntax described in
+  [Individual Parameters](individual-parameters.md). For example, you can
+  switch between linear and saturable elimination based on the central
+  amount:
+
+  ```
+  [odes]
+    d/dt(depot)   = -KA * depot
+    if (central > KM_THRESHOLD) {
+      d/dt(central) = KA * depot - VMAX * central / (KM + central)
+    } else {
+      d/dt(central) = KA * depot - CL_LIN * central
+    }
+  ```
+
+  Each `d/dt(state)` reachable from any branch counts as defined; states
+  that aren't assigned in the firing branch this step receive a derivative
+  of `0`.
 
 ## Example: Michaelis-Menten Elimination
 

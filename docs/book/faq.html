@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "ayu";
-            window.path_to_searchindex_js = "searchindex-77dc1448.js";
+            window.path_to_searchindex_js = "searchindex-2dabf1ba.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-911e3088.js"></script>
@@ -219,6 +219,36 @@ mu[i] = theta[i]        # for additive patterns
 <p>or, from the Rust API, <code>FitOptions { mu_referencing: false, .. }</code>. The default is <code>true</code>.</p>
 <h3 id="porting-from-nonmem"><a class="header" href="#porting-from-nonmem">Porting from NONMEM</a></h3>
 <p>If you have a NONMEM model that uses an explicit <code>MU_1 = LOG(THETA(1))</code> line, just drop the <code>MU_i</code> intermediate and write the individual parameter directly — ferx will detect the equivalent mu-reference automatically and the fit will be equivalent.</p>
+<h2 id="can-i-use-if--else-statements-like-in-nonmem-or-nlmixr2"><a class="header" href="#can-i-use-if--else-statements-like-in-nonmem-or-nlmixr2">Can I use <code>if</code> / <code>else</code> statements like in NONMEM or nlmixr2?</a></h2>
+<p><strong>Yes.</strong> ferx supports two forms of conditional logic in both
+<code>[individual_parameters]</code> and <code>[odes]</code> blocks:</p>
+<pre><code># Block form
+if (WT &gt; 70) {
+  CL = TVCL * (WT / 70)^0.75 * exp(ETA_CL)
+} else if (SEX == 1) {
+  CL = TVCL * 1.2 * exp(ETA_CL)
+} else {
+  CL = TVCL * exp(ETA_CL)
+}
+
+# Inline (ternary) form
+CL = if (SEX == 1) TVCL * 1.5 else TVCL
+</code></pre>
+<p>Conditions support comparisons (<code>&lt;</code>, <code>&lt;=</code>, <code>&gt;</code>, <code>&gt;=</code>, <code>==</code>, <code>!=</code>) and
+logical operators (<code>&amp;&amp;</code>, <code>||</code>, <code>!</code>). Either form may be combined with
+arbitrary arithmetic, including covariate references and other ETAs.</p>
+<p><strong>Compared to NONMEM:</strong> NONMEM uses Fortran-style <code>IF (cond) THEN ... ELSE ... ENDIF</code> and Fortran comparison aliases (<code>.GT.</code>, <code>.LE.</code>, etc.). ferx uses
+C-style braces and operator symbols. The semantics are otherwise the same —
+exactly one branch fires per evaluation, the rest are ignored.</p>
+<p><strong>Compared to nlmixr2:</strong> nlmixr2’s <code>if (cond) { ... } else { ... }</code> syntax
+is a near-verbatim match for ferx’s block form. Drop the <code>&lt;-</code> assignments
+in favour of <code>=</code> and the model translates directly.</p>
+<p><strong>Caveat:</strong> when a parameter is assigned inside an <code>if</code> block, ferx skips
+mu-reference detection for that parameter (the <code>(ETA → THETA)</code> link is no
+longer unconditional). See
+<a href="model-file/individual-parameters.html#interaction-with-mu-referencing">Individual Parameters</a>
+for the workaround if you need both conditional logic and mu-referencing
+on the same parameter.</p>
 <h2 id="which-outer-optimizer-should-i-pick"><a class="header" href="#which-outer-optimizer-should-i-pick">Which outer optimizer should I pick?</a></h2>
 <p><code>slsqp</code> (the default) is the right choice for most models — it is fast, handles
 box constraints cleanly, and behaves well on the log-transformed parameter

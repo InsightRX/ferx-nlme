@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "ayu";
-            window.path_to_searchindex_js = "../searchindex-77dc1448.js";
+            window.path_to_searchindex_js = "../searchindex-2dabf1ba.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-911e3088.js"></script>
@@ -194,9 +194,33 @@
 </code></pre>
 <p>Expressions can reference:</p>
 <ul>
-<li>State variables by name</li>
-<li>Individual parameters defined in <code>[individual_parameters]</code></li>
-<li>Arithmetic operators and functions (<code>exp</code>, <code>log</code>, <code>sqrt</code>, etc.)</li>
+<li>
+<p>State variables by name</p>
+</li>
+<li>
+<p>Individual parameters defined in <code>[individual_parameters]</code></p>
+</li>
+<li>
+<p>Arithmetic operators and functions (<code>exp</code>, <code>log</code>, <code>sqrt</code>, etc.)</p>
+</li>
+<li>
+<p>Conditional logic with the same <code>if (cond) { ... } else { ... }</code> and inline
+<code>if (cond) expr else expr</code> syntax described in
+<a href="individual-parameters.html">Individual Parameters</a>. For example, you can
+switch between linear and saturable elimination based on the central
+amount:</p>
+<pre><code>[odes]
+  d/dt(depot)   = -KA * depot
+  if (central &gt; KM_THRESHOLD) {
+    d/dt(central) = KA * depot - VMAX * central / (KM + central)
+  } else {
+    d/dt(central) = KA * depot - CL_LIN * central
+  }
+</code></pre>
+<p>Each <code>d/dt(state)</code> reachable from any branch counts as defined; states
+that aren’t assigned in the firing branch this step receive a derivative
+of <code>0</code>.</p>
+</li>
 </ul>
 <h2 id="example-michaelis-menten-elimination"><a class="header" href="#example-michaelis-menten-elimination">Example: Michaelis-Menten Elimination</a></h2>
 <p>A one-compartment oral model with saturable (Michaelis-Menten) elimination:</p>
