@@ -348,6 +348,10 @@ pub fn find_ebe(
 /// where bsv_psi = bsv_eta + mu (matches the non-IOV path's mu-referencing
 /// shift). Kappas are zero-centered IOV draws and are not mu-shifted.
 /// Forces FD gradient (no AD path for IOV in Option A).
+///
+/// When `mu_k` is provided the BSV block is optimised in psi-space
+/// (`psi = eta_true + mu_k`) so mu-referencing benefits also apply to the BSV
+/// etas when IOV is active.  The returned `EbeResult.eta` is always `eta_true`.
 fn find_ebe_iov(
     model: &CompiledModel,
     subject: &Subject,
@@ -860,7 +864,12 @@ pub fn run_inner_loop(
     params: &ModelParameters,
     max_iter: usize,
     tol: f64,
-) -> (Vec<DVector<f64>>, Vec<DMatrix<f64>>, InnerLoopStats) {
+) -> (
+    Vec<DVector<f64>>,
+    Vec<DMatrix<f64>>,
+    InnerLoopStats,
+    Vec<Vec<DVector<f64>>>,
+) {
     run_inner_loop_warm(model, population, params, max_iter, tol, None, None, 0)
 }
 
@@ -872,8 +881,9 @@ pub fn run_inner_loop(
 ///               `n_unconverged` count in `InnerLoopStats` (but still run normally).
 ///               Pass `0` to count all subjects regardless of observation count.
 ///
-/// Returns `(eta_hats, h_matrices, stats)`. Callers that do not need convergence
-/// diagnostics may ignore the third element with `_`.
+/// Returns `(eta_hats, h_matrices, stats, kappas_per_subject)`.
+/// `kappas_per_subject[i]` contains per-occasion kappa EBEs for subject i; it is
+/// empty for non-IOV subjects or when `model.n_kappa == 0`.
 pub fn run_inner_loop_warm(
     model: &CompiledModel,
     population: &Population,
@@ -883,7 +893,12 @@ pub fn run_inner_loop_warm(
     prev_etas: Option<&[DVector<f64>]>,
     mu_k: Option<&[f64]>,
     min_obs: usize,
-) -> (Vec<DVector<f64>>, Vec<DMatrix<f64>>, InnerLoopStats) {
+) -> (
+    Vec<DVector<f64>>,
+    Vec<DMatrix<f64>>,
+    InnerLoopStats,
+    Vec<Vec<DVector<f64>>>,
+) {
     use rayon::prelude::*;
 
     let results: Vec<EbeResult> = population
@@ -906,8 +921,9 @@ pub fn run_inner_loop_warm(
     };
     let eta_hats: Vec<DVector<f64>> = results.iter().map(|r| r.eta.clone()).collect();
     let h_matrices: Vec<DMatrix<f64>> = results.iter().map(|r| r.h_matrix.clone()).collect();
+    let kappas: Vec<Vec<DVector<f64>>> = results.into_iter().map(|r| r.kappas).collect();
 
-    (eta_hats, h_matrices, stats)
+    (eta_hats, h_matrices, stats, kappas)
 }
 
 #[cfg(test)]

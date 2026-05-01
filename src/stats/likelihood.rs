@@ -285,6 +285,108 @@ fn chol_log_det(l: &DMatrix<f64>) -> f64 {
     2.0 * ld
 }
 
+/// IOV-aware FOCE per-subject NLL.
+///
+/// Computes per-occasion predictions using combined `[bsv_eta, kappa_k]`,
+/// linearises with the BSV-only H-matrix, and adds explicit kappa priors so
+/// the outer optimiser receives a gradient w.r.t. `omega_iov`.
+///
+/// `kappas[k]` is the EBE kappa vector for occasion k (same order as
+/// `split_obs_by_occasion`).  When `kappas` is empty, falls through to the
+/// non-IOV path (no overhead for non-IOV subjects or models).
+pub fn foce_subject_nll_iov(
+    model: &CompiledModel,
+    subject: &Subject,
+    theta: &[f64],
+    eta_hat: &DVector<f64>,
+    h_matrix: &DMatrix<f64>,
+    omega_bsv: &OmegaMatrix,
+    sigma_values: &[f64],
+    interaction: bool,
+    kappas: &[DVector<f64>],
+    omega_iov: &OmegaMatrix,
+) -> f64 {
+    if kappas.is_empty() {
+        return foce_subject_nll(
+            model, subject, theta, eta_hat, h_matrix, omega_bsv, sigma_values, interaction,
+        );
+    }
+
+    // Build per-occasion ipreds: obs j in occasion k uses combined=[bsv_eta, kappa_k].
+    let occ_groups = split_obs_by_occasion(subject);
+    let n_obs = subject.obs_times.len();
+    let mut ipreds = vec![0.0_f64; n_obs];
+    for (k, (_occ_id, obs_indices)) in occ_groups.iter().enumerate() {
+        let kap: &[f64] = if k < kappas.len() { kappas[k].as_slice() } else { &[] };
+        let combined: Vec<f64> = eta_hat.iter().copied().chain(kap.iter().copied()).collect();
+        let pk_params = (model.pk_param_fn)(theta, &combined, &subject.covariates);
+        let all_preds = model_predictions(model, subject, &pk_params);
+        for &j in obs_indices {
+            ipreds[j] = all_preds[j];
+        }
+    }
+
+    let m3_active = matches!(model.bloq_method, BloqMethod::M3) && subject.has_bloq();
+    let foce_term = if interaction || m3_active {
+        foce_subject_nll_interaction(
+            subject, &ipreds, eta_hat, h_matrix, omega_bsv, sigma_values,
+            model.error_model, model.bloq_method,
+        )
+    } else {
+        foce_subject_nll_standard(
+            subject, &ipreds, eta_hat, h_matrix, omega_bsv, sigma_values,
+            model.error_model, model.bloq_method,
+        )
+    };
+
+    // Kappa prior: 0.5 * [sum_k kappa_k' Omega_iov^{-1} kappa_k + K * log|Omega_iov|]
+    let iov_inv = match omega_iov.matrix.clone().cholesky() {
+        Some(chol) => chol.inverse(),
+        None => return 1e20,
+    };
+    let log_det_iov = omega_log_det(omega_iov);
+    let mut kappa_quad = 0.0;
+    for kap in kappas {
+        kappa_quad += kap.dot(&(&iov_inv * kap));
+    }
+    let k_occ = kappas.len() as f64;
+
+    foce_term + 0.5 * (kappa_quad + k_occ * log_det_iov)
+}
+
+/// Population FOCE objective with IOV: sum over all subjects using
+/// `foce_subject_nll_iov`.  `kappas_per_subject[i]` holds the per-occasion
+/// kappa EBEs for subject i (empty slice = no IOV for that subject).
+pub fn foce_population_nll_iov(
+    model: &CompiledModel,
+    population: &Population,
+    theta: &[f64],
+    eta_hats: &[DVector<f64>],
+    h_matrices: &[DMatrix<f64>],
+    kappas_per_subject: &[Vec<DVector<f64>>],
+    omega_bsv: &OmegaMatrix,
+    omega_iov: &OmegaMatrix,
+    sigma_values: &[f64],
+    interaction: bool,
+) -> f64 {
+    population
+        .subjects
+        .par_iter()
+        .enumerate()
+        .map(|(i, subject)| {
+            let kappas = if i < kappas_per_subject.len() {
+                kappas_per_subject[i].as_slice()
+            } else {
+                &[]
+            };
+            foce_subject_nll_iov(
+                model, subject, theta, &eta_hats[i], &h_matrices[i],
+                omega_bsv, sigma_values, interaction, kappas, omega_iov,
+            )
+        })
+        .sum::<f64>()
+}
+
 /// Population FOCE objective: sum over all subjects
 pub fn foce_population_nll(
     model: &CompiledModel,

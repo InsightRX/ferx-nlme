@@ -16,8 +16,9 @@
 use crate::estimation::inner_optimizer::run_inner_loop_warm;
 use crate::estimation::outer_optimizer::{compute_covariance, OuterResult};
 use crate::estimation::parameterization::{compute_mu_k, *};
+use crate::estimation::outer_optimizer::pop_nll;
 use crate::stats::likelihood::{
-    foce_population_nll, foce_subject_nll_interaction, foce_subject_nll_standard,
+    foce_subject_nll_interaction, foce_subject_nll_standard,
 };
 use crate::types::*;
 use nalgebra::{DMatrix, DVector};
@@ -76,7 +77,7 @@ pub fn run_foce_gn(
     // Initial inner loop
     let params = unpack_params(&x, init_params);
     let init_mu_k = compute_mu_k(model, &params.theta, options.mu_referencing);
-    let (mut eta_hats, mut h_matrices, _) = run_inner_loop_warm(
+    let (mut eta_hats, mut h_matrices, _, mut kappas) = run_inner_loop_warm(
         model,
         population,
         &params,
@@ -87,17 +88,7 @@ pub fn run_foce_gn(
         options.min_obs_for_convergence_check as usize,
     );
 
-    let mut ofv = 2.0
-        * foce_population_nll(
-            model,
-            population,
-            &params.theta,
-            &eta_hats,
-            &h_matrices,
-            &params.omega,
-            &params.sigma.values,
-            options.interaction,
-        );
+    let mut ofv = 2.0 * pop_nll(model, population, &params, &eta_hats, &h_matrices, &kappas, options.interaction);
 
     if verbose {
         eprintln!("  GN iter {:>3}: OFV = {:.6}", 0, ofv);
@@ -123,6 +114,7 @@ pub fn run_foce_gn(
             population,
             &eta_hats,
             &h_matrices,
+            &kappas,
             &bounds,
             options,
         );
@@ -201,7 +193,7 @@ pub fn run_foce_gn(
 
             // Re-estimate EBEs at new parameters (warm-started)
             let ls_mu_k = compute_mu_k(model, &params_try.theta, options.mu_referencing);
-            let (eh, hm, _) = run_inner_loop_warm(
+            let (eh, hm, _, kap_new) = run_inner_loop_warm(
                 model,
                 population,
                 &params_try,
@@ -212,22 +204,13 @@ pub fn run_foce_gn(
                 options.min_obs_for_convergence_check as usize,
             );
 
-            let nll = foce_population_nll(
-                model,
-                population,
-                &params_try.theta,
-                &eh,
-                &hm,
-                &params_try.omega,
-                &params_try.sigma.values,
-                options.interaction,
-            );
-            let ofv_try = 2.0 * nll;
+            let ofv_try = 2.0 * pop_nll(model, population, &params_try, &eh, &hm, &kap_new, options.interaction);
 
             if ofv_try.is_finite() && ofv_try < ofv {
                 ofv_new = ofv_try;
                 eta_new = eh;
                 h_new = hm;
+                kappas = kap_new;
                 break;
             }
 
@@ -271,6 +254,7 @@ pub fn run_foce_gn(
         ofv = ofv_new;
         eta_hats = eta_new;
         h_matrices = h_new;
+        // kappas already updated in the line-search block on accept
 
         // Decrease damping on success
         lambda = (lambda * 0.3).max(1e-6);
@@ -336,6 +320,7 @@ pub fn run_foce_gn(
                     population,
                     &eta_hats,
                     &h_matrices,
+                    &kappas,
                     options,
                 );
                 if cov.is_none() {
@@ -357,6 +342,7 @@ pub fn run_foce_gn(
             n_iterations: maxiter,
             eta_hats,
             h_matrices,
+            kappas,
             covariance_matrix,
             warnings,
             saem_mu_ref_m_step_evals_saved: None,
@@ -390,6 +376,7 @@ pub fn run_foce_gn(
     let final_params;
     let final_etas;
     let final_h_mats;
+    let final_kappas;
 
     if polish_result.ofv < gn_ofv {
         if verbose {
@@ -402,6 +389,7 @@ pub fn run_foce_gn(
         final_params = polish_result.params;
         final_etas = polish_result.eta_hats;
         final_h_mats = polish_result.h_matrices;
+        final_kappas = polish_result.kappas;
         converged = polish_result.converged || converged;
     } else {
         if verbose {
@@ -411,6 +399,7 @@ pub fn run_foce_gn(
         final_params = gn_params;
         final_etas = eta_hats;
         final_h_mats = h_matrices;
+        final_kappas = kappas;
     }
 
     // ---- Covariance step ----
@@ -426,6 +415,7 @@ pub fn run_foce_gn(
             population,
             &final_etas,
             &final_h_mats,
+            &final_kappas,
             options,
         );
         if cov.is_none() {
@@ -447,6 +437,7 @@ pub fn run_foce_gn(
         n_iterations: maxiter,
         eta_hats: final_etas,
         h_matrices: final_h_mats,
+        kappas: final_kappas,
         covariance_matrix,
         warnings,
         saem_mu_ref_m_step_evals_saved: None,
@@ -483,6 +474,7 @@ fn build_gn_system(
     population: &Population,
     eta_hats: &[DVector<f64>],
     h_matrices: &[DMatrix<f64>],
+    kappas: &[Vec<DVector<f64>>],
     bounds: &PackedBounds,
     options: &FitOptions,
 ) -> (DVector<f64>, DMatrix<f64>) {
@@ -496,15 +488,8 @@ fn build_gn_system(
         .iter()
         .enumerate()
         .map(|(i, _)| {
-            subject_nll_at(
-                model,
-                population,
-                i,
-                &params,
-                &eta_hats[i],
-                &h_matrices[i],
-                options,
-            )
+            let kap_i = if i < kappas.len() { kappas[i].as_slice() } else { &[] };
+            subject_nll_at(model, population, i, &params, &eta_hats[i], &h_matrices[i], kap_i, options)
         })
         .collect();
 
@@ -537,15 +522,8 @@ fn build_gn_system(
             .iter()
             .enumerate()
             .map(|(i, _)| {
-                subject_nll_at(
-                    model,
-                    population,
-                    i,
-                    &params_plus,
-                    &eta_hats[i],
-                    &h_matrices[i],
-                    options,
-                )
+                let kap_i = if i < kappas.len() { kappas[i].as_slice() } else { &[] };
+                subject_nll_at(model, population, i, &params_plus, &eta_hats[i], &h_matrices[i], kap_i, options)
             })
             .collect();
 
@@ -556,15 +534,8 @@ fn build_gn_system(
             .iter()
             .enumerate()
             .map(|(i, _)| {
-                subject_nll_at(
-                    model,
-                    population,
-                    i,
-                    &params_minus,
-                    &eta_hats[i],
-                    &h_matrices[i],
-                    options,
-                )
+                let kap_i = if i < kappas.len() { kappas[i].as_slice() } else { &[] };
+                subject_nll_at(model, population, i, &params_minus, &eta_hats[i], &h_matrices[i], kap_i, options)
             })
             .collect();
 
@@ -610,8 +581,9 @@ fn build_gn_system(
 
 /// Compute FOCE NLL for a single subject at given parameters with fixed EBEs.
 ///
-/// Delegates to the canonical `foce_subject_nll_{standard,interaction}` in
-/// `stats::likelihood` so M3 BLOQ support is single-sourced — do not re-inline.
+/// `kappas` contains per-occasion kappa EBEs (empty when no IOV).  When
+/// non-empty, delegates to `foce_subject_nll_iov` which builds per-occasion
+/// predictions using `[bsv_eta, kappa_k]` and adds kappa priors.
 fn subject_nll_at(
     model: &CompiledModel,
     population: &Population,
@@ -619,9 +591,21 @@ fn subject_nll_at(
     params: &ModelParameters,
     eta_hat: &DVector<f64>,
     h_matrix: &DMatrix<f64>,
+    kappas: &[DVector<f64>],
     options: &FitOptions,
 ) -> f64 {
+    use crate::stats::likelihood::foce_subject_nll_iov;
     let subject = &population.subjects[subj_idx];
+
+    if !kappas.is_empty() {
+        if let Some(ref iov) = params.omega_iov {
+            return foce_subject_nll_iov(
+                model, subject, &params.theta, eta_hat, h_matrix,
+                &params.omega, &params.sigma.values, options.interaction, kappas, iov,
+            );
+        }
+    }
+
     let pk_params = (model.pk_param_fn)(&params.theta, eta_hat.as_slice(), &subject.covariates);
     let ipreds = if let Some(ref ode_spec) = model.ode_spec {
         crate::pk::compute_predictions_ode(ode_spec, subject, &pk_params.values)
@@ -629,31 +613,17 @@ fn subject_nll_at(
         crate::pk::compute_predictions(model.pk_model, subject, &pk_params)
     };
 
-    // M3 forces FOCEI for that subject (mirrors the dispatcher in
-    // `stats::likelihood::foce_subject_nll`).
     let m3_active = matches!(model.bloq_method, BloqMethod::M3) && subject.has_bloq();
 
     if options.interaction || m3_active {
         foce_subject_nll_interaction(
-            subject,
-            &ipreds,
-            eta_hat,
-            h_matrix,
-            &params.omega,
-            &params.sigma.values,
-            model.error_model,
-            model.bloq_method,
+            subject, &ipreds, eta_hat, h_matrix,
+            &params.omega, &params.sigma.values, model.error_model, model.bloq_method,
         )
     } else {
         foce_subject_nll_standard(
-            subject,
-            &ipreds,
-            eta_hat,
-            h_matrix,
-            &params.omega,
-            &params.sigma.values,
-            model.error_model,
-            model.bloq_method,
+            subject, &ipreds, eta_hat, h_matrix,
+            &params.omega, &params.sigma.values, model.error_model, model.bloq_method,
         )
     }
 }

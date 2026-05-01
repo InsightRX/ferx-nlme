@@ -11,7 +11,7 @@ use crate::estimation::inner_optimizer::run_inner_loop_warm;
 use crate::estimation::parameterization::{
     compute_bounds, compute_mu_k, pack_params, unpack_params,
 };
-use crate::stats::likelihood::foce_population_nll;
+use crate::estimation::outer_optimizer::pop_nll;
 use crate::types::*;
 use nalgebra::{DMatrix, DVector};
 use rand::rngs::StdRng;
@@ -175,7 +175,7 @@ pub fn run_sir(
 
             // Run inner loop warm-started from ML EBEs
             let sir_mu_k = compute_mu_k(model, &params_k.theta, options.mu_referencing);
-            let (ehs, hms, _) = run_inner_loop_warm(
+            let (ehs, hms, _, _kappas) = run_inner_loop_warm(
                 model,
                 population,
                 &params_k,
@@ -187,16 +187,7 @@ pub fn run_sir(
             );
 
             // Compute OFV
-            let nll_k = foce_population_nll(
-                model,
-                population,
-                &params_k.theta,
-                &ehs,
-                &hms,
-                &params_k.omega,
-                &params_k.sigma.values,
-                interaction,
-            );
+            let nll_k = pop_nll(model, population, &params_k, &ehs, &hms, &_kappas, interaction);
             let ofv_k = 2.0 * nll_k;
             if !ofv_k.is_finite() {
                 return f64::NEG_INFINITY;

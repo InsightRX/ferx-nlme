@@ -3,11 +3,10 @@ use argmin::solver::trustregion::{Steihaug, TrustRegion};
 use nalgebra::{DMatrix, DVector};
 
 use crate::estimation::inner_optimizer::run_inner_loop_warm;
-use crate::estimation::outer_optimizer::{compute_covariance, OuterResult};
+use crate::estimation::outer_optimizer::{compute_covariance, pop_nll, OuterResult};
 use crate::estimation::parameterization::{
     clamp_to_bounds, compute_bounds, compute_mu_k, pack_params, unpack_params, PackedBounds,
 };
-use crate::stats::likelihood::foce_population_nll;
 use crate::types::{CompiledModel, FitOptions, ModelParameters, Population};
 
 struct FoceiProblem<'a> {
@@ -29,7 +28,7 @@ impl FoceiProblem<'_> {
             Some(warm.as_slice())
         };
         let mu_k = compute_mu_k(self.model, &params.theta, self.options.mu_referencing);
-        let (etas, h_mats, _) = run_inner_loop_warm(
+        let (etas, h_mats, _, _kappas) = run_inner_loop_warm(
             self.model,
             self.population,
             &params,
@@ -45,14 +44,13 @@ impl FoceiProblem<'_> {
 
     fn ofv_fixed(&self, x: &[f64], etas: &[DVector<f64>], h_mats: &[DMatrix<f64>]) -> f64 {
         let params = unpack_params(x, self.init_params);
-        let nll = foce_population_nll(
+        let nll = pop_nll(
             self.model,
             self.population,
-            &params.theta,
+            &params,
             etas,
             h_mats,
-            &params.omega,
-            &params.sigma.values,
+            &[],  // trust_region doesn't support IOV yet; kappas empty
             self.options.interaction,
         );
         let raw = 2.0 * nll;
@@ -223,7 +221,7 @@ pub fn optimize_trust_region(
 
     let final_params = unpack_params(&best_x, init_params);
     let final_mu_k = compute_mu_k(model, &final_params.theta, options.mu_referencing);
-    let (final_ehs, final_hms, _) = run_inner_loop_warm(
+    let (final_ehs, final_hms, _, final_kappas) = run_inner_loop_warm(
         model,
         population,
         &final_params,
@@ -234,19 +232,7 @@ pub fn optimize_trust_region(
         options.min_obs_for_convergence_check as usize,
     );
 
-    let final_ofv = {
-        let nll = foce_population_nll(
-            model,
-            population,
-            &final_params.theta,
-            &final_ehs,
-            &final_hms,
-            &final_params.omega,
-            &final_params.sigma.values,
-            options.interaction,
-        );
-        2.0 * nll
-    };
+    let final_ofv = 2.0 * pop_nll(model, population, &final_params, &final_ehs, &final_hms, &final_kappas, options.interaction);
 
     if options.verbose {
         eprintln!("Final OFV = {:.6}", final_ofv);
@@ -263,6 +249,7 @@ pub fn optimize_trust_region(
             population,
             &final_ehs,
             &final_hms,
+            &final_kappas,
             options,
         )
     } else {
@@ -280,6 +267,7 @@ pub fn optimize_trust_region(
         n_iterations: 0,
         eta_hats: final_ehs,
         h_matrices: final_hms,
+        kappas: final_kappas,
         covariance_matrix,
         warnings,
         saem_mu_ref_m_step_evals_saved: None,

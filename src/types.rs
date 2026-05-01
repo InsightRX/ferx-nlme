@@ -532,6 +532,10 @@ pub struct FitResult {
     pub kappa_fixed: Vec<bool>,
     pub se_kappa: Option<Vec<f64>>,
     pub shrinkage_kappa: Vec<f64>,
+    /// Per-subject, per-occasion kappa EBEs.
+    /// `ebe_kappas[i][k]` is the kappa vector for subject i, occasion k.
+    /// Outer vec is empty when `n_kappa == 0`.
+    pub ebe_kappas: Vec<Vec<DVector<f64>>>,
     /// Estimated OFV evaluations saved by the SAEM mu-ref gradient step M-step.
     /// Non-None only when method=saem and mu_referencing=true.
     pub saem_mu_ref_m_step_evals_saved: Option<u64>,
