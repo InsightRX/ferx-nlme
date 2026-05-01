@@ -10,9 +10,14 @@ use std::path::Path;
 /// EVID: 0=observation, 1=dose, 4=reset+dose
 /// MDV: 1=missing dependent variable
 /// CENS: 1=observation is below LLOQ (DV carries the LLOQ value); 0 otherwise
+///
+/// `iov_column`: when `Some(name)`, that column is read as the occasion index
+/// (integer) and stored in `Subject::occasions` / `Subject::dose_occasions`.
+/// The column is excluded from the covariate auto-detection list.
 pub fn read_nonmem_csv(
     path: &Path,
     covariate_columns: Option<&[&str]>,
+    iov_column: Option<&str>,
 ) -> Result<Population, String> {
     let mut rdr = csv::ReaderBuilder::new()
         .flexible(true)
@@ -46,10 +51,22 @@ pub fn read_nonmem_csv(
     let ss_col = col_idx_ci("ss");
     let cens_col = col_idx_ci("cens");
 
+    // IOV occasion column (case-insensitive lookup of user-specified name)
+    let occ_col: Option<usize> = iov_column.and_then(|name| col_idx_ci(name));
+    if iov_column.is_some() && occ_col.is_none() {
+        return Err(format!(
+            "iov_column '{}' not found in dataset headers",
+            iov_column.unwrap()
+        ));
+    }
+
     const STANDARD_COLS: &[&str] = &[
         "id", "time", "dv", "evid", "amt", "cmt", "rate", "mdv", "ii", "ss", "cens",
     ];
-    let is_standard = |h: &str| STANDARD_COLS.iter().any(|s| h.eq_ignore_ascii_case(s));
+    let is_standard = |h: &str| {
+        STANDARD_COLS.iter().any(|s| h.eq_ignore_ascii_case(s))
+            || iov_column.map_or(false, |iov| h.eq_ignore_ascii_case(iov))
+    };
 
     // Identify covariate columns (names preserved in their original case).
     let cov_names: Vec<String> = match covariate_columns {
@@ -83,8 +100,9 @@ pub fn read_nonmem_csv(
 
     // Build subjects
     let mut subjects = Vec::new();
+    let mut total_occ_failures: usize = 0;
     for (id, rows) in &rows_by_id {
-        let subject = parse_subject(
+        let (subject, occ_failures) = parse_subject(
             id,
             rows,
             time_col,
@@ -97,9 +115,25 @@ pub fn read_nonmem_csv(
             ii_col,
             ss_col,
             cens_col,
+            occ_col,
             &cov_indices,
         )?;
         subjects.push(subject);
+        total_occ_failures += occ_failures;
+    }
+
+    // Surface a single warning if any OCC values were missing/unparseable.
+    // Such rows are silently mapped to occ=0, mixing with valid occ=0 rows —
+    // user should clean the dataset.
+    if let Some(name) = iov_column {
+        if total_occ_failures > 0 {
+            eprintln!(
+                "[ferx] warning: {} row(s) had missing or unparseable values in iov_column '{}'; \
+                 these rows were assigned occasion=0 and may be grouped with valid occ=0 rows. \
+                 Consider cleaning the dataset.",
+                total_occ_failures, name
+            );
+        }
     }
 
     Ok(Population {
@@ -117,6 +151,18 @@ fn parse_usize(s: &str) -> usize {
     s.parse::<usize>().unwrap_or(1)
 }
 
+/// Parse an occasion-column cell. Returns `None` for blank / `.` / NA / non-integer
+/// values so the caller can warn about silently dropped rows. NONMEM convention
+/// uses `.` for missing.
+fn parse_occ(s: &str) -> Option<u32> {
+    let t = s.trim();
+    if t.is_empty() || t == "." || t.eq_ignore_ascii_case("na") || t.eq_ignore_ascii_case("nan") {
+        return None;
+    }
+    t.parse::<u32>().ok()
+}
+
+#[allow(clippy::too_many_arguments)]
 fn parse_subject(
     id: &str,
     rows: &[Vec<String>],
@@ -130,13 +176,17 @@ fn parse_subject(
     ii_col: Option<usize>,
     ss_col: Option<usize>,
     cens_col: Option<usize>,
+    occ_col: Option<usize>,
     cov_indices: &[(String, usize)],
-) -> Result<Subject, String> {
+) -> Result<(Subject, usize), String> {
     let mut doses = Vec::new();
     let mut obs_times = Vec::new();
     let mut observations = Vec::new();
     let mut obs_cmts = Vec::new();
     let mut cens = Vec::new();
+    let mut occasions: Vec<u32> = Vec::new();
+    let mut dose_occasions: Vec<u32> = Vec::new();
+    let mut occ_parse_failures: usize = 0;
 
     // Time-constant covariates: first non-missing value
     let mut covariates: HashMap<String, f64> = HashMap::new();
@@ -195,6 +245,21 @@ fn parse_subject(
             .and_then(|c| row.get(c))
             .map(|s| parse_usize(s))
             .unwrap_or(0);
+        // Parse OCC. When iov_column is set but a row's value is missing or
+        // unparseable, count it (caller emits a single summary warning) and
+        // fall back to 0 — matching pre-warning behavior so existing fits
+        // don't change. With no iov_column, parse failures are not tracked.
+        let occ = if let Some(c) = occ_col {
+            match row.get(c).and_then(|s| parse_occ(s)) {
+                Some(n) => n,
+                None => {
+                    occ_parse_failures += 1;
+                    0
+                }
+            }
+        } else {
+            0
+        };
 
         if evid == 1 || evid == 4 {
             // Dose record
@@ -220,6 +285,9 @@ fn parse_subject(
                 .unwrap_or(false);
 
             doses.push(DoseEvent::new(time, amt, cmt, rate, ss, ii));
+            if occ_col.is_some() {
+                dose_occasions.push(occ);
+            }
         } else if evid == 0 && mdv == 0 {
             // Observation record
             let dv = parse_f64(row.get(dv_col).map(|s| s.as_str()).unwrap_or("0"));
@@ -235,20 +303,126 @@ fn parse_subject(
             observations.push(dv);
             obs_cmts.push(cmt);
             cens.push(if cens_flag > 0 { 1u8 } else { 0u8 });
+            if occ_col.is_some() {
+                occasions.push(occ);
+            }
         }
     }
 
-    // Sort doses by time
-    doses.sort_by(|a, b| a.time.partial_cmp(&b.time).unwrap());
+    // Sort doses by time (keeping dose_occasions in sync)
+    let mut dose_pairs: Vec<(DoseEvent, u32)> = if dose_occasions.is_empty() {
+        doses.iter().cloned().map(|d| (d, 0)).collect()
+    } else {
+        doses.into_iter().zip(dose_occasions.into_iter()).collect()
+    };
+    dose_pairs.sort_by(|a, b| a.0.time.partial_cmp(&b.0.time).unwrap());
+    let (sorted_doses, sorted_dose_occ): (Vec<_>, Vec<_>) = dose_pairs.into_iter().unzip();
+    let dose_occasions_out = if occ_col.is_some() { sorted_dose_occ } else { Vec::new() };
 
-    Ok(Subject {
-        id: id.to_string(),
-        doses,
-        obs_times,
-        observations,
-        obs_cmts,
-        covariates,
-        tvcov,
-        cens,
-    })
+    Ok((
+        Subject {
+            id: id.to_string(),
+            doses: sorted_doses,
+            obs_times,
+            observations,
+            obs_cmts,
+            covariates,
+            tvcov,
+            cens,
+            occasions,
+            dose_occasions: dose_occasions_out,
+        },
+        occ_parse_failures,
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use tempfile::NamedTempFile;
+
+    fn write_csv(content: &str) -> NamedTempFile {
+        let mut f = NamedTempFile::new().unwrap();
+        f.write_all(content.as_bytes()).unwrap();
+        f
+    }
+
+    #[test]
+    fn test_occ_absent_gives_empty_occasions() {
+        let csv = "ID,TIME,DV,EVID,AMT\n1,0,.,1,100\n1,1,5.0,0,.\n1,2,3.0,0,.\n";
+        let f = write_csv(csv);
+        let pop = read_nonmem_csv(f.path(), None, None).unwrap();
+        assert!(pop.subjects[0].occasions.is_empty());
+        assert!(pop.subjects[0].dose_occasions.is_empty());
+    }
+
+    #[test]
+    fn test_parse_subject_reads_occ_column() {
+        let csv = "ID,TIME,DV,EVID,AMT,OCC\n\
+                   1,0,.,1,100,1\n\
+                   1,1,5.0,0,.,1\n\
+                   1,2,3.0,0,.,1\n\
+                   1,7,.,1,100,2\n\
+                   1,8,4.0,0,.,2\n\
+                   1,9,2.5,0,.,2\n";
+        let f = write_csv(csv);
+        let pop = read_nonmem_csv(f.path(), None, Some("OCC")).unwrap();
+        let subj = &pop.subjects[0];
+        // Two obs in occ 1, two in occ 2 (dose rows are stripped from occasions)
+        assert_eq!(subj.occasions, vec![1, 1, 2, 2]);
+        assert_eq!(subj.dose_occasions, vec![1, 2]);
+    }
+
+    #[test]
+    fn test_occ_column_excluded_from_covariates() {
+        let csv = "ID,TIME,DV,EVID,AMT,OCC,WT\n\
+                   1,0,.,1,100,1,70\n\
+                   1,1,5.0,0,.,1,70\n";
+        let f = write_csv(csv);
+        let pop = read_nonmem_csv(f.path(), None, Some("OCC")).unwrap();
+        // OCC should NOT appear as a covariate; WT should
+        assert!(!pop.covariate_names.contains(&"OCC".to_string()));
+        assert!(pop.covariate_names.contains(&"WT".to_string()));
+    }
+
+    #[test]
+    fn test_missing_iov_column_errors() {
+        let csv = "ID,TIME,DV,EVID,AMT\n1,0,.,1,100\n";
+        let f = write_csv(csv);
+        let result = read_nonmem_csv(f.path(), None, Some("OCC"));
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("iov_column"));
+    }
+
+    #[test]
+    fn test_parse_occ_recognizes_missing_sentinels() {
+        // NONMEM-style "." plus blanks/NAs should parse as None.
+        assert_eq!(parse_occ(""), None);
+        assert_eq!(parse_occ("."), None);
+        assert_eq!(parse_occ("  "), None);
+        assert_eq!(parse_occ("NA"), None);
+        assert_eq!(parse_occ("nan"), None);
+        // Non-integer or signed values that u32 can't parse
+        assert_eq!(parse_occ("1.5"), None);
+        assert_eq!(parse_occ("-1"), None);
+        // Valid u32 round-trips
+        assert_eq!(parse_occ("1"), Some(1));
+        assert_eq!(parse_occ("42"), Some(42));
+    }
+
+    #[test]
+    fn test_missing_occ_value_does_not_break_load_but_falls_back_to_zero() {
+        // Row with OCC = "." gets occ=0; load still succeeds (warning is
+        // emitted to stderr, not asserted here).
+        let csv = "ID,TIME,DV,EVID,AMT,OCC\n\
+                   1,0,.,1,100,1\n\
+                   1,1,5.0,0,.,1\n\
+                   1,2,3.0,0,.,.\n";
+        let f = write_csv(csv);
+        let pop = read_nonmem_csv(f.path(), None, Some("OCC")).unwrap();
+        let subj = &pop.subjects[0];
+        // Two obs: first has OCC=1, second had "." → 0
+        assert_eq!(subj.occasions, vec![1, 0]);
+    }
 }

@@ -158,6 +158,12 @@ pub struct Subject {
     /// Censoring flag per observation (0 = quantified, 1 = below LLOQ).
     /// When `cens[j] == 1`, `observations[j]` holds the LLOQ value (NONMEM convention).
     pub cens: Vec<u8>,
+    /// Occasion index per observation row (parallel to `obs_times`).
+    /// Empty when no IOV column is present in the data.
+    pub occasions: Vec<u32>,
+    /// Occasion index per dose event (parallel to `doses`).
+    /// Empty when no IOV column is present in the data.
+    pub dose_occasions: Vec<u32>,
 }
 
 impl Subject {
@@ -251,6 +257,11 @@ pub struct ModelParameters {
     pub sigma: SigmaVector,
     /// Per-sigma FIX flags.
     pub sigma_fixed: Vec<bool>,
+    /// Inter-occasion variability matrix (Omega_IOV). `None` when no `kappa`
+    /// declarations appear in the model file.  Always diagonal for Option A.
+    pub omega_iov: Option<OmegaMatrix>,
+    /// Per-kappa FIX flags (parallel to `omega_iov` diagonal).
+    pub kappa_fixed: Vec<bool>,
 }
 
 impl ModelParameters {
@@ -259,6 +270,7 @@ impl ModelParameters {
         self.theta_fixed.iter().any(|&b| b)
             || self.omega_fixed.iter().any(|&b| b)
             || self.sigma_fixed.iter().any(|&b| b)
+            || self.kappa_fixed.iter().any(|&b| b)
     }
 }
 
@@ -302,10 +314,17 @@ pub struct CompiledModel {
     pub error_model: ErrorModel,
     pub pk_param_fn: PkParamFn,
     pub n_theta: usize,
+    /// Number of between-subject variability (BSV) ETAs.
     pub n_eta: usize,
+    /// Number of inter-occasion variability (IOV) kappa parameters.
+    /// Zero when no `kappa` declarations are present.
+    pub n_kappa: usize,
     pub n_epsilon: usize,
     pub theta_names: Vec<String>,
+    /// BSV ETA names only (length == n_eta).
     pub eta_names: Vec<String>,
+    /// IOV kappa names (length == n_kappa). Empty when no IOV.
+    pub kappa_names: Vec<String>,
     pub default_params: ModelParameters,
     /// Detected mu-referencing relationships: eta_name → (theta_name, log_transformed).
     /// Populated by the parser; empty map means no mu-referencing detected.
@@ -424,6 +443,13 @@ impl Default for GradientMethod {
     }
 }
 
+impl CompiledModel {
+    /// Returns true when this model uses ODE integration; false for analytical PK.
+    pub fn is_ode_based(&self) -> bool {
+        self.ode_spec.is_some()
+    }
+}
+
 impl std::fmt::Debug for CompiledModel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CompiledModel")
@@ -432,6 +458,7 @@ impl std::fmt::Debug for CompiledModel {
             .field("error_model", &self.error_model)
             .field("n_theta", &self.n_theta)
             .field("n_eta", &self.n_eta)
+            .field("n_kappa", &self.n_kappa)
             .finish()
     }
 }
@@ -447,6 +474,19 @@ pub struct SubjectResult {
     pub cwres: Vec<f64>,
     pub ofv_contribution: f64,
     pub cens: Vec<u8>,
+    /// Number of observations for this subject (MDV=0 rows).
+    pub n_obs: usize,
+}
+
+/// Outcome of the post-estimation covariance step.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CovarianceStatus {
+    /// User set `covariance = false`; step was not attempted.
+    NotRequested,
+    /// Covariance matrix was successfully computed.
+    Computed,
+    /// Step was attempted but failed (e.g. singular Hessian).
+    Failed,
 }
 
 /// Full fit result
@@ -486,6 +526,56 @@ pub struct FitResult {
     pub sir_ci_omega: Option<Vec<(f64, f64)>>,
     pub sir_ci_sigma: Option<Vec<(f64, f64)>>,
     pub sir_ess: Option<f64>,
+    // IOV results (present when kappa declarations exist in the model)
+    pub omega_iov: Option<DMatrix<f64>>,
+    pub kappa_names: Vec<String>,
+    pub kappa_fixed: Vec<bool>,
+    pub se_kappa: Option<Vec<f64>>,
+    pub shrinkage_kappa: Vec<f64>,
+    /// Per-subject, per-occasion kappa EBEs.
+    /// `ebe_kappas[i][k]` is the kappa vector for subject i, occasion k.
+    /// Outer vec is empty when `n_kappa == 0`.
+    pub ebe_kappas: Vec<Vec<DVector<f64>>>,
+    /// Estimated OFV evaluations saved by the SAEM mu-ref gradient step M-step.
+    /// Non-None only when method=saem and mu_referencing=true.
+    pub saem_mu_ref_m_step_evals_saved: Option<u64>,
+    /// Gradient method used in the inner (per-subject EBE) BFGS loop.
+    pub gradient_method_inner: String,
+    /// Gradient method used in the outer (population parameter) optimizer.
+    pub gradient_method_outer: String,
+    /// True when the model uses ODE integration; false for analytical PK.
+    pub uses_ode_solver: bool,
+    /// Number of Rayon worker threads used during this fit.
+    pub n_threads_used: usize,
+    /// NLopt algorithms requested but not available in this platform build.
+    pub nlopt_missing_algorithms: Vec<String>,
+    /// Estimated OFV evaluations for the covariance step (n_params²), set
+    /// when `run_covariance_step = true` and `n_parameters > 30`.
+    pub covariance_n_evals_estimated: Option<usize>,
+    /// Path to the per-iteration optimizer trace CSV, present when
+    /// `FitOptions::optimizer_trace = true`.
+    pub trace_path: Option<String>,
+    /// Number of outer iterations in which at least one subject had an
+    /// unconverged EBE.  Always `0` for SAEM (which uses MH sampling).
+    pub ebe_convergence_warnings: u32,
+    /// Worst-case number of unconverged subjects in a single outer iteration.
+    pub max_unconverged_subjects: u32,
+    /// Total number of times the Nelder-Mead fallback was invoked across all
+    /// subjects and all outer iterations.  Always `0` for SAEM.
+    pub total_ebe_fallbacks: u32,
+    /// Outcome of the post-estimation covariance step.
+    pub covariance_status: CovarianceStatus,
+    /// ETA shrinkage per random effect: `1 - SD(eta_hat_k) / sqrt(omega_kk)`.
+    /// `NaN` when `omega_kk` is zero.
+    pub shrinkage_eta: Vec<f64>,
+    /// EPS shrinkage: `1 - SD(IWRES)`.  `NaN` when fewer than 2 valid residuals.
+    pub shrinkage_eps: f64,
+    /// Wall-clock time for the complete fit in seconds.
+    pub wall_time_secs: f64,
+    /// Model name (from the `.ferx` file or "Unnamed").
+    pub model_name: String,
+    /// ferx-nlme library version (from Cargo.toml at compile time).
+    pub ferx_version: String,
 }
 
 /// Options for fit()
@@ -544,6 +634,11 @@ pub struct FitOptions {
     /// pool of `n` threads — so the setting is per-call, not process-wide,
     /// and different fits can use different thread counts.
     pub threads: Option<usize>,
+    /// Name of the column in the dataset that identifies the occasion for each row.
+    /// When `Some`, `read_nonmem_csv` populates `Subject::occasions` / `dose_occasions`
+    /// and the inner loop estimates per-occasion kappas alongside the BSV etas.
+    /// Requires at least one `kappa` declaration in the model's `[parameters]` block.
+    pub iov_column: Option<String>,
     /// Optional cooperative cancellation token. When present and flipped by
     /// another thread, the outer/inner/SAEM/GN loops exit at the next safe
     /// point and `fit()` returns `Err("cancelled by user")`. Default `None`.
@@ -557,6 +652,24 @@ pub struct FitOptions {
     /// model has an analytical PK path (`tv_fn` populated); otherwise falls
     /// back to FD. See [`GradientMethod`] for the full contract.
     pub gradient_method: GradientMethod,
+    /// When `true`, write a per-iteration optimizer trace CSV to a temp file
+    /// and store its path in `FitResult::trace_path`. Default: `false`.
+    pub optimizer_trace: bool,
+    /// Apply an additional scaling layer on top of the existing log/Cholesky
+    /// parameterization so that all transformed parameters are O(1) when
+    /// passed to the outer optimizer.  Scaling is mathematically transparent
+    /// (identical OFV and estimates by design); it only changes the internal
+    /// coordinate system seen by NLopt / BFGS / GN.  Default: `true`.
+    pub scale_params: bool,
+    /// Fraction of subjects allowed to have unconverged EBEs before the outer
+    /// optimizer rejects the current parameter step (returns OFV = ∞).  Set to
+    /// `1.0` to disable the guard (old behaviour).  Default: `0.1`.
+    pub max_unconverged_frac: f64,
+    /// Minimum number of observations a subject must have for its EBE to count
+    /// toward `max_unconverged_frac`.  Subjects below this threshold are
+    /// excluded from the convergence fraction but still run normally.
+    /// Default: `2`.
+    pub min_obs_for_convergence_check: u32,
 }
 
 impl Default for FitOptions {
@@ -589,9 +702,14 @@ impl Default for FitOptions {
             steihaug_max_iters: 50,
             mu_referencing: true,
             threads: None,
+            iov_column: None,
             cancel: None,
             user_set_keys: Vec::new(),
             gradient_method: GradientMethod::default(),
+            optimizer_trace: false,
+            scale_params: true,
+            max_unconverged_frac: 0.1,
+            min_obs_for_convergence_check: 2,
         }
     }
 }
@@ -748,6 +866,11 @@ pub fn framework_keys() -> &'static [&'static str] {
         "threads",
         "gradient",
         "gradient_method",
+        "iov_column",
+        "optimizer_trace",
+        "scale_params",
+        "max_unconverged_frac",
+        "min_obs_for_convergence_check",
     ]
 }
 
@@ -807,4 +930,93 @@ pub struct ParsedModel {
     pub model: CompiledModel,
     pub simulation: Option<SimulationSpec>,
     pub fit_options: FitOptions,
+}
+
+/// Factories that build minimal `CompiledModel` instances for unit tests.
+/// Exposed `pub(crate)` (gated on `#[cfg(test)]`) so other modules' tests
+/// can construct models without duplicating the boilerplate.
+#[cfg(test)]
+pub(crate) mod test_helpers {
+    use super::*;
+    use std::collections::HashMap;
+
+    /// Build an analytical-PK model (`tv_fn = Some`, `ode_spec = None`).
+    pub(crate) fn analytical_model(gradient_method: GradientMethod) -> CompiledModel {
+        make_compiled_model(false, gradient_method)
+    }
+
+    /// Build an ODE-backed model (`tv_fn = None`, `ode_spec = Some`).
+    pub(crate) fn ode_model(gradient_method: GradientMethod) -> CompiledModel {
+        make_compiled_model(true, gradient_method)
+    }
+
+    fn make_compiled_model(with_ode: bool, gradient_method: GradientMethod) -> CompiledModel {
+        CompiledModel {
+            name: "test".into(),
+            pk_model: PkModel::OneCptOral,
+            error_model: ErrorModel::Additive,
+            pk_param_fn: Box::new(|_, _, _| PkParams::default()),
+            n_theta: 1,
+            n_eta: 1,
+            n_epsilon: 1,
+            n_kappa: 0,
+            theta_names: vec!["CL".into()],
+            eta_names: vec!["ETA_CL".into()],
+            kappa_names: Vec::new(),
+            default_params: ModelParameters {
+                theta: vec![1.0],
+                theta_names: vec!["CL".into()],
+                theta_lower: vec![0.0],
+                theta_upper: vec![f64::INFINITY],
+                theta_fixed: vec![false],
+                omega: OmegaMatrix::from_diagonal(&[0.1], vec!["ETA_CL".into()]),
+                omega_fixed: vec![false],
+                sigma: SigmaVector { values: vec![0.1], names: vec!["EPS".into()] },
+                sigma_fixed: vec![false],
+                omega_iov: None,
+                kappa_fixed: Vec::new(),
+            },
+            mu_refs: HashMap::new(),
+            // Analytical models populate tv_fn; ODE models leave it None.
+            tv_fn: if with_ode {
+                None
+            } else {
+                Some(Box::new(|_t, _c| vec![1.0]))
+            },
+            pk_indices: vec![],
+            eta_map: vec![],
+            pk_idx_f64: vec![],
+            sel_flat: vec![],
+            ode_spec: if with_ode {
+                Some(crate::ode::OdeSpec {
+                    rhs: Box::new(|_y, _p, _t, _dy| {}),
+                    n_states: 2,
+                    state_names: vec!["depot".into(), "central".into()],
+                    obs_cmt_idx: 0,
+                })
+            } else {
+                None
+            },
+            bloq_method: BloqMethod::Drop,
+            referenced_covariates: vec![],
+            gradient_method,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn is_ode_based_false_for_analytical() {
+        let m = test_helpers::analytical_model(GradientMethod::Auto);
+        assert!(!m.is_ode_based());
+    }
+
+    #[test]
+    fn is_ode_based_true_for_ode() {
+        let m = test_helpers::ode_model(GradientMethod::Auto);
+        assert!(m.is_ode_based());
+    }
 }

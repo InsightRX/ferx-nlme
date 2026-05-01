@@ -16,8 +16,9 @@
 use crate::estimation::inner_optimizer::run_inner_loop_warm;
 use crate::estimation::outer_optimizer::{compute_covariance, OuterResult};
 use crate::estimation::parameterization::{compute_mu_k, *};
+use crate::estimation::outer_optimizer::pop_nll;
 use crate::stats::likelihood::{
-    foce_population_nll, foce_subject_nll_interaction, foce_subject_nll_standard,
+    foce_subject_nll_interaction, foce_subject_nll_standard,
 };
 use crate::types::*;
 use nalgebra::{DMatrix, DVector};
@@ -43,6 +44,15 @@ pub fn run_foce_gn(
     let n_packed = x.len();
     let fixed_mask = packed_fixed_mask(init_params);
 
+    // Scaling: computed once from initial x; x itself stays in real packed space
+    // throughout the GN loop. Scaling only affects the linear system solve so
+    // the Hessian is better conditioned when log-space values differ in magnitude.
+    let gn_scale: Vec<f64> = if options.scale_params {
+        compute_scale(&x)
+    } else {
+        vec![1.0; n_packed]
+    };
+
     let mut warnings = Vec::new();
 
     // BHHH Information-matrix approximation degrades as the censoring fraction
@@ -67,7 +77,7 @@ pub fn run_foce_gn(
     // Initial inner loop
     let params = unpack_params(&x, init_params);
     let init_mu_k = compute_mu_k(model, &params.theta, options.mu_referencing);
-    let (mut eta_hats, mut h_matrices, _) = run_inner_loop_warm(
+    let (mut eta_hats, mut h_matrices, _, mut kappas) = run_inner_loop_warm(
         model,
         population,
         &params,
@@ -75,19 +85,10 @@ pub fn run_foce_gn(
         options.inner_tol,
         None,
         Some(&init_mu_k),
+        options.min_obs_for_convergence_check as usize,
     );
 
-    let mut ofv = 2.0
-        * foce_population_nll(
-            model,
-            population,
-            &params.theta,
-            &eta_hats,
-            &h_matrices,
-            &params.omega,
-            &params.sigma.values,
-            options.interaction,
-        );
+    let mut ofv = 2.0 * pop_nll(model, population, &params, &eta_hats, &h_matrices, &kappas, options.interaction);
 
     if verbose {
         eprintln!("  GN iter {:>3}: OFV = {:.6}", 0, ofv);
@@ -113,6 +114,7 @@ pub fn run_foce_gn(
             population,
             &eta_hats,
             &h_matrices,
+            &kappas,
             &bounds,
             options,
         );
@@ -133,17 +135,32 @@ pub fn run_foce_gn(
             }
         }
 
-        // ---- Levenberg-Marquardt damping ----
-        let mut h_lm = h_bhhh.clone();
+        // ---- Scale the linear system (better Hessian conditioning) ----
+        // g_s[i] = g[i] * scale[i],  H_s[i,j] = H[i,j] * scale[i] * scale[j]
+        // Solve H_s_lm * delta_s = -g_s, then delta[i] = delta_s[i] * scale[i].
+        // With identity scale (scale_params=false) this is a no-op.
+        let grad_s: DVector<f64> = DVector::from_iterator(
+            n_packed,
+            (0..n_packed).map(|i| grad[i] * gn_scale[i]),
+        );
+        let mut h_s = DMatrix::zeros(n_packed, n_packed);
         for i in 0..n_packed {
-            h_lm[(i, i)] += lambda * h_bhhh[(i, i)].max(1e-8);
+            for j in 0..n_packed {
+                h_s[(i, j)] = h_bhhh[(i, j)] * gn_scale[i] * gn_scale[j];
+            }
         }
 
-        // ---- Solve for step: H_lm * delta = -grad ----
-        let neg_grad = -&grad;
-        let chol = h_lm.clone().cholesky();
-        let delta = match chol {
-            Some(c) => c.solve(&neg_grad),
+        // ---- Levenberg-Marquardt damping (in scaled space) ----
+        let mut h_s_lm = h_s.clone();
+        for i in 0..n_packed {
+            h_s_lm[(i, i)] += lambda * h_s[(i, i)].max(1e-8);
+        }
+
+        // ---- Solve for step: H_s_lm * delta_s = -grad_s ----
+        let neg_grad_s = -&grad_s;
+        let chol = h_s_lm.clone().cholesky();
+        let delta_s = match chol {
+            Some(c) => c.solve(&neg_grad_s),
             None => {
                 // Fall back to regularized pseudo-inverse
                 if verbose {
@@ -153,6 +170,11 @@ pub fn run_foce_gn(
                 continue;
             }
         };
+        // Convert step back to real (unscaled) space
+        let delta = DVector::from_iterator(
+            n_packed,
+            (0..n_packed).map(|i| delta_s[i] * gn_scale[i]),
+        );
 
         // ---- Line search with backtracking ----
         let mut alpha = 1.0;
@@ -171,7 +193,7 @@ pub fn run_foce_gn(
 
             // Re-estimate EBEs at new parameters (warm-started)
             let ls_mu_k = compute_mu_k(model, &params_try.theta, options.mu_referencing);
-            let (eh, hm, _) = run_inner_loop_warm(
+            let (eh, hm, _, kap_new) = run_inner_loop_warm(
                 model,
                 population,
                 &params_try,
@@ -179,24 +201,16 @@ pub fn run_foce_gn(
                 options.inner_tol,
                 Some(&eta_new),
                 Some(&ls_mu_k),
+                options.min_obs_for_convergence_check as usize,
             );
 
-            let nll = foce_population_nll(
-                model,
-                population,
-                &params_try.theta,
-                &eh,
-                &hm,
-                &params_try.omega,
-                &params_try.sigma.values,
-                options.interaction,
-            );
-            let ofv_try = 2.0 * nll;
+            let ofv_try = 2.0 * pop_nll(model, population, &params_try, &eh, &hm, &kap_new, options.interaction);
 
             if ofv_try.is_finite() && ofv_try < ofv {
                 ofv_new = ofv_try;
                 eta_new = eh;
                 h_new = hm;
+                kappas = kap_new;
                 break;
             }
 
@@ -206,6 +220,15 @@ pub fn run_foce_gn(
         if ofv_new >= ofv {
             // Step failed — increase damping and retry
             lambda *= 10.0;
+
+            // Trace: rejected step
+            if crate::estimation::trace::is_active() {
+                let (gn_method, gn_phase) = gn_trace_method_phase(options.method);
+                crate::estimation::trace::write_gn(
+                    iter, gn_method, gn_phase, ofv, lambda, 0.0, false, None, None,
+                );
+            }
+
             if lambda > 1e6 {
                 if verbose {
                     eprintln!("  GN iter {:>3}: lambda too large, stopping", iter);
@@ -227,12 +250,30 @@ pub fn run_foce_gn(
         let rel_change = ofv_change / ofv.abs().max(1.0);
 
         x = x_new;
+        let prev_ofv = ofv;
         ofv = ofv_new;
         eta_hats = eta_new;
         h_matrices = h_new;
+        // kappas already updated in the line-search block on accept
 
         // Decrease damping on success
         lambda = (lambda * 0.3).max(1e-6);
+
+        // Trace: accepted step
+        if crate::estimation::trace::is_active() {
+            let (gn_method, gn_phase) = gn_trace_method_phase(options.method);
+            crate::estimation::trace::write_gn(
+                iter,
+                gn_method,
+                gn_phase,
+                ofv,
+                lambda,
+                ofv - prev_ofv,
+                true,
+                None,
+                None,
+            );
+        }
 
         if verbose {
             eprintln!(
@@ -279,6 +320,7 @@ pub fn run_foce_gn(
                     population,
                     &eta_hats,
                     &h_matrices,
+                    &kappas,
                     options,
                 );
                 if cov.is_none() {
@@ -300,8 +342,13 @@ pub fn run_foce_gn(
             n_iterations: maxiter,
             eta_hats,
             h_matrices,
+            kappas,
             covariance_matrix,
             warnings,
+            saem_mu_ref_m_step_evals_saved: None,
+            ebe_convergence_warnings: 0,
+            max_unconverged_subjects: 0,
+            total_ebe_fallbacks: 0,
         };
     }
 
@@ -312,6 +359,9 @@ pub fn run_foce_gn(
     polish_options.global_search = false;
     polish_options.run_covariance_step = false; // defer to after polish
 
+    // Tell the trace that the following NLopt rows belong to the focei polish
+    // phase of gn_hybrid, not a standalone foce/focei run.
+    crate::estimation::trace::set_overrides(Some("gn_hybrid"), Some("focei"));
     let polish_result = crate::estimation::outer_optimizer::optimize_population_warm(
         model,
         population,
@@ -320,11 +370,13 @@ pub fn run_foce_gn(
         &eta_hats,
         &h_matrices,
     );
+    crate::estimation::trace::set_overrides(None, None);
 
     let final_ofv;
     let final_params;
     let final_etas;
     let final_h_mats;
+    let final_kappas;
 
     if polish_result.ofv < gn_ofv {
         if verbose {
@@ -337,6 +389,7 @@ pub fn run_foce_gn(
         final_params = polish_result.params;
         final_etas = polish_result.eta_hats;
         final_h_mats = polish_result.h_matrices;
+        final_kappas = polish_result.kappas;
         converged = polish_result.converged || converged;
     } else {
         if verbose {
@@ -346,6 +399,7 @@ pub fn run_foce_gn(
         final_params = gn_params;
         final_etas = eta_hats;
         final_h_mats = h_matrices;
+        final_kappas = kappas;
     }
 
     // ---- Covariance step ----
@@ -361,6 +415,7 @@ pub fn run_foce_gn(
             population,
             &final_etas,
             &final_h_mats,
+            &final_kappas,
             options,
         );
         if cov.is_none() {
@@ -382,8 +437,23 @@ pub fn run_foce_gn(
         n_iterations: maxiter,
         eta_hats: final_etas,
         h_matrices: final_h_mats,
+        kappas: final_kappas,
         covariance_matrix,
         warnings,
+        saem_mu_ref_m_step_evals_saved: None,
+        ebe_convergence_warnings: 0,
+        max_unconverged_subjects: 0,
+        total_ebe_fallbacks: 0,
+    }
+}
+
+/// Returns the (method, phase) strings for GN trace rows.
+/// gn_hybrid rows use method="gn_hybrid" and phase="gn" during the GN loop.
+/// Pure gn rows use method="gn" and phase="".
+fn gn_trace_method_phase(method: EstimationMethod) -> (&'static str, &'static str) {
+    match method {
+        EstimationMethod::FoceGnHybrid => ("gn_hybrid", "gn"),
+        _ => ("gn", ""),
     }
 }
 
@@ -404,6 +474,7 @@ fn build_gn_system(
     population: &Population,
     eta_hats: &[DVector<f64>],
     h_matrices: &[DMatrix<f64>],
+    kappas: &[Vec<DVector<f64>>],
     bounds: &PackedBounds,
     options: &FitOptions,
 ) -> (DVector<f64>, DMatrix<f64>) {
@@ -417,15 +488,8 @@ fn build_gn_system(
         .iter()
         .enumerate()
         .map(|(i, _)| {
-            subject_nll_at(
-                model,
-                population,
-                i,
-                &params,
-                &eta_hats[i],
-                &h_matrices[i],
-                options,
-            )
+            let kap_i = if i < kappas.len() { kappas[i].as_slice() } else { &[] };
+            subject_nll_at(model, population, i, &params, &eta_hats[i], &h_matrices[i], kap_i, options)
         })
         .collect();
 
@@ -458,15 +522,8 @@ fn build_gn_system(
             .iter()
             .enumerate()
             .map(|(i, _)| {
-                subject_nll_at(
-                    model,
-                    population,
-                    i,
-                    &params_plus,
-                    &eta_hats[i],
-                    &h_matrices[i],
-                    options,
-                )
+                let kap_i = if i < kappas.len() { kappas[i].as_slice() } else { &[] };
+                subject_nll_at(model, population, i, &params_plus, &eta_hats[i], &h_matrices[i], kap_i, options)
             })
             .collect();
 
@@ -477,15 +534,8 @@ fn build_gn_system(
             .iter()
             .enumerate()
             .map(|(i, _)| {
-                subject_nll_at(
-                    model,
-                    population,
-                    i,
-                    &params_minus,
-                    &eta_hats[i],
-                    &h_matrices[i],
-                    options,
-                )
+                let kap_i = if i < kappas.len() { kappas[i].as_slice() } else { &[] };
+                subject_nll_at(model, population, i, &params_minus, &eta_hats[i], &h_matrices[i], kap_i, options)
             })
             .collect();
 
@@ -531,8 +581,9 @@ fn build_gn_system(
 
 /// Compute FOCE NLL for a single subject at given parameters with fixed EBEs.
 ///
-/// Delegates to the canonical `foce_subject_nll_{standard,interaction}` in
-/// `stats::likelihood` so M3 BLOQ support is single-sourced — do not re-inline.
+/// `kappas` contains per-occasion kappa EBEs (empty when no IOV).  When
+/// non-empty, delegates to `foce_subject_nll_iov` which builds per-occasion
+/// predictions using `[bsv_eta, kappa_k]` and adds kappa priors.
 fn subject_nll_at(
     model: &CompiledModel,
     population: &Population,
@@ -540,9 +591,21 @@ fn subject_nll_at(
     params: &ModelParameters,
     eta_hat: &DVector<f64>,
     h_matrix: &DMatrix<f64>,
+    kappas: &[DVector<f64>],
     options: &FitOptions,
 ) -> f64 {
+    use crate::stats::likelihood::foce_subject_nll_iov;
     let subject = &population.subjects[subj_idx];
+
+    if !kappas.is_empty() {
+        if let Some(ref iov) = params.omega_iov {
+            return foce_subject_nll_iov(
+                model, subject, &params.theta, eta_hat, h_matrix,
+                &params.omega, &params.sigma.values, options.interaction, kappas, iov,
+            );
+        }
+    }
+
     let pk_params = (model.pk_param_fn)(&params.theta, eta_hat.as_slice(), &subject.covariates);
     let ipreds = if let Some(ref ode_spec) = model.ode_spec {
         crate::pk::compute_predictions_ode(ode_spec, subject, &pk_params.values)
@@ -550,31 +613,17 @@ fn subject_nll_at(
         crate::pk::compute_predictions(model.pk_model, subject, &pk_params)
     };
 
-    // M3 forces FOCEI for that subject (mirrors the dispatcher in
-    // `stats::likelihood::foce_subject_nll`).
     let m3_active = matches!(model.bloq_method, BloqMethod::M3) && subject.has_bloq();
 
     if options.interaction || m3_active {
         foce_subject_nll_interaction(
-            subject,
-            &ipreds,
-            eta_hat,
-            h_matrix,
-            &params.omega,
-            &params.sigma.values,
-            model.error_model,
-            model.bloq_method,
+            subject, &ipreds, eta_hat, h_matrix,
+            &params.omega, &params.sigma.values, model.error_model, model.bloq_method,
         )
     } else {
         foce_subject_nll_standard(
-            subject,
-            &ipreds,
-            eta_hat,
-            h_matrix,
-            &params.omega,
-            &params.sigma.values,
-            model.error_model,
-            model.bloq_method,
+            subject, &ipreds, eta_hat, h_matrix,
+            &params.omega, &params.sigma.values, model.error_model, model.bloq_method,
         )
     }
 }

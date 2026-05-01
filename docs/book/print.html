@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "ayu";
-            window.path_to_searchindex_js = "searchindex-79c8f42f.js";
+            window.path_to_searchindex_js = "searchindex-001a37c3.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-66605922.js"></script>
@@ -1054,10 +1054,7 @@ PARAM = THETA + ETA                   # additive
 <tr><td><code>global_maxeval</code></td><td>integer</td><td>auto</td><td>Max evaluations for global search</td></tr>
 <tr><td><code>bloq_method</code></td><td><code>drop</code>, <code>m3</code></td><td><code>drop</code></td><td>How to handle rows with <code>CENS=1</code>. <code>m3</code> enables Beal’s M3 likelihood (see <a href="#bloq-m3-method">BLOQ example</a>).</td></tr>
 <tr><td><code>mu_referencing</code></td><td><code>true</code>, <code>false</code></td><td><code>true</code></td><td>Re-centre inner-loop ETA estimates on the current population mean (auto-detected from <code>[individual_parameters]</code>). See the <a href="#do-i-need-to-use-mu-referencing-in-my-model-definitions-like-in-nonmem--nlmixr2">FAQ entry</a> for details. Set <code>false</code> to reproduce pre-automatic-mu behaviour.</td></tr>
-<tr><td><code>scale_params</code></td><td><code>true</code>, <code>false</code></td><td><code>true</code></td><td>Scale optimizer coordinates by the magnitude of the initial parameter vector. Helps outer optimizers (NLopt, Gauss-Newton, SAEM M-step) treat all dimensions equally when parameters span several orders of magnitude. Set <code>false</code> only for debugging or to reproduce pre-scaling behaviour.</td></tr>
 <tr><td><code>optimizer_trace</code></td><td><code>true</code>, <code>false</code></td><td><code>false</code></td><td>Write a per-iteration CSV to <code>/tmp/ferx_trace_&lt;pid&gt;_&lt;ts&gt;.csv</code>. The path is stored in <code>FitResult::trace_path</code>. Useful for diagnosing convergence problems or comparing optimizers. See <a href="#optimizer-trace">Optimizer Trace</a>.</td></tr>
-<tr><td><code>max_unconverged_frac</code></td><td>float 0–1</td><td><code>0.1</code></td><td>EBE convergence guard: if the fraction of subjects whose inner optimizer did not converge exceeds this threshold, the outer step is rejected (OFV = ∞). Set to <code>1.0</code> to disable the guard (pre-PR-27 behaviour).</td></tr>
-<tr><td><code>min_obs_for_convergence_check</code></td><td>integer</td><td><code>2</code></td><td>Subjects with fewer than this many observations are excluded from the <code>max_unconverged_frac</code> denominator. Useful when sparse subjects routinely fail EBE convergence and should not trigger the guard.</td></tr>
 </tbody>
 </table>
 </div>
@@ -1132,6 +1129,19 @@ Each Hessian costs O(n²) OFV evaluations, so it is fastest when the number
 of packed parameters is small. Increase <code>steihaug_max_iters</code> when the
 parameter count exceeds the default of 50.</li>
 </ul>
+<h2 id="parameter-scaling-and-ebe-convergence"><a class="header" href="#parameter-scaling-and-ebe-convergence">Parameter Scaling and EBE Convergence</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Key</th><th>Default</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>scale_params</code></td><td><code>true</code></td><td>Scale packed parameters to O(1) before passing to the optimizer. Improves conditioning when log-transformed parameters span several orders of magnitude. Set to <code>false</code> to disable (reproduces pre-PR2 behaviour).</td></tr>
+<tr><td><code>max_unconverged_frac</code></td><td><code>0.1</code></td><td>Fraction of subjects (with at least <code>min_obs_for_convergence_check</code> observations) allowed to have unconverged EBEs before the outer optimizer rejects the step (returns OFV = ∞). Set to <code>1.0</code> to disable the guard.</td></tr>
+<tr><td><code>min_obs_for_convergence_check</code></td><td><code>2</code></td><td>Subjects with fewer than this many observations are excluded from the <code>max_unconverged_frac</code> check (they still run normally).</td></tr>
+</tbody>
+</table>
+</div>
 <h2 id="options-that-dont-apply-to-the-selected-method"><a class="header" href="#options-that-dont-apply-to-the-selected-method">Options That Don’t Apply to the Selected Method</a></h2>
 <p>If you set an option that the chosen estimation method doesn’t consume
 (e.g. <code>n_convergence</code> with <code>method = focei</code>, or <code>optimizer</code> with

@@ -24,10 +24,7 @@ The optional `[fit_options]` block configures the estimation method and optimize
 | `global_maxeval` | integer | auto | Max evaluations for global search |
 | `bloq_method` | `drop`, `m3` | `drop` | How to handle rows with `CENS=1`. `m3` enables Beal's M3 likelihood (see [BLOQ example](../examples/bloq.md)). |
 | `mu_referencing` | `true`, `false` | `true` | Re-centre inner-loop ETA estimates on the current population mean (auto-detected from `[individual_parameters]`). See the [FAQ entry](../faq.md#do-i-need-to-use-mu-referencing-in-my-model-definitions-like-in-nonmem--nlmixr2) for details. Set `false` to reproduce pre-automatic-mu behaviour. |
-| `scale_params` | `true`, `false` | `true` | Scale optimizer coordinates by the magnitude of the initial parameter vector. Helps outer optimizers (NLopt, Gauss-Newton, SAEM M-step) treat all dimensions equally when parameters span several orders of magnitude. Set `false` only for debugging or to reproduce pre-scaling behaviour. |
 | `optimizer_trace` | `true`, `false` | `false` | Write a per-iteration CSV to `/tmp/ferx_trace_<pid>_<ts>.csv`. The path is stored in `FitResult::trace_path`. Useful for diagnosing convergence problems or comparing optimizers. See [Optimizer Trace](#optimizer-trace). |
-| `max_unconverged_frac` | float 0–1 | `0.1` | EBE convergence guard: if the fraction of subjects whose inner optimizer did not converge exceeds this threshold, the outer step is rejected (OFV = ∞). Set to `1.0` to disable the guard (pre-PR-27 behaviour). |
-| `min_obs_for_convergence_check` | integer | `2` | Subjects with fewer than this many observations are excluded from the `max_unconverged_frac` denominator. Useful when sparse subjects routinely fail EBE convergence and should not trigger the guard. |
 
 ## Estimation Methods
 
@@ -92,6 +89,14 @@ Notes:
   Each Hessian costs O(n²) OFV evaluations, so it is fastest when the number
   of packed parameters is small. Increase `steihaug_max_iters` when the
   parameter count exceeds the default of 50.
+
+## Parameter Scaling and EBE Convergence
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `scale_params` | `true` | Scale packed parameters to O(1) before passing to the optimizer. Improves conditioning when log-transformed parameters span several orders of magnitude. Set to `false` to disable (reproduces pre-PR2 behaviour). |
+| `max_unconverged_frac` | `0.1` | Fraction of subjects (with at least `min_obs_for_convergence_check` observations) allowed to have unconverged EBEs before the outer optimizer rejects the step (returns OFV = ∞). Set to `1.0` to disable the guard. |
+| `min_obs_for_convergence_check` | `2` | Subjects with fewer than this many observations are excluded from the `max_unconverged_frac` check (they still run normally). |
 
 ## Options That Don't Apply to the Selected Method
 
