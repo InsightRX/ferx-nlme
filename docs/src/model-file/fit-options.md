@@ -25,6 +25,7 @@ The optional `[fit_options]` block configures the estimation method and optimize
 | `bloq_method` | `drop`, `m3` | `drop` | How to handle rows with `CENS=1`. `m3` enables Beal's M3 likelihood (see [BLOQ example](../examples/bloq.md)). |
 | `mu_referencing` | `true`, `false` | `true` | Re-centre inner-loop ETA estimates on the current population mean (auto-detected from `[individual_parameters]`). See the [FAQ entry](../faq.md#do-i-need-to-use-mu-referencing-in-my-model-definitions-like-in-nonmem--nlmixr2) for details. Set `false` to reproduce pre-automatic-mu behaviour. |
 | `iov_column` | string | — | Name of the occasion column in the dataset (e.g. `OCC`). Required when the model uses `kappa` or `block_kappa` declarations. The column must contain integer occasion indices. Case-insensitive. Only supported with `foce` / `focei` — not `saem`. See [IOV documentation](../estimation/iov.md). |
+| `optimizer_trace` | `true`, `false` | `false` | Write a per-iteration CSV to `/tmp/ferx_trace_<pid>_<ts>.csv`. The path is stored in `FitResult::trace_path`. Useful for diagnosing convergence problems or comparing optimizers. See [Optimizer Trace](#optimizer-trace). |
 
 ## Estimation Methods
 
@@ -183,3 +184,38 @@ FOCE with Inter-Occasion Variability:
   iov_column = OCC
   covariance = true
 ```
+
+Enable optimizer trace and EBE guard:
+```
+[fit_options]
+  method                        = foce
+  optimizer_trace               = true
+  max_unconverged_frac          = 0.5
+  min_obs_for_convergence_check = 3
+```
+
+## Optimizer Trace
+
+When `optimizer_trace = true`, a CSV is written to `/tmp/ferx_trace_<pid>_<ts>.csv` and the path is stored in `FitResult::trace_path`. Each row is one outer iteration.
+
+| Column | Populated by | Description |
+|--------|-------------|-------------|
+| `iter` | all | Iteration number |
+| `method` | all | `foce`, `focei`, `gn`, `gn_hybrid`, `saem` |
+| `phase` | gn_hybrid, saem | `focei` (polish) or `explore`/`converge` |
+| `ofv` | all | Objective function value |
+| `wall_ms` | all | Wall time for this iteration (ms) |
+| `grad_norm` | BFGS, NLopt gradient-mode | Gradient norm |
+| `step_norm` | BFGS | Step size |
+| `inner_iter_count` | (reserved) | Reserved for future per-iteration inner-loop count; currently `NA` |
+| `optimizer` | FOCE/FOCEI | Active NLopt algorithm |
+| `lm_lambda` | GN | Levenberg-Marquardt damping factor |
+| `ofv_delta` | GN | Change in OFV from previous iteration |
+| `step_accepted` | GN | Whether the GN step was accepted |
+| `cond_nll` | SAEM | Conditional observation NLL |
+| `gamma` | SAEM | SAEM step-size (1 in exploration, 1/k in convergence) |
+| `mh_accept_rate` | SAEM | Mean Metropolis-Hastings acceptance rate across subjects |
+| `n_ebe_unconverged` | FOCE/FOCEI | Subjects whose inner optimizer did not converge |
+| `n_ebe_fallback` | FOCE/FOCEI | Subjects that fell back to Nelder-Mead |
+
+Unused columns contain `NA`. The trace is buffered and flushed when the fit ends; if a run is killed mid-iteration the buffered tail may be lost.

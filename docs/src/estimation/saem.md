@@ -62,7 +62,15 @@ Minimize the conditional observation negative log-likelihood with ETAs held fixe
 
 \\[ \sum_{i=1}^{N} \sum_{j=1}^{n_i} \left[ \frac{1}{2} \log V_{ij} + \frac{1}{2} \frac{(y_{ij} - f_{ij})^2}{V_{ij}} \right] \\]
 
-This is optimized over \\( \theta \\) and \\( \sigma \\) in log-space using NLopt SLSQP with finite-difference gradients.
+When `mu_referencing = true` (the default), ferx detects lognormal parameters from the `[individual_parameters]` block and applies a fast **analytic gradient step** for those thetas instead of running NLopt:
+
+\\[ \mu_j \leftarrow \mu_j - \gamma_k \cdot \nabla_{\mu_j} \text{condNLL} \\]
+
+where the gradient is computed via central finite differences on the accepted ETAs (2 evaluations per mu-referenced pair per subject). NLopt still runs for any remaining thetas (non-mu-referenced) and for sigma — those are unchanged.
+
+When `mu_referencing = false`, the full NLopt M-step runs for all thetas as before.
+
+The number of NLopt evaluations saved is stored in `FitResult::saem_mu_ref_m_step_evals_saved`, accumulated across SAEM iterations as `2 × mstep_maxiter × n_mu_ref_pairs` per outer step (one finite-difference probe pair per pinned mu-ref dimension, capped at `mstep_maxiter` NLopt gradient requests). The field is `None` when mu-referencing is off or method ≠ SAEM.
 
 ### 5. Adaptive MH Step Sizes
 

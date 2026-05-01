@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "ayu";
-            window.path_to_searchindex_js = "searchindex-d92b68b3.js";
+            window.path_to_searchindex_js = "searchindex-77dc1448.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-911e3088.js"></script>
@@ -196,6 +196,8 @@
 <tr><td><code>CWRES</code></td><td>Conditional weighted residual</td></tr>
 <tr><td><code>IWRES</code></td><td>Individual weighted residual</td></tr>
 <tr><td><code>ETA1</code>, <code>ETA2</code>, …</td><td>Empirical Bayes estimates of random effects</td></tr>
+<tr><td><code>EBE_OFV</code></td><td>Each subject’s contribution to the total OFV</td></tr>
+<tr><td><code>N_OBS</code></td><td>Number of observations for the subject</td></tr>
 </tbody>
 </table>
 </div>
@@ -257,11 +259,76 @@ sigma:
 <li><strong>rse_pct</strong>: Relative standard error as percentage (SE/estimate * 100)</li>
 <li><strong>cv_pct</strong>: Coefficient of variation for omega (sqrt(variance) * 100)</li>
 </ul>
+<h2 id="fitresult-fields-rust-api--console"><a class="header" href="#fitresult-fields-rust-api--console">FitResult Fields (Rust API / console)</a></h2>
+<p>The following fields are populated on the <code>FitResult</code> struct returned by <code>fit()</code> and printed by <code>print_results()</code>. They are <strong>not</strong> currently written to the fit YAML — read them programmatically or from the console summary.</p>
+<h3 id="shrinkage"><a class="header" href="#shrinkage">Shrinkage</a></h3>
+<p>Two shrinkage metrics are reported after every fit:</p>
+<p><strong>ETA shrinkage</strong> (per random effect — <code>shrinkage_eta: Vec&lt;f64&gt;</code>):
+\[ \text{shrinkage}_k = 1 - \frac{\text{SD}(\hat{\eta}<em>k)}{\sqrt{\omega</em>{kk}}} \]</p>
+<p>A value near 1 means individual EBEs are all pulled toward zero — the data are not informative about that random effect. A value near 0 means the ETAs are spread consistent with the prior omega.</p>
+<p><strong>EPS shrinkage</strong> (scalar — <code>shrinkage_eps: f64</code>):
+\[ \text{shrinkage}_\varepsilon = 1 - \text{SD}(\text{IWRES}) \]</p>
+<p>Values of <code>NaN</code> indicate a zero-variance omega component (ETA) or fewer than two valid residuals (EPS).</p>
+<h3 id="covariance-status"><a class="header" href="#covariance-status">Covariance Status</a></h3>
+<p><code>covariance_status: CovarianceStatus</code> takes one of three values:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Value</th><th>Meaning</th></tr>
+</thead>
+<tbody>
+<tr><td><code>Computed</code></td><td>Covariance step succeeded; SE values are valid</td></tr>
+<tr><td><code>Failed</code></td><td>Hessian was singular or inversion failed; SE fields are <code>None</code></td></tr>
+<tr><td><code>NotRequested</code></td><td><code>covariance = false</code> was set; SE fields are <code>None</code></td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="run-record-fields"><a class="header" href="#run-record-fields">Run Record Fields</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Field</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>model_name</code></td><td>Name from the <code>.ferx</code> file (or <code>"Unnamed"</code>)</td></tr>
+<tr><td><code>ferx_version</code></td><td>Version of ferx-nlme that produced the result</td></tr>
+<tr><td><code>wall_time_secs</code></td><td>Wall-clock time for the complete fit (seconds)</td></tr>
+<tr><td><code>gradient_method_inner</code></td><td>Gradient method used in the inner (EBE) loop, e.g. <code>FiniteDifference</code></td></tr>
+<tr><td><code>gradient_method_outer</code></td><td>Gradient method used in the outer loop, e.g. <code>FiniteDifference</code> or <code>AutoDiff</code></td></tr>
+<tr><td><code>uses_ode_solver</code></td><td><code>true</code> if the model uses the ODE solver, <code>false</code> for analytical PK</td></tr>
+<tr><td><code>n_threads_used</code></td><td>Number of Rayon threads used during estimation</td></tr>
+<tr><td><code>nlopt_missing_algorithms</code></td><td>NLopt algorithms that were requested but unavailable in this build (empty when all available)</td></tr>
+<tr><td><code>covariance_n_evals_estimated</code></td><td>Estimated number of OFV evaluations the covariance step will run, populated only when <code>run_covariance_step = true</code> and <code>n_parameters &gt; 30</code></td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="ebe-convergence-diagnostics"><a class="header" href="#ebe-convergence-diagnostics">EBE Convergence Diagnostics</a></h3>
+<p>Counters from the inner-loop (EBE) optimizer, useful for diagnosing problematic fits. Always <code>0</code> for SAEM (which uses MH sampling rather than EBE optimization).</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Field</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>ebe_convergence_warnings</code></td><td>Number of outer iterations in which at least one subject had an unconverged EBE</td></tr>
+<tr><td><code>max_unconverged_subjects</code></td><td>Worst-case unconverged-subject count seen in a single outer iteration</td></tr>
+<tr><td><code>total_ebe_fallbacks</code></td><td>Total number of times the Nelder-Mead fallback was invoked across all subjects and outer iterations</td></tr>
+</tbody>
+</table>
+</div>
 <h2 id="timing-file-model-timingtxt"><a class="header" href="#timing-file-model-timingtxt">Timing File (<code>{model}-timing.txt</code>)</a></h2>
 <p>A single-line text file with the wall-clock estimation time:</p>
 <pre><code>elapsed_seconds=0.496000
 </code></pre>
 <p>This measures only the estimation step (not parsing or data reading).</p>
+<h2 id="optimizer-trace-csv"><a class="header" href="#optimizer-trace-csv">Optimizer Trace CSV</a></h2>
+<p>When <code>optimizer_trace = true</code> is set in <code>[fit_options]</code>, a CSV is written to <code>/tmp/ferx_trace_&lt;pid&gt;_&lt;ts&gt;.csv</code>. The path is also stored in <code>FitResult::trace_path</code>.</p>
+<p>Each row is one outer iteration. See the <a href="model-file/fit-options.html#optimizer-trace">fit-options trace table</a> for the full column reference.</p>
+<p>Example use in R (with the <code>ferx</code> package):</p>
+<pre><code class="language-r">fit &lt;- ferx_fit("model.ferx", "data.csv", optimizer_trace = TRUE)
+trace &lt;- read.csv(fit$trace_path)
+plot(trace$iter, trace$ofv, type = "l", xlab = "Iteration", ylab = "OFV")
+</code></pre>
 
                     </main>
 

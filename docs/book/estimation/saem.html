@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "ayu";
-            window.path_to_searchindex_js = "../searchindex-d92b68b3.js";
+            window.path_to_searchindex_js = "../searchindex-77dc1448.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-911e3088.js"></script>
@@ -214,7 +214,11 @@
 <h3 id="4-m-step-for-theta-and-sigma-optimization"><a class="header" href="#4-m-step-for-theta-and-sigma-optimization">4. M-Step for Theta and Sigma (Optimization)</a></h3>
 <p>Minimize the conditional observation negative log-likelihood with ETAs held fixed:</p>
 <p>\[ \sum_{i=1}^{N} \sum_{j=1}^{n_i} \left[ \frac{1}{2} \log V_{ij} + \frac{1}{2} \frac{(y_{ij} - f_{ij})^2}{V_{ij}} \right] \]</p>
-<p>This is optimized over \( \theta \) and \( \sigma \) in log-space using NLopt SLSQP with finite-difference gradients.</p>
+<p>When <code>mu_referencing = true</code> (the default), ferx detects lognormal parameters from the <code>[individual_parameters]</code> block and applies a fast <strong>analytic gradient step</strong> for those thetas instead of running NLopt:</p>
+<p>\[ \mu_j \leftarrow \mu_j - \gamma_k \cdot \nabla_{\mu_j} \text{condNLL} \]</p>
+<p>where the gradient is computed via central finite differences on the accepted ETAs (2 evaluations per mu-referenced pair per subject). NLopt still runs for any remaining thetas (non-mu-referenced) and for sigma — those are unchanged.</p>
+<p>When <code>mu_referencing = false</code>, the full NLopt M-step runs for all thetas as before.</p>
+<p>The number of NLopt evaluations saved is stored in <code>FitResult::saem_mu_ref_m_step_evals_saved</code>, accumulated across SAEM iterations as <code>2 × mstep_maxiter × n_mu_ref_pairs</code> per outer step (one finite-difference probe pair per pinned mu-ref dimension, capped at <code>mstep_maxiter</code> NLopt gradient requests). The field is <code>None</code> when mu-referencing is off or method ≠ SAEM.</p>
 <h3 id="5-adaptive-mh-step-sizes"><a class="header" href="#5-adaptive-mh-step-sizes">5. Adaptive MH Step Sizes</a></h3>
 <p>Every <code>adapt_interval</code> iterations, the per-subject step sizes \( \delta_i \) are adjusted:</p>
 <ul>
