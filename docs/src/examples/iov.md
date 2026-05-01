@@ -28,6 +28,8 @@ Occasion 1 = first period, occasion 2 = second period. Dose records and observat
 
 ## Model File (Option A — diagonal IOV)
 
+This is the contents of [`examples/warfarin_iov.ferx`](https://github.com/InsightRX/ferx-nlme/blob/main/examples/warfarin_iov.ferx):
+
 ```
 model warfarin_iov
 
@@ -40,7 +42,7 @@ model warfarin_iov
   omega ETA_V  ~ 0.04
   omega ETA_KA ~ 0.30
 
-  kappa KAPPA_CL ~ 0.05    # inter-occasion variability in CL
+  kappa KAPPA_CL ~ 0.01    # inter-occasion variability in CL
 
   sigma PROP_ERR ~ 0.02
 
@@ -58,13 +60,15 @@ model warfarin_iov
 [fit_options]
   method     = foce
   iov_column = OCC
-  covariance = true
+  covariance = false
 ```
 
 The key additions compared to a standard model:
-1. `kappa KAPPA_CL ~ 0.05` — declares IOV on CL with starting variance 0.05
+1. `kappa KAPPA_CL ~ 0.01` — declares IOV on CL with starting variance 0.01
 2. `+ KAPPA_CL` in the CL expression — kappa enters just like a BSV eta
 3. `iov_column = OCC` — tells FeRx which dataset column carries occasion labels
+
+Set `covariance = true` if you want standard errors on the IOV variance (the shipped example leaves it off to keep the demo fast).
 
 ## Model File (Option B — correlated IOV)
 
@@ -94,33 +98,46 @@ The three values in `[0.05, 0.01, 0.03]` are the lower triangle of Ω_IOV:
 
 ## Running the Fit
 
+The repository does not ship a warfarin dataset with occasion labels — point `--data` at your own NONMEM-format CSV that includes an `OCC` column (see [Dataset](#dataset) above):
+
 ```bash
-ferx examples/warfarin_iov.ferx --data data/warfarin_occ.csv
+ferx examples/warfarin_iov.ferx --data path/to/your_occ_data.csv
 ```
 
 Or via the Rust API:
 
 ```rust
-let result = fit_from_files("examples/warfarin_iov.ferx", "data/warfarin_occ.csv")?;
+let result = fit_from_files("examples/warfarin_iov.ferx", "path/to/your_occ_data.csv")?;
 println!("Omega IOV: {:?}", result.omega_iov);
 ```
 
 ## Interpreting Output
 
-The fit YAML and console output gain an `OMEGA_IOV` section:
+The console summary gains a `KAPPA (IOV) Estimates` block, and the fit YAML gains an `omega_iov:` section.
 
+Console output (Option A, single kappa on CL):
 ```
-OMEGA_IOV Estimates (Inter-Occasion Variability):
-  KAPPA_CL: 0.0412 (SE: 0.008)  shrinkage: 22.4%
+--- KAPPA (IOV) Estimates ---
+  KAPPA_CL = 0.041200  (CV% = 20.3)  SE = 0.008000
 ```
 
-The **shrinkage** of kappas tells you how well the data informs individual occasion effects — high shrinkage (>50%) suggests the IOV term may not be well-supported by the data.
+For Option B with off-diagonal correlations a `--- Correlations ---` block follows the diagonal entries.
 
-The sdtab CSV includes `KAPPA_CL` (and `KAPPA_V`, etc.) columns with the per-subject per-occasion EBEs.
+Per-subject, per-occasion kappa EBEs are returned on `FitResult.ebe_kappas`. They are not yet emitted as columns in the sdtab CSV — access them via the Rust API if you need per-occasion plots:
+
+```rust
+for (i, subject_kappas) in result.ebe_kappas.iter().enumerate() {
+    for (k, kappa_vec) in subject_kappas.iter().enumerate() {
+        println!("subject {} occasion {}: {:?}", i + 1, k + 1, kappa_vec);
+    }
+}
+```
+
+> **Note**: per-kappa shrinkage is not yet computed (`shrinkage_kappa` is always returned empty). If you need a shrinkage diagnostic for IOV, derive it manually from `ebe_kappas` and `omega_iov`.
 
 ## Tips
 
-- **Start with IOV on CL only** — it is the most commonly occasion-sensitive parameter. Add IOV on other parameters only if warranted by the shrinkage and OFV.
-- **Compare OFV** between BSV-only and IOV models — the difference (ΔOFV ≈ χ² with degrees of freedom = number of new kappa variances) gives a likelihood-ratio test.
+- **Start with IOV on CL only** — it is the most commonly occasion-sensitive parameter. Add IOV on other parameters only when the OFV improvement justifies it.
+- **Compare OFV** between BSV-only and IOV models — the difference is a likelihood-ratio test for the added IOV variance(s). Note that for a variance parameter at the boundary (H₀: σ² = 0) the asymptotic null is a 50:50 mixture of a point mass at 0 and χ²₁, not a plain χ²₁.
 - **Use FOCEI for proportional errors** — the interaction term matters more when individual predictions vary across occasions.
 - **SAEM is not supported** with IOV — use `foce` or `focei`.

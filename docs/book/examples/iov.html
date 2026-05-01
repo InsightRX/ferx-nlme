@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "ayu";
-            window.path_to_searchindex_js = "../searchindex-717082d9.js";
+            window.path_to_searchindex_js = "../searchindex-45c4fcc7.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-911e3088.js"></script>
@@ -199,6 +199,7 @@
 </code></pre>
 <p>Occasion 1 = first period, occasion 2 = second period. Dose records and observation records in the same period share the same OCC value.</p>
 <h2 id="model-file-option-a--diagonal-iov"><a class="header" href="#model-file-option-a--diagonal-iov">Model File (Option A — diagonal IOV)</a></h2>
+<p>This is the contents of <a href="https://github.com/InsightRX/ferx-nlme/blob/main/examples/warfarin_iov.ferx"><code>examples/warfarin_iov.ferx</code></a>:</p>
 <pre><code>model warfarin_iov
 
 [parameters]
@@ -210,7 +211,7 @@
   omega ETA_V  ~ 0.04
   omega ETA_KA ~ 0.30
 
-  kappa KAPPA_CL ~ 0.05    # inter-occasion variability in CL
+  kappa KAPPA_CL ~ 0.01    # inter-occasion variability in CL
 
   sigma PROP_ERR ~ 0.02
 
@@ -228,14 +229,15 @@
 [fit_options]
   method     = foce
   iov_column = OCC
-  covariance = true
+  covariance = false
 </code></pre>
 <p>The key additions compared to a standard model:</p>
 <ol>
-<li><code>kappa KAPPA_CL ~ 0.05</code> — declares IOV on CL with starting variance 0.05</li>
+<li><code>kappa KAPPA_CL ~ 0.01</code> — declares IOV on CL with starting variance 0.01</li>
 <li><code>+ KAPPA_CL</code> in the CL expression — kappa enters just like a BSV eta</li>
 <li><code>iov_column = OCC</code> — tells FeRx which dataset column carries occasion labels</li>
 </ol>
+<p>Set <code>covariance = true</code> if you want standard errors on the IOV variance (the shipped example leaves it off to keep the demo fast).</p>
 <h2 id="model-file-option-b--correlated-iov"><a class="header" href="#model-file-option-b--correlated-iov">Model File (Option B — correlated IOV)</a></h2>
 <p>If you have IOV on both CL and V and suspect they covary across occasions, use <code>block_kappa</code>:</p>
 <pre><code>[parameters]
@@ -260,25 +262,38 @@
 <li><code>0.03</code> = Var(KAPPA_V)</li>
 </ul>
 <h2 id="running-the-fit"><a class="header" href="#running-the-fit">Running the Fit</a></h2>
-<pre><code class="language-bash">ferx examples/warfarin_iov.ferx --data data/warfarin_occ.csv
+<p>The repository does not ship a warfarin dataset with occasion labels — point <code>--data</code> at your own NONMEM-format CSV that includes an <code>OCC</code> column (see <a href="#dataset">Dataset</a> above):</p>
+<pre><code class="language-bash">ferx examples/warfarin_iov.ferx --data path/to/your_occ_data.csv
 </code></pre>
 <p>Or via the Rust API:</p>
 <pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>let result = fit_from_files("examples/warfarin_iov.ferx", "data/warfarin_occ.csv")?;
+</span>let result = fit_from_files("examples/warfarin_iov.ferx", "path/to/your_occ_data.csv")?;
 println!("Omega IOV: {:?}", result.omega_iov);
 <span class="boring">}</span></code></pre>
 <h2 id="interpreting-output"><a class="header" href="#interpreting-output">Interpreting Output</a></h2>
-<p>The fit YAML and console output gain an <code>OMEGA_IOV</code> section:</p>
-<pre><code>OMEGA_IOV Estimates (Inter-Occasion Variability):
-  KAPPA_CL: 0.0412 (SE: 0.008)  shrinkage: 22.4%
+<p>The console summary gains a <code>KAPPA (IOV) Estimates</code> block, and the fit YAML gains an <code>omega_iov:</code> section.</p>
+<p>Console output (Option A, single kappa on CL):</p>
+<pre><code>--- KAPPA (IOV) Estimates ---
+  KAPPA_CL = 0.041200  (CV% = 20.3)  SE = 0.008000
 </code></pre>
-<p>The <strong>shrinkage</strong> of kappas tells you how well the data informs individual occasion effects — high shrinkage (&gt;50%) suggests the IOV term may not be well-supported by the data.</p>
-<p>The sdtab CSV includes <code>KAPPA_CL</code> (and <code>KAPPA_V</code>, etc.) columns with the per-subject per-occasion EBEs.</p>
+<p>For Option B with off-diagonal correlations a <code>--- Correlations ---</code> block follows the diagonal entries.</p>
+<p>Per-subject, per-occasion kappa EBEs are returned on <code>FitResult.ebe_kappas</code>. They are not yet emitted as columns in the sdtab CSV — access them via the Rust API if you need per-occasion plots:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>for (i, subject_kappas) in result.ebe_kappas.iter().enumerate() {
+    for (k, kappa_vec) in subject_kappas.iter().enumerate() {
+        println!("subject {} occasion {}: {:?}", i + 1, k + 1, kappa_vec);
+    }
+}
+<span class="boring">}</span></code></pre>
+<blockquote>
+<p><strong>Note</strong>: per-kappa shrinkage is not yet computed (<code>shrinkage_kappa</code> is always returned empty). If you need a shrinkage diagnostic for IOV, derive it manually from <code>ebe_kappas</code> and <code>omega_iov</code>.</p>
+</blockquote>
 <h2 id="tips"><a class="header" href="#tips">Tips</a></h2>
 <ul>
-<li><strong>Start with IOV on CL only</strong> — it is the most commonly occasion-sensitive parameter. Add IOV on other parameters only if warranted by the shrinkage and OFV.</li>
-<li><strong>Compare OFV</strong> between BSV-only and IOV models — the difference (ΔOFV ≈ χ² with degrees of freedom = number of new kappa variances) gives a likelihood-ratio test.</li>
+<li><strong>Start with IOV on CL only</strong> — it is the most commonly occasion-sensitive parameter. Add IOV on other parameters only when the OFV improvement justifies it.</li>
+<li><strong>Compare OFV</strong> between BSV-only and IOV models — the difference is a likelihood-ratio test for the added IOV variance(s). Note that for a variance parameter at the boundary (H₀: σ² = 0) the asymptotic null is a 50:50 mixture of a point mass at 0 and χ²₁, not a plain χ²₁.</li>
 <li><strong>Use FOCEI for proportional errors</strong> — the interaction term matters more when individual predictions vary across occasions.</li>
 <li><strong>SAEM is not supported</strong> with IOV — use <code>foce</code> or <code>focei</code>.</li>
 </ul>

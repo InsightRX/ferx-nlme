@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "ayu";
-            window.path_to_searchindex_js = "../searchindex-717082d9.js";
+            window.path_to_searchindex_js = "../searchindex-45c4fcc7.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-911e3088.js"></script>
@@ -263,9 +263,9 @@ kappa KAPPA_KA ~ 0.10
 <p>where \( k_j \) is the occasion of observation <em>j</em> and \( f_{ij}^{(k)} = f(\theta, \eta_i, \kappa_{ik}) \).</p>
 <p>Optimization uses BFGS; the gradient is computed by finite differences (no AD path for IOV).</p>
 <h3 id="outer-loop"><a class="header" href="#outer-loop">Outer loop</a></h3>
-<p>The IOV omega diagonal (Option A) or Cholesky elements (Option B) are packed after the sigma block in the optimizer vector:</p>
+<p>The IOV omega is packed after the sigma block in the optimizer vector. For Option A (diagonal Ω_IOV) only the log-diagonal entries are appended; for Option B the full Cholesky lower triangle is appended (log-diagonals plus off-diagonals as-is), mirroring the BSV omega packing:</p>
 <p>\[
-x = [\log\theta,\ \text{chol}(\Omega_\text{BSV}),\ \log\sigma,\ \log\text{diag}(\text{chol}(\Omega_\text{IOV}))]
+x = [\log\theta,\ \text{chol}(\Omega_\text{BSV}),\ \log\sigma,\ \text{chol}(\Omega_\text{IOV})]
 \]</p>
 <p>The per-subject FOCE objective uses a block-diagonal omega that stacks the BSV block with <em>K</em> copies of Ω_IOV:</p>
 <p>\[
@@ -275,26 +275,32 @@ x = [\log\theta,\ \text{chol}(\Omega_\text{BSV}),\ \log\sigma,\ \log\text{diag}(
 <h3 id="covariance-step"><a class="header" href="#covariance-step">Covariance step</a></h3>
 <p>When <code>covariance = true</code>, standard errors for the IOV omega diagonal (or its Cholesky elements) are computed via the finite-difference Hessian at convergence, using the same procedure as for BSV omega.</p>
 <h2 id="output"><a class="header" href="#output">Output</a></h2>
+<p>The following IOV-related fields are populated on <code>FitResult</code> and printed by <code>print_results()</code>. The fit YAML gains an <code>omega_iov:</code> section listing the kappa variances and (for Option B) the off-diagonal covariances/correlations.</p>
 <div class="table-wrapper">
 <table>
 <thead>
 <tr><th>Field</th><th>Description</th></tr>
 </thead>
 <tbody>
-<tr><td><code>omega_iov</code></td><td>Estimated IOV covariance matrix</td></tr>
+<tr><td><code>omega_iov</code></td><td>Estimated IOV covariance matrix (<code>Option&lt;DMatrix&lt;f64&gt;&gt;</code>)</td></tr>
 <tr><td><code>kappa_names</code></td><td>Names of kappa parameters in declaration order</td></tr>
+<tr><td><code>kappa_fixed</code></td><td>Per-kappa <code>FIX</code> flags</td></tr>
 <tr><td><code>se_kappa</code></td><td>Standard errors for IOV omega elements (requires <code>covariance = true</code>)</td></tr>
-<tr><td><code>shrinkage_kappa</code></td><td>EBE shrinkage per kappa (%)</td></tr>
 <tr><td><code>ebe_kappas</code></td><td>Per-subject, per-occasion kappa EBEs. <code>ebe_kappas[i][k]</code> is the kappa vector for subject <em>i</em>, occasion <em>k</em></td></tr>
 </tbody>
 </table>
 </div>
-<p>Kappa EBEs appear in the sdtab output as <code>KAPPA_xxx</code> columns.</p>
+<p>When the dataset has occasion labels the sdtab CSV gains an <code>OCC</code> column (one row per observation, the subject’s occasion index for that row).</p>
+<blockquote>
+<p><strong>Note</strong>: <code>shrinkage_kappa</code> exists as a placeholder field on <code>FitResult</code> but is not yet computed — it is always returned as an empty <code>Vec</code>. Use <code>ebe_kappas</code> directly if you need a manual shrinkage diagnostic.</p>
+</blockquote>
 <h2 id="limitations"><a class="header" href="#limitations">Limitations</a></h2>
 <ul>
 <li><strong>SAEM is not supported</strong> with IOV models — an error is returned directing you to use <code>foce</code> or <code>focei</code>.</li>
 <li><strong>Automatic differentiation (AD) is not used</strong> for IOV inner-loop gradients; finite differences are used instead. For large models this is slower than the AD path used for BSV-only models.</li>
-<li>The occasion column must contain positive integers. Non-integer or negative values are not supported.</li>
+<li>The occasion column must contain non-negative integers. Non-integer or negative values are silently treated as missing (<code>OCC = 0</code>) and a single summary warning is emitted.</li>
+<li>Per-kappa shrinkage is not yet computed (see Output note above).</li>
+<li>Kappa EBEs are not yet emitted as columns in the sdtab CSV; access them via <code>FitResult.ebe_kappas</code>.</li>
 </ul>
 <h2 id="comparison-to-nonmem"><a class="header" href="#comparison-to-nonmem">Comparison to NONMEM</a></h2>
 <div class="table-wrapper">

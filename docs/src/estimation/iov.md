@@ -126,10 +126,10 @@ Optimization uses BFGS; the gradient is computed by finite differences (no AD pa
 
 ### Outer loop
 
-The IOV omega diagonal (Option A) or Cholesky elements (Option B) are packed after the sigma block in the optimizer vector:
+The IOV omega is packed after the sigma block in the optimizer vector. For Option A (diagonal Ω_IOV) only the log-diagonal entries are appended; for Option B the full Cholesky lower triangle is appended (log-diagonals plus off-diagonals as-is), mirroring the BSV omega packing:
 
 \\[
-x = [\log\theta,\ \text{chol}(\Omega_\text{BSV}),\ \log\sigma,\ \log\text{diag}(\text{chol}(\Omega_\text{IOV}))]
+x = [\log\theta,\ \text{chol}(\Omega_\text{BSV}),\ \log\sigma,\ \text{chol}(\Omega_\text{IOV})]
 \\]
 
 The per-subject FOCE objective uses a block-diagonal omega that stacks the BSV block with *K* copies of Ω_IOV:
@@ -146,21 +146,27 @@ When `covariance = true`, standard errors for the IOV omega diagonal (or its Cho
 
 ## Output
 
+The following IOV-related fields are populated on `FitResult` and printed by `print_results()`. The fit YAML gains an `omega_iov:` section listing the kappa variances and (for Option B) the off-diagonal covariances/correlations.
+
 | Field | Description |
 |-------|-------------|
-| `omega_iov` | Estimated IOV covariance matrix |
+| `omega_iov` | Estimated IOV covariance matrix (`Option<DMatrix<f64>>`) |
 | `kappa_names` | Names of kappa parameters in declaration order |
+| `kappa_fixed` | Per-kappa `FIX` flags |
 | `se_kappa` | Standard errors for IOV omega elements (requires `covariance = true`) |
-| `shrinkage_kappa` | EBE shrinkage per kappa (%) |
 | `ebe_kappas` | Per-subject, per-occasion kappa EBEs. `ebe_kappas[i][k]` is the kappa vector for subject *i*, occasion *k* |
 
-Kappa EBEs appear in the sdtab output as `KAPPA_xxx` columns.
+When the dataset has occasion labels the sdtab CSV gains an `OCC` column (one row per observation, the subject's occasion index for that row).
+
+> **Note**: `shrinkage_kappa` exists as a placeholder field on `FitResult` but is not yet computed — it is always returned as an empty `Vec`. Use `ebe_kappas` directly if you need a manual shrinkage diagnostic.
 
 ## Limitations
 
 - **SAEM is not supported** with IOV models — an error is returned directing you to use `foce` or `focei`.
 - **Automatic differentiation (AD) is not used** for IOV inner-loop gradients; finite differences are used instead. For large models this is slower than the AD path used for BSV-only models.
-- The occasion column must contain positive integers. Non-integer or negative values are not supported.
+- The occasion column must contain non-negative integers. Non-integer or negative values are silently treated as missing (`OCC = 0`) and a single summary warning is emitted.
+- Per-kappa shrinkage is not yet computed (see Output note above).
+- Kappa EBEs are not yet emitted as columns in the sdtab CSV; access them via `FitResult.ebe_kappas`.
 
 ## Comparison to NONMEM
 
