@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "ayu";
-            window.path_to_searchindex_js = "searchindex-b27c9ee6.js";
+            window.path_to_searchindex_js = "searchindex-79c8f42f.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-66605922.js"></script>
@@ -259,16 +259,18 @@ sigma:
 <li><strong>rse_pct</strong>: Relative standard error as percentage (SE/estimate * 100)</li>
 <li><strong>cv_pct</strong>: Coefficient of variation for omega (sqrt(variance) * 100)</li>
 </ul>
+<h2 id="fitresult-fields-rust-api--console"><a class="header" href="#fitresult-fields-rust-api--console">FitResult Fields (Rust API / console)</a></h2>
+<p>The following fields are populated on the <code>FitResult</code> struct returned by <code>fit()</code> and printed by <code>print_results()</code>. They are <strong>not</strong> currently written to the fit YAML — read them programmatically or from the console summary.</p>
 <h3 id="shrinkage"><a class="header" href="#shrinkage">Shrinkage</a></h3>
 <p>Two shrinkage metrics are reported after every fit:</p>
-<p><strong>ETA shrinkage</strong> (per random effect):
+<p><strong>ETA shrinkage</strong> (per random effect — <code>shrinkage_eta: Vec&lt;f64&gt;</code>):
 \[ \text{shrinkage}_k = 1 - \frac{\text{SD}(\hat{\eta}<em>k)}{\sqrt{\omega</em>{kk}}} \]</p>
 <p>A value near 1 means individual EBEs are all pulled toward zero — the data are not informative about that random effect. A value near 0 means the ETAs are spread consistent with the prior omega.</p>
-<p><strong>EPS shrinkage</strong> (scalar):
+<p><strong>EPS shrinkage</strong> (scalar — <code>shrinkage_eps: f64</code>):
 \[ \text{shrinkage}_\varepsilon = 1 - \text{SD}(\text{IWRES}) \]</p>
-<p>Both are reported in the YAML and in <code>print_results()</code> output. Values of <code>NaN</code> indicate fewer than two subjects or a zero-variance omega component.</p>
+<p>Values of <code>NaN</code> indicate a zero-variance omega component (ETA) or fewer than two valid residuals (EPS).</p>
 <h3 id="covariance-status"><a class="header" href="#covariance-status">Covariance Status</a></h3>
-<p><code>covariance_status</code> in the YAML takes one of three values:</p>
+<p><code>covariance_status: CovarianceStatus</code> takes one of three values:</p>
 <div class="table-wrapper">
 <table>
 <thead>
@@ -276,8 +278,8 @@ sigma:
 </thead>
 <tbody>
 <tr><td><code>Computed</code></td><td>Covariance step succeeded; SE values are valid</td></tr>
-<tr><td><code>Failed</code></td><td>Hessian was singular or inversion failed; SE fields are <code>null</code></td></tr>
-<tr><td><code>NotRequested</code></td><td><code>covariance = false</code> was set; SE fields are <code>null</code></td></tr>
+<tr><td><code>Failed</code></td><td>Hessian was singular or inversion failed; SE fields are <code>None</code></td></tr>
+<tr><td><code>NotRequested</code></td><td><code>covariance = false</code> was set; SE fields are <code>None</code></td></tr>
 </tbody>
 </table>
 </div>
@@ -288,13 +290,29 @@ sigma:
 <tr><th>Field</th><th>Description</th></tr>
 </thead>
 <tbody>
-<tr><td><code>model_name</code></td><td>Name from the <code>.ferx</code> file (stem of the filename)</td></tr>
+<tr><td><code>model_name</code></td><td>Name from the <code>.ferx</code> file (or <code>"Unnamed"</code>)</td></tr>
 <tr><td><code>ferx_version</code></td><td>Version of ferx-nlme that produced the result</td></tr>
-<tr><td><code>wall_time_secs</code></td><td>Wall-clock time for the estimation step (seconds)</td></tr>
+<tr><td><code>wall_time_secs</code></td><td>Wall-clock time for the complete fit (seconds)</td></tr>
 <tr><td><code>gradient_method_inner</code></td><td>Gradient method used in the inner (EBE) loop, e.g. <code>FiniteDifference</code></td></tr>
 <tr><td><code>gradient_method_outer</code></td><td>Gradient method used in the outer loop, e.g. <code>FiniteDifference</code> or <code>AutoDiff</code></td></tr>
 <tr><td><code>uses_ode_solver</code></td><td><code>true</code> if the model uses the ODE solver, <code>false</code> for analytical PK</td></tr>
 <tr><td><code>n_threads_used</code></td><td>Number of Rayon threads used during estimation</td></tr>
+<tr><td><code>nlopt_missing_algorithms</code></td><td>NLopt algorithms that were requested but unavailable in this build (empty when all available)</td></tr>
+<tr><td><code>covariance_n_evals_estimated</code></td><td>Estimated number of OFV evaluations the covariance step will run, populated only when <code>run_covariance_step = true</code> and <code>n_parameters &gt; 30</code></td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="ebe-convergence-diagnostics"><a class="header" href="#ebe-convergence-diagnostics">EBE Convergence Diagnostics</a></h3>
+<p>Counters from the inner-loop (EBE) optimizer, useful for diagnosing problematic fits. Always <code>0</code> for SAEM (which uses MH sampling rather than EBE optimization).</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Field</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>ebe_convergence_warnings</code></td><td>Number of outer iterations in which at least one subject had an unconverged EBE</td></tr>
+<tr><td><code>max_unconverged_subjects</code></td><td>Worst-case unconverged-subject count seen in a single outer iteration</td></tr>
+<tr><td><code>total_ebe_fallbacks</code></td><td>Total number of times the Nelder-Mead fallback was invoked across all subjects and outer iterations</td></tr>
 </tbody>
 </table>
 </div>

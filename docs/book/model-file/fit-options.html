@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "ayu";
-            window.path_to_searchindex_js = "../searchindex-b27c9ee6.js";
+            window.path_to_searchindex_js = "../searchindex-79c8f42f.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-66605922.js"></script>
@@ -203,8 +203,8 @@
 <tr><td><code>mu_referencing</code></td><td><code>true</code>, <code>false</code></td><td><code>true</code></td><td>Re-centre inner-loop ETA estimates on the current population mean (auto-detected from <code>[individual_parameters]</code>). See the <a href="../faq.html#do-i-need-to-use-mu-referencing-in-my-model-definitions-like-in-nonmem--nlmixr2">FAQ entry</a> for details. Set <code>false</code> to reproduce pre-automatic-mu behaviour.</td></tr>
 <tr><td><code>scale_params</code></td><td><code>true</code>, <code>false</code></td><td><code>true</code></td><td>Scale optimizer coordinates by the magnitude of the initial parameter vector. Helps outer optimizers (NLopt, Gauss-Newton, SAEM M-step) treat all dimensions equally when parameters span several orders of magnitude. Set <code>false</code> only for debugging or to reproduce pre-scaling behaviour.</td></tr>
 <tr><td><code>optimizer_trace</code></td><td><code>true</code>, <code>false</code></td><td><code>false</code></td><td>Write a per-iteration CSV to <code>/tmp/ferx_trace_&lt;pid&gt;_&lt;ts&gt;.csv</code>. The path is stored in <code>FitResult::trace_path</code>. Useful for diagnosing convergence problems or comparing optimizers. See <a href="#optimizer-trace">Optimizer Trace</a>.</td></tr>
-<tr><td><code>max_unconverged_frac</code></td><td>float 0–1</td><td><code>1.0</code> (disabled)</td><td>EBE convergence guard: if the fraction of subjects whose inner optimizer did not converge exceeds this threshold, the outer step is rejected (OFV = ∞). Use values like <code>0.5</code> to force the outer optimizer to backtrack from pathological regions.</td></tr>
-<tr><td><code>min_obs_for_convergence_check</code></td><td>integer</td><td><code>0</code> (all)</td><td>Subjects with fewer than this many observations are excluded from the <code>max_unconverged_frac</code> denominator. Useful when sparse subjects routinely fail EBE convergence and should not trigger the guard.</td></tr>
+<tr><td><code>max_unconverged_frac</code></td><td>float 0–1</td><td><code>0.1</code></td><td>EBE convergence guard: if the fraction of subjects whose inner optimizer did not converge exceeds this threshold, the outer step is rejected (OFV = ∞). Set to <code>1.0</code> to disable the guard (pre-PR-27 behaviour).</td></tr>
+<tr><td><code>min_obs_for_convergence_check</code></td><td>integer</td><td><code>2</code></td><td>Subjects with fewer than this many observations are excluded from the <code>max_unconverged_frac</code> denominator. Useful when sparse subjects routinely fail EBE convergence and should not trigger the guard.</td></tr>
 </tbody>
 </table>
 </div>
@@ -360,6 +360,7 @@ warnings.</p>
 <tr><td><code>wall_ms</code></td><td>all</td><td>Wall time for this iteration (ms)</td></tr>
 <tr><td><code>grad_norm</code></td><td>BFGS, NLopt gradient-mode</td><td>Gradient norm</td></tr>
 <tr><td><code>step_norm</code></td><td>BFGS</td><td>Step size</td></tr>
+<tr><td><code>inner_iter_count</code></td><td>(reserved)</td><td>Reserved for future per-iteration inner-loop count; currently <code>NA</code></td></tr>
 <tr><td><code>optimizer</code></td><td>FOCE/FOCEI</td><td>Active NLopt algorithm</td></tr>
 <tr><td><code>lm_lambda</code></td><td>GN</td><td>Levenberg-Marquardt damping factor</td></tr>
 <tr><td><code>ofv_delta</code></td><td>GN</td><td>Change in OFV from previous iteration</td></tr>
@@ -372,7 +373,7 @@ warnings.</p>
 </tbody>
 </table>
 </div>
-<p>Unused columns contain <code>NA</code>. The trace is written in append mode per iteration — it is readable even if the run is interrupted.</p>
+<p>Unused columns contain <code>NA</code>. The trace is buffered and flushed when the fit ends; if a run is killed mid-iteration the buffered tail may be lost.</p>
 
                     </main>
 

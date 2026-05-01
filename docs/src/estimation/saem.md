@@ -70,7 +70,7 @@ where the gradient is computed via central finite differences on the accepted ET
 
 When `mu_referencing = false`, the full NLopt M-step runs for all thetas as before.
 
-The number of NLopt evaluations saved is stored in `FitResult::saem_mu_ref_m_step_evals_saved` (estimated as `n_mstep_iters × n_mu_ref_pairs × 3`; `None` when mu-referencing is off or method ≠ SAEM).
+The number of NLopt evaluations saved is stored in `FitResult::saem_mu_ref_m_step_evals_saved`, accumulated across SAEM iterations as `2 × mstep_maxiter × n_mu_ref_pairs` per outer step (one finite-difference probe pair per pinned mu-ref dimension, capped at `mstep_maxiter` NLopt gradient requests). The field is `None` when mu-referencing is off or method ≠ SAEM.
 
 ### 5. Adaptive MH Step Sizes
 

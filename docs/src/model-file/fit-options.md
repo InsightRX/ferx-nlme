@@ -26,8 +26,8 @@ The optional `[fit_options]` block configures the estimation method and optimize
 | `mu_referencing` | `true`, `false` | `true` | Re-centre inner-loop ETA estimates on the current population mean (auto-detected from `[individual_parameters]`). See the [FAQ entry](../faq.md#do-i-need-to-use-mu-referencing-in-my-model-definitions-like-in-nonmem--nlmixr2) for details. Set `false` to reproduce pre-automatic-mu behaviour. |
 | `scale_params` | `true`, `false` | `true` | Scale optimizer coordinates by the magnitude of the initial parameter vector. Helps outer optimizers (NLopt, Gauss-Newton, SAEM M-step) treat all dimensions equally when parameters span several orders of magnitude. Set `false` only for debugging or to reproduce pre-scaling behaviour. |
 | `optimizer_trace` | `true`, `false` | `false` | Write a per-iteration CSV to `/tmp/ferx_trace_<pid>_<ts>.csv`. The path is stored in `FitResult::trace_path`. Useful for diagnosing convergence problems or comparing optimizers. See [Optimizer Trace](#optimizer-trace). |
-| `max_unconverged_frac` | float 0–1 | `1.0` (disabled) | EBE convergence guard: if the fraction of subjects whose inner optimizer did not converge exceeds this threshold, the outer step is rejected (OFV = ∞). Use values like `0.5` to force the outer optimizer to backtrack from pathological regions. |
-| `min_obs_for_convergence_check` | integer | `0` (all) | Subjects with fewer than this many observations are excluded from the `max_unconverged_frac` denominator. Useful when sparse subjects routinely fail EBE convergence and should not trigger the guard. |
+| `max_unconverged_frac` | float 0–1 | `0.1` | EBE convergence guard: if the fraction of subjects whose inner optimizer did not converge exceeds this threshold, the outer step is rejected (OFV = ∞). Set to `1.0` to disable the guard (pre-PR-27 behaviour). |
+| `min_obs_for_convergence_check` | integer | `2` | Subjects with fewer than this many observations are excluded from the `max_unconverged_frac` denominator. Useful when sparse subjects routinely fail EBE convergence and should not trigger the guard. |
 
 ## Estimation Methods
 
@@ -193,6 +193,7 @@ When `optimizer_trace = true`, a CSV is written to `/tmp/ferx_trace_<pid>_<ts>.c
 | `wall_ms` | all | Wall time for this iteration (ms) |
 | `grad_norm` | BFGS, NLopt gradient-mode | Gradient norm |
 | `step_norm` | BFGS | Step size |
+| `inner_iter_count` | (reserved) | Reserved for future per-iteration inner-loop count; currently `NA` |
 | `optimizer` | FOCE/FOCEI | Active NLopt algorithm |
 | `lm_lambda` | GN | Levenberg-Marquardt damping factor |
 | `ofv_delta` | GN | Change in OFV from previous iteration |
@@ -203,4 +204,4 @@ When `optimizer_trace = true`, a CSV is written to `/tmp/ferx_trace_<pid>_<ts>.c
 | `n_ebe_unconverged` | FOCE/FOCEI | Subjects whose inner optimizer did not converge |
 | `n_ebe_fallback` | FOCE/FOCEI | Subjects that fell back to Nelder-Mead |
 
-Unused columns contain `NA`. The trace is written in append mode per iteration — it is readable even if the run is interrupted.
+Unused columns contain `NA`. The trace is buffered and flushed when the fit ends; if a run is killed mid-iteration the buffered tail may be lost.

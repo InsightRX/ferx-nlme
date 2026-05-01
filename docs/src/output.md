@@ -90,41 +90,57 @@ sigma:
 - **rse_pct**: Relative standard error as percentage (SE/estimate * 100)
 - **cv_pct**: Coefficient of variation for omega (sqrt(variance) * 100)
 
+## FitResult Fields (Rust API / console)
+
+The following fields are populated on the `FitResult` struct returned by `fit()` and printed by `print_results()`. They are **not** currently written to the fit YAML — read them programmatically or from the console summary.
+
 ### Shrinkage
 
 Two shrinkage metrics are reported after every fit:
 
-**ETA shrinkage** (per random effect):
+**ETA shrinkage** (per random effect — `shrinkage_eta: Vec<f64>`):
 \\[ \text{shrinkage}_k = 1 - \frac{\text{SD}(\hat{\eta}_k)}{\sqrt{\omega_{kk}}} \\]
 
 A value near 1 means individual EBEs are all pulled toward zero — the data are not informative about that random effect. A value near 0 means the ETAs are spread consistent with the prior omega.
 
-**EPS shrinkage** (scalar):
+**EPS shrinkage** (scalar — `shrinkage_eps: f64`):
 \\[ \text{shrinkage}_\varepsilon = 1 - \text{SD}(\text{IWRES}) \\]
 
-Both are reported in the YAML and in `print_results()` output. Values of `NaN` indicate fewer than two subjects or a zero-variance omega component.
+Values of `NaN` indicate a zero-variance omega component (ETA) or fewer than two valid residuals (EPS).
 
 ### Covariance Status
 
-`covariance_status` in the YAML takes one of three values:
+`covariance_status: CovarianceStatus` takes one of three values:
 
 | Value | Meaning |
 |-------|---------|
 | `Computed` | Covariance step succeeded; SE values are valid |
-| `Failed` | Hessian was singular or inversion failed; SE fields are `null` |
-| `NotRequested` | `covariance = false` was set; SE fields are `null` |
+| `Failed` | Hessian was singular or inversion failed; SE fields are `None` |
+| `NotRequested` | `covariance = false` was set; SE fields are `None` |
 
 ### Run Record Fields
 
 | Field | Description |
 |-------|-------------|
-| `model_name` | Name from the `.ferx` file (stem of the filename) |
+| `model_name` | Name from the `.ferx` file (or `"Unnamed"`) |
 | `ferx_version` | Version of ferx-nlme that produced the result |
-| `wall_time_secs` | Wall-clock time for the estimation step (seconds) |
+| `wall_time_secs` | Wall-clock time for the complete fit (seconds) |
 | `gradient_method_inner` | Gradient method used in the inner (EBE) loop, e.g. `FiniteDifference` |
 | `gradient_method_outer` | Gradient method used in the outer loop, e.g. `FiniteDifference` or `AutoDiff` |
 | `uses_ode_solver` | `true` if the model uses the ODE solver, `false` for analytical PK |
 | `n_threads_used` | Number of Rayon threads used during estimation |
+| `nlopt_missing_algorithms` | NLopt algorithms that were requested but unavailable in this build (empty when all available) |
+| `covariance_n_evals_estimated` | Estimated number of OFV evaluations the covariance step will run, populated only when `run_covariance_step = true` and `n_parameters > 30` |
+
+### EBE Convergence Diagnostics
+
+Counters from the inner-loop (EBE) optimizer, useful for diagnosing problematic fits. Always `0` for SAEM (which uses MH sampling rather than EBE optimization).
+
+| Field | Description |
+|-------|-------------|
+| `ebe_convergence_warnings` | Number of outer iterations in which at least one subject had an unconverged EBE |
+| `max_unconverged_subjects` | Worst-case unconverged-subject count seen in a single outer iteration |
+| `total_ebe_fallbacks` | Total number of times the Nelder-Mead fallback was invoked across all subjects and outer iterations |
 
 ## Timing File (`{model}-timing.txt`)
 
