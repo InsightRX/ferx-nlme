@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "ayu";
-            window.path_to_searchindex_js = "searchindex-2dabf1ba.js";
+            window.path_to_searchindex_js = "searchindex-1ccd44c3.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-911e3088.js"></script>
@@ -249,6 +249,11 @@ longer unconditional). See
 <a href="model-file/individual-parameters.html#interaction-with-mu-referencing">Individual Parameters</a>
 for the workaround if you need both conditional logic and mu-referencing
 on the same parameter.</p>
+<p><strong>A note on <code>==</code> and <code>!=</code>:</strong> these operators do an exact bitwise float
+comparison. They work as you’d expect for integer-coded covariates
+(<code>SEX == 1</code>, <code>STUDY != 3</code>) but are unreliable on continuous values, where
+floating-point round-off can flip the result. For continuous thresholds
+prefer a bracketed comparison (<code>WT &gt;= 70 &amp;&amp; WT &lt; 80</code>) over <code>WT == 75</code>.</p>
 <h2 id="which-outer-optimizer-should-i-pick"><a class="header" href="#which-outer-optimizer-should-i-pick">Which outer optimizer should I pick?</a></h2>
 <p><code>slsqp</code> (the default) is the right choice for most models — it is fast, handles
 box constraints cleanly, and behaves well on the log-transformed parameter

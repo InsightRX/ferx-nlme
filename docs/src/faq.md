@@ -104,6 +104,12 @@ longer unconditional). See
 for the workaround if you need both conditional logic and mu-referencing
 on the same parameter.
 
+**A note on `==` and `!=`:** these operators do an exact bitwise float
+comparison. They work as you'd expect for integer-coded covariates
+(`SEX == 1`, `STUDY != 3`) but are unreliable on continuous values, where
+floating-point round-off can flip the result. For continuous thresholds
+prefer a bracketed comparison (`WT >= 70 && WT < 80`) over `WT == 75`.
+
 ## Which outer optimizer should I pick?
 
 `slsqp` (the default) is the right choice for most models — it is fast, handles

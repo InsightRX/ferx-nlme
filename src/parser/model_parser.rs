@@ -112,25 +112,6 @@ fn assigned_vars_in_order(stmts: &[Statement]) -> Vec<String> {
     out
 }
 
-/// Find a top-level (not nested in an if/else) `Assign` to `var_name` and
-/// return its RHS expression. Used by mu-ref detection, which only matches
-/// unconditional patterns like `CL = TVCL * exp(ETA_CL)`. Variables only
-/// assigned inside conditional branches return `None` and skip mu-ref.
-#[allow(dead_code)]
-fn find_top_level_assignment<'a>(
-    stmts: &'a [Statement],
-    var_name: &str,
-) -> Option<&'a Expression> {
-    for s in stmts {
-        if let Statement::Assign(name, expr) = s {
-            if name == var_name {
-                return Some(expr);
-            }
-        }
-    }
-    None
-}
-
 /// Union of eta indices touched by every assignment to `var_name` anywhere in
 /// the statement tree (top level OR nested inside if/else bodies). Used to
 /// build the per-tv `eta_map` for the AD path; if-wrapped assignments
@@ -468,6 +449,13 @@ pub fn parse_full_model(content: &str) -> Result<ParsedModel, String> {
     // if-wrapped assignments we union the eta references across every branch
     // that targets the same var. Used only by the AD inner loop, which checks
     // n_kappa > 0 and falls back to FD automatically.
+    //
+    // If different branches reference different BSV etas for the same var
+    // (e.g. `if (...) { CL = TVCL * exp(ETA_CL) } else { CL = TVCL * exp(ETA_X) }`),
+    // we pick the first one in iteration order — the AD path's notion of "the
+    // eta this tv depends on" is single-valued. This is harmless when the AD
+    // path is unused (IOV) and uncommon enough in practice that we don't
+    // diagnose it here; FD remains correct in either case.
     let eta_map: Vec<i32> = indiv_var_names
         .iter()
         .map(|var_name| {
@@ -1600,13 +1588,6 @@ impl<'a> ParseCtx<'a> {
             fallback_covariate: false,
         }
     }
-}
-
-#[allow(dead_code)]
-fn parse_expression(s: &str, ctx: ParseCtx<'_>) -> Result<Expression, String> {
-    let tokens = tokenize(s)?;
-    let (expr, _) = parse_add_sub(&tokens, 0, ctx)?;
-    Ok(expr)
 }
 
 /// Walk an expression tree and accumulate every covariate name it references.
