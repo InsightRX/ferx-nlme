@@ -8,6 +8,7 @@ use crate::stats::residual_error::compute_iwres;
 use crate::types::*;
 use nalgebra::{DMatrix, DVector};
 use std::path::Path;
+use std::time::Instant;
 
 /// Route predictions through analytical PK or ODE solver.
 fn model_preds(model: &CompiledModel, subject: &Subject, pk_params: &PkParams) -> Vec<f64> {
@@ -218,17 +219,62 @@ pub fn fit(
     }
 }
 
+/// Probe whether NLopt CRS2-LM (used for global_search) is available.
+fn probe_nlopt_algorithms() -> Vec<String> {
+    fn dummy_obj(_x: &[f64], _grad: Option<&mut [f64]>, _data: &mut ()) -> f64 {
+        0.0
+    }
+    let available = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _opt = nlopt::Nlopt::new(
+            nlopt::Algorithm::Crs2Lm,
+            1,
+            dummy_obj,
+            nlopt::Target::Minimize,
+            (),
+        );
+    }));
+    if available.is_err() {
+        vec![
+            "NLopt CRS2-LM not available in this build — global_search = true will fail. \
+             Install a full NLopt build: brew install nlopt / apt install libnlopt-dev"
+                .to_string(),
+        ]
+    } else {
+        vec![]
+    }
+}
+
 fn fit_inner(
     model: &CompiledModel,
     population: &Population,
     init_params: &ModelParameters,
     options: &FitOptions,
 ) -> Result<FitResult, String> {
+    let fit_start = Instant::now();
     let chain = options.method_chain();
     // Compute up-front so we can both surface the warnings before the fit
     // starts (a long-running fit shouldn't bury a "this option is unused"
     // notice at the end) and carry them through into FitResult.warnings.
     let unsupported_warnings = options.unsupported_keys_warnings();
+
+    // Capture thread count before chain runs (current_num_threads() reports
+    // whichever Rayon pool is active — scoped pool when threads=Some, else global).
+    let n_threads_used = rayon::current_num_threads();
+
+    // Initialise the per-iteration optimizer trace if requested.
+    if options.optimizer_trace {
+        let pid = std::process::id();
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let path = format!("/tmp/ferx_trace_{}_{}.csv", pid, ts);
+        if let Err(e) = crate::estimation::trace::init(path.clone()) {
+            eprintln!("[ferx] warning: could not open trace file {}: {}", path, e);
+        } else {
+            eprintln!("[ferx] optimizer trace → {}", path);
+        }
+    }
 
     // Reset gradient timing counters for this fit so FERX_TIME_GRADIENTS
     // readouts are per-call rather than cumulative across a long R session.
@@ -279,11 +325,56 @@ fn fit_inner(
         );
     }
 
+    // Pre-compute n_params (uses init_params, available before chain runs).
+    let fixed_mask = crate::estimation::parameterization::packed_fixed_mask(init_params);
+    let n_params_pre = fixed_mask.iter().filter(|&&b| !b).count();
+
+    // Probe NLopt algorithm availability only when global_search will actually
+    // run — otherwise the CRS2-LM warning is misleading for users who never
+    // requested it.
+    let nlopt_missing = if options.global_search {
+        probe_nlopt_algorithms()
+    } else {
+        Vec::new()
+    };
+
+    // Covariance step cost warning: fire before chain so user sees it
+    // immediately. Use checked_mul so an absurd parameter count cannot wrap
+    // and produce a bogus estimate; on overflow we still warn but suppress
+    // the numeric estimate.
+    let covariance_n_evals_estimated = if options.run_covariance_step && n_params_pre > 30 {
+        n_params_pre.checked_mul(n_params_pre)
+    } else {
+        None
+    };
+
     // Run each stage in sequence, feeding params forward.
     let n_stages = chain.len();
     let mut stage_params: ModelParameters = init_params.clone();
     let mut result: Option<crate::estimation::outer_optimizer::OuterResult> = None;
     let mut accumulated_warnings: Vec<String> = unsupported_warnings;
+
+    // Emit NLopt / covariance warnings before any work starts.
+    accumulated_warnings.extend(nlopt_missing.iter().cloned());
+    if options.run_covariance_step && n_params_pre > 30 {
+        if let Some(n_evals) = covariance_n_evals_estimated {
+            accumulated_warnings.push(format!(
+                "Covariance step: {} parameters → {} OFV evaluations \
+                 (finite-difference Hessian). This may take several minutes \
+                 on complex models.",
+                n_params_pre, n_evals
+            ));
+        } else {
+            // n_params² overflowed usize — warn without the (wrapped) number.
+            accumulated_warnings.push(format!(
+                "Covariance step: {} parameters → n² OFV evaluations \
+                 (finite-difference Hessian). Estimate exceeds usize range; \
+                 expect this to be very slow.",
+                n_params_pre
+            ));
+        }
+    }
+
     let mut total_iterations: usize = 0;
 
     for (stage_idx, &method) in chain.iter().enumerate() {
@@ -351,6 +442,32 @@ fn fit_inner(
     result.n_iterations = total_iterations;
     result.warnings = accumulated_warnings;
 
+    // Thread efficiency warnings (post-chain, uses n_threads_used captured above).
+    let n_subjects = population.subjects.len();
+    if n_subjects > 0 && n_threads_used > n_subjects {
+        // `threads = 0` is not a valid Rayon pool size, so for n_subjects = 1
+        // we still suggest a 1-thread pool.
+        let suggested = n_subjects.max(1);
+        result.warnings.push(format!(
+            "{} threads configured but only {} subject(s) — consider threads = {} to reduce \
+             scheduling overhead (no speed benefit beyond n_subjects)",
+            n_threads_used, n_subjects, suggested
+        ));
+    }
+    // SAEM-specific: MH scheduling has higher per-subject overhead than FOCE.
+    // Skip when n_subjects < 2 (n_subjects/2 = 0 is meaningless and the prior
+    // warning already covers the n_threads > n_subjects case).
+    if chain.iter().any(|&m| m == EstimationMethod::Saem) && n_subjects >= 2 {
+        let suggested = (n_subjects / 2).max(1);
+        if n_threads_used > suggested {
+            result.warnings.push(format!(
+                "SAEM with more threads than subjects/2 may be slower due to MH scheduling \
+                 overhead. Consider threads = {} for SAEM.",
+                suggested
+            ));
+        }
+    }
+
     // Compute per-subject diagnostics
     let subjects = compute_subject_results(
         model,
@@ -362,10 +479,7 @@ fn fit_inner(
     );
 
     let n_obs = population.n_obs();
-    // Count only *estimated* parameters for information criteria. NONMEM's
-    // convention: a FIX parameter doesn't cost a degree of freedom.
-    let fixed_mask = crate::estimation::parameterization::packed_fixed_mask(init_params);
-    let n_params = fixed_mask.iter().filter(|&&b| !b).count();
+    let n_params = n_params_pre;
 
     let ofv = result.ofv;
     let aic = ofv + 2.0 * n_params as f64;
@@ -443,8 +557,35 @@ fn fit_inner(
         None
     };
 
+    let final_method = *chain.last().expect("chain non-empty");
+    let grad_inner =
+        crate::build_info::gradient_method_inner(&crate::build_info::BUILD_INFO, model);
+    let grad_outer = crate::build_info::gradient_method_outer(
+        &crate::build_info::BUILD_INFO,
+        final_method,
+        options.optimizer,
+    );
+
+    // Flush and close the trace file; capture path for FitResult.
+    let trace_path = crate::estimation::trace::finish();
+
+    // Shrinkage
+    let shrinkage_eta = compute_eta_shrinkage(&subjects, &result.params.omega.matrix);
+    let shrinkage_eps = compute_eps_shrinkage(&subjects);
+
+    // Covariance status
+    let covariance_status = if !options.run_covariance_step {
+        CovarianceStatus::NotRequested
+    } else if result.covariance_matrix.is_some() {
+        CovarianceStatus::Computed
+    } else {
+        CovarianceStatus::Failed
+    };
+
+    let wall_time_secs = fit_start.elapsed().as_secs_f64();
+
     let fit_result = FitResult {
-        method: *chain.last().expect("chain non-empty"),
+        method: final_method,
         method_chain: chain.clone(),
         converged: result.converged,
         ofv,
@@ -478,6 +619,23 @@ fn fit_inner(
         se_kappa: None,
         shrinkage_kappa: Vec::new(),
         ebe_kappas: result.kappas.clone(),
+        saem_mu_ref_m_step_evals_saved: result.saem_mu_ref_m_step_evals_saved,
+        gradient_method_inner: grad_inner.as_str().to_string(),
+        gradient_method_outer: grad_outer.as_str().to_string(),
+        uses_ode_solver: model.is_ode_based(),
+        n_threads_used,
+        nlopt_missing_algorithms: nlopt_missing,
+        covariance_n_evals_estimated,
+        trace_path,
+        ebe_convergence_warnings: result.ebe_convergence_warnings,
+        max_unconverged_subjects: result.max_unconverged_subjects,
+        total_ebe_fallbacks: result.total_ebe_fallbacks,
+        covariance_status,
+        shrinkage_eta,
+        shrinkage_eps,
+        wall_time_secs,
+        model_name: model.name.clone(),
+        ferx_version: env!("CARGO_PKG_VERSION").to_string(),
     };
 
     if options.verbose {
@@ -597,9 +755,149 @@ fn compute_subject_results(
                 cwres,
                 ofv_contribution: 2.0 * ofv_i,
                 cens: subject.cens.clone(),
+                n_obs: subject.observations.len(),
             }
         })
         .collect()
+}
+
+/// ETA shrinkage: `1 - SD(eta_hat_k) / sqrt(omega_kk)` for each random effect k.
+pub(crate) fn compute_eta_shrinkage(subjects: &[SubjectResult], omega: &DMatrix<f64>) -> Vec<f64> {
+    let n_eta = omega.nrows();
+    let n_subj = subjects.len();
+    if n_subj < 2 || n_eta == 0 {
+        return vec![f64::NAN; n_eta];
+    }
+    (0..n_eta)
+        .map(|k| {
+            let omega_var = omega[(k, k)];
+            if omega_var <= 0.0 {
+                return f64::NAN;
+            }
+            let omega_sd = omega_var.sqrt();
+            let vals: Vec<f64> = subjects.iter().map(|s| s.eta[k]).collect();
+            let mean = vals.iter().sum::<f64>() / n_subj as f64;
+            let var =
+                vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (n_subj - 1) as f64;
+            1.0 - var.sqrt() / omega_sd
+        })
+        .collect()
+}
+
+/// EPS shrinkage: `1 - SD(IWRES)` across all valid (non-NaN) residuals.
+pub(crate) fn compute_eps_shrinkage(subjects: &[SubjectResult]) -> f64 {
+    let vals: Vec<f64> = subjects
+        .iter()
+        .flat_map(|s| s.iwres.iter().copied())
+        .filter(|v| v.is_finite())
+        .collect();
+    let n = vals.len();
+    if n < 2 {
+        return f64::NAN;
+    }
+    let mean = vals.iter().sum::<f64>() / n as f64;
+    let var = vals.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (n - 1) as f64;
+    1.0 - var.sqrt()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nalgebra::{DMatrix, DVector};
+
+    fn make_subject(eta: Vec<f64>, iwres: Vec<f64>) -> SubjectResult {
+        let n = iwres.len();
+        SubjectResult {
+            id: "1".to_string(),
+            eta: DVector::from_vec(eta),
+            ipred: vec![0.0; n],
+            pred: vec![0.0; n],
+            iwres,
+            cwres: vec![0.0; n],
+            ofv_contribution: 0.0,
+            cens: vec![0; n],
+            n_obs: n,
+        }
+    }
+
+    #[test]
+    fn test_eta_shrinkage_zero_when_eta_matches_omega_sd() {
+        // If SD(eta_hat) == sqrt(omega), shrinkage = 0.
+        // With n=2 subjects: eta = [+s, -s] => SD = s * sqrt(2/(n-1)) for n=2 => SD = s*sqrt(2)
+        // For shrinkage=0: SD(eta_hat) = sqrt(omega). So pick omega = 2.0, eta = [+1, -1].
+        let omega = DMatrix::from_diagonal_element(1, 1, 2.0);
+        let subjects = vec![
+            make_subject(vec![1.0], vec![0.0]),
+            make_subject(vec![-1.0], vec![0.0]),
+        ];
+        let sh = compute_eta_shrinkage(&subjects, &omega);
+        assert_eq!(sh.len(), 1);
+        // SD([1.0, -1.0]) = sqrt(((1-0)^2 + (-1-0)^2) / 1) = sqrt(2) ≈ 1.414
+        // shrinkage = 1 - sqrt(2) / sqrt(2) = 0.0
+        assert!((sh[0]).abs() < 1e-10, "expected ~0 shrinkage, got {}", sh[0]);
+    }
+
+    #[test]
+    fn test_eta_shrinkage_positive_when_etas_shrunk() {
+        // Etas close to zero → shrinkage > 0
+        let omega = DMatrix::from_diagonal_element(1, 1, 1.0);
+        let subjects: Vec<SubjectResult> = (0..10)
+            .map(|_| make_subject(vec![0.01], vec![0.0]))
+            .collect();
+        let sh = compute_eta_shrinkage(&subjects, &omega);
+        assert!(sh[0] > 0.5, "expected high shrinkage, got {}", sh[0]);
+    }
+
+    #[test]
+    fn test_eta_shrinkage_nan_when_omega_zero() {
+        let omega = DMatrix::zeros(1, 1);
+        let subjects = vec![
+            make_subject(vec![0.1], vec![0.0]),
+            make_subject(vec![-0.1], vec![0.0]),
+        ];
+        let sh = compute_eta_shrinkage(&subjects, &omega);
+        assert!(sh[0].is_nan(), "expected NaN when omega=0");
+    }
+
+    #[test]
+    fn test_eta_shrinkage_nan_when_fewer_than_2_subjects() {
+        let omega = DMatrix::from_diagonal_element(1, 1, 1.0);
+        let subjects = vec![make_subject(vec![0.5], vec![0.0])];
+        let sh = compute_eta_shrinkage(&subjects, &omega);
+        assert!(sh[0].is_nan(), "expected NaN with only 1 subject");
+    }
+
+    #[test]
+    fn test_eps_shrinkage_near_zero_for_unit_normal_iwres() {
+        // IWRES with sample SD = 1 => shrinkage = 0.
+        // For n=2: SD([a, -a]) = a*sqrt(2); set a = 1/sqrt(2) so SD = 1.
+        let a = 1.0_f64 / 2.0_f64.sqrt();
+        let subjects = vec![
+            make_subject(vec![0.0], vec![a]),
+            make_subject(vec![0.0], vec![-a]),
+        ];
+        let sh = compute_eps_shrinkage(&subjects);
+        assert!((sh).abs() < 1e-10, "expected ~0 eps shrinkage, got {}", sh);
+    }
+
+    #[test]
+    fn test_eps_shrinkage_nan_for_fewer_than_2_residuals() {
+        let subjects = vec![make_subject(vec![0.0], vec![0.5])];
+        assert!(compute_eps_shrinkage(&subjects).is_nan());
+    }
+
+    #[test]
+    fn test_eps_shrinkage_ignores_nan_iwres() {
+        // BLOQ rows have NaN IWRES — they must be filtered out.
+        // After filtering, two valid values with SD=1 remain => shrinkage = 0.
+        let a = 1.0_f64 / 2.0_f64.sqrt();
+        let subjects = vec![
+            make_subject(vec![0.0], vec![a, f64::NAN]),
+            make_subject(vec![0.0], vec![-a, f64::NAN]),
+        ];
+        let sh = compute_eps_shrinkage(&subjects);
+        assert!((sh).abs() < 1e-10, "NaN IWRES not filtered, got {}", sh);
+    }
 }
 
 /// Extract standard errors from covariance matrix on the packed parameter scale,

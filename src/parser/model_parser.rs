@@ -698,6 +698,13 @@ pub fn apply_fit_option(opts: &mut FitOptions, key: &str, value: &str) -> Result
                 Some(value.to_string())
             };
         }
+        "optimizer_trace" => opts.optimizer_trace = parse_bool("optimizer_trace")?,
+        "scale_params" => opts.scale_params = parse_bool("scale_params")?,
+        "max_unconverged_frac" => opts.max_unconverged_frac = parse_f64("max_unconverged_frac")?,
+        "min_obs_for_convergence_check" => {
+            opts.min_obs_for_convergence_check =
+                parse_usize("min_obs_for_convergence_check")? as u32
+        }
         _ => return Ok(false),
     }
     opts.user_set_keys.push(key.to_string());
