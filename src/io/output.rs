@@ -121,6 +121,30 @@ pub fn print_results(result: &FitResult) {
         eprintln!("  SIGMA({}) = {:.6}  SE = {}", i + 1, s, se_str);
     }
 
+    // IOV (KAPPA) estimates
+    if let Some(ref iov) = result.omega_iov {
+        eprintln!("\n--- KAPPA (IOV) Estimates ---");
+        let n_kappa = iov.nrows();
+        for i in 0..n_kappa {
+            let var = iov[(i, i)];
+            let cv = if var > 0.0 { var.sqrt() * 100.0 } else { 0.0 };
+            let is_fixed = result.kappa_fixed.get(i).copied().unwrap_or(false);
+            let se_str = if is_fixed {
+                "FIXED".to_string()
+            } else {
+                match &result.se_kappa {
+                    Some(se) if i < se.len() => format!("{:.6}", se[i]),
+                    _ => "N/A".to_string(),
+                }
+            };
+            let name = result.kappa_names.get(i).map(|s| s.as_str()).unwrap_or("KAPPA");
+            eprintln!(
+                "  {} = {:.6}  (CV% = {:.1})  SE = {}",
+                name, var, cv, se_str
+            );
+        }
+    }
+
     // SIR results
     if let Some(ess) = result.sir_ess {
         eprintln!("\n--- SIR Uncertainty (95% CI) ---");
@@ -199,11 +223,13 @@ pub fn sdtab(result: &FitResult, population: &Population) -> Vec<(String, Vec<f6
         .subjects
         .iter()
         .any(|s| s.cens.iter().any(|&c| c != 0));
+    let any_occ = population.subjects.iter().any(|s| !s.occasions.is_empty());
 
     let mut ids = Vec::with_capacity(n_total);
     let mut times = Vec::with_capacity(n_total);
     let mut dvs = Vec::with_capacity(n_total);
     let mut cens_col = Vec::with_capacity(n_total);
+    let mut occ_col = Vec::with_capacity(n_total);
     let mut preds = Vec::with_capacity(n_total);
     let mut ipreds = Vec::with_capacity(n_total);
     let mut cwres_vec = Vec::with_capacity(n_total);
@@ -219,6 +245,7 @@ pub fn sdtab(result: &FitResult, population: &Population) -> Vec<(String, Vec<f6
             times.push(subj.obs_times[j]);
             dvs.push(subj.observations[j]);
             cens_col.push(sr.cens.get(j).copied().unwrap_or(0) as f64);
+            occ_col.push(subj.occasions.get(j).copied().unwrap_or(0) as f64);
             preds.push(sr.pred[j]);
             ipreds.push(sr.ipred[j]);
             cwres_vec.push(sr.cwres[j]);
@@ -238,6 +265,9 @@ pub fn sdtab(result: &FitResult, population: &Population) -> Vec<(String, Vec<f6
     ];
     if any_cens {
         cols.push(("CENS".to_string(), cens_col));
+    }
+    if any_occ {
+        cols.push(("OCC".to_string(), occ_col));
     }
     cols.extend([
         ("PRED".to_string(), preds),
@@ -404,6 +434,31 @@ pub fn write_estimates_yaml(result: &FitResult, path: &str) -> Result<(), String
             match se {
                 Some(sv) => writeln!(f, "    se: {:.6}", sv).map_err(|e| e.to_string())?,
                 None => writeln!(f, "    se: ~").map_err(|e| e.to_string())?,
+            }
+        }
+    }
+
+    // IOV (KAPPA) block
+    if let Some(ref iov) = result.omega_iov {
+        writeln!(f, "\nomega_iov:").map_err(|e| e.to_string())?;
+        let n_kappa = iov.nrows();
+        for i in 0..n_kappa {
+            let var = iov[(i, i)];
+            let cv_pct = if var > 0.0 { var.sqrt() * 100.0 } else { 0.0 };
+            let is_fixed = result.kappa_fixed.get(i).copied().unwrap_or(false);
+            let se = result.se_kappa.as_ref().and_then(|v| v.get(i).copied());
+            let name = result.kappa_names.get(i).cloned().unwrap_or_else(|| format!("kappa_{}", i + 1));
+            writeln!(f, "  {}:", name).map_err(|e| e.to_string())?;
+            writeln!(f, "    variance: {:.6}", var).map_err(|e| e.to_string())?;
+            writeln!(f, "    cv_pct: {:.2}", cv_pct).map_err(|e| e.to_string())?;
+            if is_fixed {
+                writeln!(f, "    fixed: true").map_err(|e| e.to_string())?;
+                writeln!(f, "    se: ~").map_err(|e| e.to_string())?;
+            } else {
+                match se {
+                    Some(sv) => writeln!(f, "    se: {:.6}", sv).map_err(|e| e.to_string())?,
+                    None => writeln!(f, "    se: ~").map_err(|e| e.to_string())?,
+                }
             }
         }
     }

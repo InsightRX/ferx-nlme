@@ -354,3 +354,291 @@ pub fn compute_cwres(
         })
         .collect()
 }
+
+/// Group observation indices by occasion (preserving first-seen order of occasions).
+/// Returns `Vec<(occ_id, Vec<obs_index>)>` sorted by first appearance of the occasion.
+pub fn split_obs_by_occasion(subject: &Subject) -> Vec<(u32, Vec<usize>)> {
+    let mut occ_order: Vec<u32> = Vec::new();
+    let mut occ_map: std::collections::HashMap<u32, Vec<usize>> =
+        std::collections::HashMap::new();
+    for (j, &occ) in subject.occasions.iter().enumerate() {
+        if !occ_map.contains_key(&occ) {
+            occ_order.push(occ);
+            occ_map.insert(occ, Vec::new());
+        }
+        occ_map.get_mut(&occ).unwrap().push(j);
+    }
+    occ_order
+        .into_iter()
+        .map(|occ| (occ, occ_map.remove(&occ).unwrap()))
+        .collect()
+}
+
+/// Build a block-diagonal omega from BSV omega and K copies of IOV omega.
+/// Used for the extended H-matrix in the FOCE outer loop with IOV.
+pub fn build_block_diag_omega(
+    omega_bsv: &DMatrix<f64>,
+    omega_iov: &DMatrix<f64>,
+    n_occasions: usize,
+) -> DMatrix<f64> {
+    let n_bsv = omega_bsv.nrows();
+    let n_iov = omega_iov.nrows();
+    let n_total = n_bsv + n_occasions * n_iov;
+    let mut m = DMatrix::zeros(n_total, n_total);
+    // BSV block
+    for i in 0..n_bsv {
+        for j in 0..n_bsv {
+            m[(i, j)] = omega_bsv[(i, j)];
+        }
+    }
+    // K copies of IOV block
+    for k in 0..n_occasions {
+        let offset = n_bsv + k * n_iov;
+        for i in 0..n_iov {
+            for j in 0..n_iov {
+                m[(offset + i, offset + j)] = omega_iov[(i, j)];
+            }
+        }
+    }
+    m
+}
+
+/// IOV-aware individual NLL: uses per-occasion kappas.
+///
+/// `kappas[k]` is the kappa vector for the k-th unique occasion (in the order
+/// returned by `split_obs_by_occasion`).  When `kappas` is empty, falls back
+/// to the standard (no-IOV) `individual_nll` path.
+///
+/// The PK parameters for occasion k are computed from:
+///   `combined_eta_k = [eta[0..n_eta], kappas[k][0..n_kappa]]`
+/// Predictions for occasion-k observations use those PK params with the full
+/// subject dose history.
+///
+/// **Option A simplification — cross-occasion dose carryover.**
+/// Each occasion's predictions are computed with that occasion's pk_params
+/// against the *entire* dose history of the subject; only the obs rows
+/// belonging to that occasion are then scored. So a dose given in occasion
+/// `j` contributes to an occasion-`k` observation (`k > j`) using
+/// occasion-`k`'s CL/V/etc., not occasion-`j`'s. NONMEM's strict per-dose
+/// occasion accounting (each dose's contribution computed with its own
+/// occasion's parameters across the intervals it dominates) is not modeled
+/// here; for typical IOV designs (sparse PK with non-overlapping occasion
+/// windows) the difference is small, but for densely sampled designs with
+/// significant cross-occasion carryover the bias can matter. The
+/// FD Jacobian in `compute_jacobian_fd_iov` shares this convention so
+/// gradients and NLL values are internally consistent.
+pub fn individual_nll_iov(
+    model: &CompiledModel,
+    subject: &Subject,
+    theta: &[f64],
+    eta: &[f64],
+    kappas: &[Vec<f64>],
+    omega: &OmegaMatrix,
+    omega_iov: Option<&OmegaMatrix>,
+    sigma_values: &[f64],
+) -> f64 {
+    if kappas.is_empty() {
+        return individual_nll(model, subject, theta, eta, omega, sigma_values);
+    }
+
+    // BSV eta prior
+    let omega_inv = match omega.matrix.clone().cholesky() {
+        Some(chol) => chol.inverse(),
+        None => return 1e20,
+    };
+    let log_det_omega = omega_log_det(omega);
+    let eta_vec = DVector::from_column_slice(eta);
+    let eta_prior = eta_vec.dot(&(&omega_inv * &eta_vec));
+
+    // Kappa priors and IOV log-det
+    let (iov_inv, log_det_iov) = if let Some(iov) = omega_iov {
+        let inv = match iov.matrix.clone().cholesky() {
+            Some(chol) => chol.inverse(),
+            None => return 1e20,
+        };
+        (inv, omega_log_det(iov))
+    } else {
+        (DMatrix::identity(1, 1), 0.0) // unreachable when kappas non-empty
+    };
+
+    let mut kappa_prior = 0.0;
+    for kap in kappas {
+        let kap_vec = DVector::from_column_slice(kap);
+        kappa_prior += kap_vec.dot(&(&iov_inv * &kap_vec));
+    }
+    let k_occasions = kappas.len();
+
+    // Data NLL — per-occasion predictions
+    let occ_groups = split_obs_by_occasion(subject);
+    let mut data_ll = 0.0;
+
+    for (k, (_occ_id, obs_indices)) in occ_groups.iter().enumerate() {
+        if k >= kappas.len() {
+            break; // guard against mismatch
+        }
+        // Build combined eta for this occasion
+        let combined: Vec<f64> = eta.iter().chain(kappas[k].iter()).copied().collect();
+        let pk_params = (model.pk_param_fn)(theta, &combined, &subject.covariates);
+        let all_preds = model_predictions(model, subject, &pk_params);
+
+        for &j in obs_indices {
+            let y = subject.observations[j];
+            let f_pred = all_preds[j];
+            let v = residual_variance(model.error_model, f_pred, sigma_values);
+            if is_m3_bloq(model, subject, j) {
+                let z = (y - f_pred) / v.sqrt();
+                data_ll += -2.0 * log_normal_cdf(z);
+            } else {
+                let resid = y - f_pred;
+                data_ll += resid * resid / v + v.ln();
+            }
+        }
+    }
+
+    0.5 * (eta_prior + log_det_omega + kappa_prior + (k_occasions as f64) * log_det_iov + data_ll)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{BloqMethod, DoseEvent, ErrorModel, GradientMethod, PkModel, PkParams};
+    use std::collections::HashMap;
+
+    fn make_simple_subject() -> Subject {
+        Subject {
+            id: "1".to_string(),
+            doses: vec![DoseEvent::new(0.0, 100.0, 1, 0.0, false, 0.0)],
+            obs_times: vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            observations: vec![50.0, 40.0, 30.0, 45.0, 35.0, 25.0],
+            obs_cmts: vec![1; 6],
+            covariates: HashMap::new(),
+            tvcov: HashMap::new(),
+            cens: vec![0; 6],
+            occasions: vec![1, 1, 1, 2, 2, 2],
+            dose_occasions: Vec::new(),
+        }
+    }
+
+    fn make_omega(var: f64) -> OmegaMatrix {
+        OmegaMatrix::from_diagonal(&[var], vec!["ETA_CL".into()])
+    }
+
+    fn make_model() -> CompiledModel {
+        CompiledModel {
+            name: "test".into(),
+            pk_model: PkModel::OneCptIvBolus,
+            error_model: ErrorModel::Proportional,
+            pk_param_fn: Box::new(|theta: &[f64], eta: &[f64], _: &HashMap<String, f64>| {
+                let mut p = PkParams::default();
+                p.values[0] = theta[0] * eta[0].exp(); // CL uses combined eta[0]
+                p.values[1] = theta[1]; // V
+                p
+            }),
+            n_theta: 2,
+            n_eta: 1,
+            n_epsilon: 1,
+            theta_names: vec!["TVCL".into(), "TVV".into()],
+            eta_names: vec!["ETA_CL".into()],
+            default_params: crate::types::ModelParameters {
+                theta: vec![5.0, 50.0],
+                theta_names: vec!["TVCL".into(), "TVV".into()],
+                theta_lower: vec![0.01, 1.0],
+                theta_upper: vec![100.0, 500.0],
+                theta_fixed: vec![false; 2],
+                omega: make_omega(0.09),
+                omega_fixed: vec![false],
+                sigma: crate::types::SigmaVector {
+                    values: vec![0.05],
+                    names: vec!["PROP_ERR".into()],
+                },
+                sigma_fixed: vec![false],
+                omega_iov: None,
+                kappa_fixed: Vec::new(),
+            },
+            mu_refs: HashMap::new(),
+            tv_fn: None,
+            pk_indices: vec![0, 1],
+            eta_map: vec![0],
+            pk_idx_f64: vec![0.0, 1.0],
+            sel_flat: vec![1.0, 0.0],
+            ode_spec: None,
+            bloq_method: BloqMethod::Drop,
+            referenced_covariates: Vec::new(),
+            gradient_method: GradientMethod::default(),
+            n_kappa: 0,
+            kappa_names: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn test_split_obs_by_occasion_two_occ() {
+        let subj = make_simple_subject();
+        let groups = split_obs_by_occasion(&subj);
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups[0].0, 1);
+        assert_eq!(groups[0].1, vec![0, 1, 2]);
+        assert_eq!(groups[1].0, 2);
+        assert_eq!(groups[1].1, vec![3, 4, 5]);
+    }
+
+    #[test]
+    fn test_split_obs_by_occasion_empty() {
+        let mut subj = make_simple_subject();
+        subj.occasions = Vec::new();
+        subj.obs_times = Vec::new();
+        subj.observations = Vec::new();
+        subj.obs_cmts = Vec::new();
+        subj.cens = Vec::new();
+        let groups = split_obs_by_occasion(&subj);
+        assert!(groups.is_empty());
+    }
+
+    #[test]
+    fn test_individual_nll_iov_no_kappa_same_as_base() {
+        let model = make_model();
+        let subj = make_simple_subject();
+        let theta = vec![5.0, 50.0];
+        let eta = vec![0.0];
+        let omega = make_omega(0.09);
+        let sigma = vec![0.05];
+
+        let base = individual_nll(&model, &subj, &theta, &eta, &omega, &sigma);
+        let iov = individual_nll_iov(&model, &subj, &theta, &eta, &[], &omega, None, &sigma);
+        approx::assert_relative_eq!(base, iov, epsilon = 1e-10);
+    }
+
+    #[test]
+    fn test_individual_nll_iov_with_kappa_adds_prior() {
+        let model = make_model();
+        let subj = make_simple_subject();
+        let theta = vec![5.0, 50.0];
+        let eta = vec![0.0];
+        let omega = make_omega(0.09);
+        let omega_iov = make_omega(0.01);
+        let sigma = vec![0.05];
+
+        let base = individual_nll(&model, &subj, &theta, &eta, &omega, &sigma);
+        // Non-zero kappas add a kappa prior ≥ 0, so IOV NLL ≥ base NLL.
+        let kappas = vec![vec![0.1], vec![-0.1]];
+        let iov = individual_nll_iov(
+            &model, &subj, &theta, &eta, &kappas, &omega, Some(&omega_iov), &sigma,
+        );
+        // Kappa prior is positive → IOV NLL should differ from base
+        assert!((iov - base).abs() > 1e-6, "IOV NLL={}, base NLL={}", iov, base);
+    }
+
+    #[test]
+    fn test_build_block_diag_omega_structure() {
+        let bsv = DMatrix::from_diagonal(&nalgebra::DVector::from_vec(vec![0.09, 0.04]));
+        let iov = DMatrix::from_diagonal(&nalgebra::DVector::from_vec(vec![0.01]));
+        let combined = build_block_diag_omega(&bsv, &iov, 2);
+        // 2 BSV + 2*1 IOV = 4x4
+        assert_eq!(combined.nrows(), 4);
+        assert_eq!(combined.ncols(), 4);
+        assert_eq!(combined[(0, 0)], 0.09);
+        assert_eq!(combined[(1, 1)], 0.04);
+        assert_eq!(combined[(2, 2)], 0.01); // occ 1 kappa
+        assert_eq!(combined[(3, 3)], 0.01); // occ 2 kappa
+        assert_eq!(combined[(0, 2)], 0.0);  // off-block must be zero
+    }
+}

@@ -32,7 +32,8 @@ pub fn run_model_with_data(
 
     eprintln!("Model: {}", parsed.model.name);
 
-    let population = read_nonmem_csv(Path::new(data_path), None)?;
+    let iov_col = parsed.fit_options.iov_column.as_deref();
+    let population = read_nonmem_csv(Path::new(data_path), None, iov_col)?;
     eprintln!(
         "Data:  {} subjects, {} observations from {}",
         population.subjects.len(),
@@ -83,6 +84,8 @@ pub fn run_model_simulate(model_path: &str) -> Result<(FitResult, Population), S
             covariates: HashMap::new(),
             tvcov: HashMap::new(),
             cens: vec![0; sim_spec.obs_times.len()],
+            occasions: Vec::new(),
+            dose_occasions: Vec::new(),
         })
         .collect();
     let template = Population {
@@ -184,7 +187,7 @@ pub fn fit_from_files(
     options: Option<FitOptions>,
 ) -> Result<FitResult, String> {
     let mut model = crate::parser::model_parser::parse_model_file(Path::new(model_path))?;
-    let population = read_nonmem_csv(Path::new(data_path), covariate_columns)?;
+    let population = read_nonmem_csv(Path::new(data_path), covariate_columns, None)?;
     let opts = options.unwrap_or_default();
     model.bloq_method = opts.bloq_method;
     model.gradient_method = opts.gradient_method;
@@ -600,6 +603,11 @@ fn fit_inner(
         sir_ci_omega: sir_result.as_ref().map(|s| s.ci_omega.clone()),
         sir_ci_sigma: sir_result.as_ref().map(|s| s.ci_sigma.clone()),
         sir_ess: sir_result.as_ref().map(|s| s.effective_sample_size),
+        omega_iov: result.params.omega_iov.as_ref().map(|m| m.matrix.clone()),
+        kappa_names: model.kappa_names.clone(),
+        kappa_fixed: result.params.kappa_fixed.clone(),
+        se_kappa: None,
+        shrinkage_kappa: Vec::new(),
         saem_mu_ref_m_step_evals_saved: result.saem_mu_ref_m_step_evals_saved,
         gradient_method_inner: grad_inner.as_str().to_string(),
         gradient_method_outer: grad_outer.as_str().to_string(),
