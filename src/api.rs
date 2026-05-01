@@ -325,6 +325,19 @@ fn fit_inner(
         );
     }
 
+    // Guard: the trust-region outer optimizer does not yet thread kappas through
+    // its OFV evaluation (see trust_region.rs::FoceiProblem::ofv_fixed which
+    // passes &[] for kappas). Running it on an IOV model would silently produce
+    // a wrong OFV. Fail early until the trust-region path supports IOV.
+    if model.n_kappa > 0 && options.optimizer == Optimizer::TrustRegion {
+        return Err(
+            "optimizer = trust_region does not support IOV (n_kappa > 0). \
+             Use optimizer = bobyqa, slsqp, lbfgs, nlopt_lbfgs, mma, or bfgs \
+             for models with kappa declarations."
+                .to_string(),
+        );
+    }
+
     // Pre-compute n_params (uses init_params, available before chain runs).
     let fixed_mask = crate::estimation::parameterization::packed_fixed_mask(init_params);
     let n_params_pre = fixed_mask.iter().filter(|&&b| !b).count();
@@ -1350,6 +1363,42 @@ mod iov_integration {
         assert!(
             msg.contains("saem") && msg.contains("IOV"),
             "error message should mention saem and IOV, got: {msg}"
+        );
+    }
+
+    // ── Test: SAEM in a chained methods sequence + IOV must also Err ──────────
+    // The guard checks the full chain, not just `method`; this locks in that
+    // behaviour so a future refactor can't accidentally drop the chain check.
+    #[test]
+    fn test_iov_saem_in_methods_chain_returns_err() {
+        let model = make_iov_model();
+        let pop = make_iov_population();
+        let mut opts = fast_opts(EstimationMethod::Foce, Optimizer::Bobyqa, false);
+        opts.methods = vec![EstimationMethod::Saem, EstimationMethod::Foce];
+        let result = fit(&model, &pop, &model.default_params, &opts);
+        assert!(result.is_err(), "SAEM in methods chain with IOV must return an error");
+        let msg = result.unwrap_err();
+        assert!(
+            msg.contains("saem") && msg.contains("IOV"),
+            "error message should mention saem and IOV, got: {msg}"
+        );
+    }
+
+    // ── Test: trust-region optimizer + IOV must return Err ────────────────────
+    // trust_region.rs currently passes `&[]` for kappas to pop_nll, which would
+    // silently route the OFV through the non-IOV path. Guard at api.rs blocks
+    // that before any wrong number escapes.
+    #[test]
+    fn test_iov_trust_region_returns_err() {
+        let model = make_iov_model();
+        let pop = make_iov_population();
+        let opts = fast_opts(EstimationMethod::Foce, Optimizer::TrustRegion, false);
+        let result = fit(&model, &pop, &model.default_params, &opts);
+        assert!(result.is_err(), "trust_region with IOV must return an error");
+        let msg = result.unwrap_err();
+        assert!(
+            msg.contains("trust_region") && msg.contains("IOV"),
+            "error message should mention trust_region and IOV, got: {msg}"
         );
     }
 }
