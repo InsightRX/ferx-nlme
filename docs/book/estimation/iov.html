@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Estimation Methods - FeRx-NLME Documentation</title>
+        <title>Inter-Occasion Variability (IOV) - FeRx-NLME Documentation</title>
 
 
         <!-- Custom HTML head -->
@@ -177,59 +177,155 @@
 
                 <div id="mdbook-content" class="content">
                     <main>
-                        <h1 id="estimation-methods"><a class="header" href="#estimation-methods">Estimation Methods</a></h1>
-<p>FeRx implements two families of estimation methods for nonlinear mixed effects models:</p>
+                        <h1 id="inter-occasion-variability-iov"><a class="header" href="#inter-occasion-variability-iov">Inter-Occasion Variability (IOV)</a></h1>
+<p>Inter-Occasion Variability (IOV) models the fact that a subject’s PK parameters may shift between occasions (treatment periods, study visits, dosing intervals). Unlike between-subject variability (BSV), which is fixed for a subject across the whole study, IOV is a random effect that is re-drawn for each occasion.</p>
+<h2 id="concepts"><a class="header" href="#concepts">Concepts</a></h2>
+<h3 id="occasions"><a class="header" href="#occasions">Occasions</a></h3>
+<p>An <strong>occasion</strong> is a distinct time window during which the same kappa value applies. Occasions are identified by an integer column in the dataset (e.g. <code>OCC</code>). All rows — dose records and observation records — that share the same occasion index belong to one occasion.</p>
+<h3 id="kappa-parameters"><a class="header" href="#kappa-parameters">Kappa parameters</a></h3>
+<p><strong>Kappa</strong> (κ) is the IOV random effect, analogous to eta (η) for BSV. Each kappa is drawn independently per occasion:</p>
+<p>\[ \kappa_{ik} \sim \mathcal{N}(0, \Omega_\text{IOV}) \]</p>
+<p>where <em>i</em> indexes subjects and <em>k</em> indexes occasions. The IOV omega matrix Ω_IOV is estimated alongside the BSV omega.</p>
+<h3 id="individual-parameters"><a class="header" href="#individual-parameters">Individual parameters</a></h3>
+<p>Kappas enter the individual-parameter expressions in the same way as etas:</p>
+<pre><code>CL = TVCL * exp(ETA_CL + KAPPA_CL)
+</code></pre>
+<p>At each occasion <em>k</em>, the effective individual CL is <code>TVCL * exp(ETA_CL_i + KAPPA_CL_ik)</code>. The BSV eta captures stable between-subject differences; the kappa captures occasion-to-occasion fluctuation within a subject.</p>
+<h2 id="option-a-diagonal-iov-independent-kappas"><a class="header" href="#option-a-diagonal-iov-independent-kappas">Option A: Diagonal IOV (independent kappas)</a></h2>
+<p>Each kappa is declared independently, giving a <strong>diagonal</strong> Ω_IOV:</p>
+<pre><code>[parameters]
+  ...
+  kappa KAPPA_CL ~ 0.05
+  kappa KAPPA_V  ~ 0.03
+</code></pre>
+<p>The two kappas are uncorrelated across occasions. This is the most common formulation and corresponds to NONMEM’s IOV Option A.</p>
+<p>Use <code>FIX</code> to hold a kappa variance constant during estimation:</p>
+<pre><code>kappa KAPPA_CL ~ 0.05 FIX
+</code></pre>
+<h2 id="option-b-block-iov-correlated-kappas"><a class="header" href="#option-b-block-iov-correlated-kappas">Option B: Block IOV (correlated kappas)</a></h2>
+<p>When occasion effects on different parameters are expected to covary, use <code>block_kappa</code>:</p>
+<pre><code>[parameters]
+  ...
+  block_kappa (KAPPA_CL, KAPPA_V) = [0.05, 0.01, 0.03]
+</code></pre>
+<p>Values are the lower triangle of Ω_IOV: Var(KAPPA_CL), Cov(KAPPA_CL, KAPPA_V), Var(KAPPA_V). This mirrors the <code>block_omega</code> syntax for BSV.</p>
+<h3 id="mixed-option-a--b"><a class="header" href="#mixed-option-a--b">Mixed Option A + B</a></h3>
+<p><code>kappa</code> and <code>block_kappa</code> declarations can be combined freely — uncorrelated kappas can coexist with a correlated block:</p>
+<pre><code>block_kappa (KAPPA_CL, KAPPA_V) = [0.05, 0.01, 0.03]
+kappa KAPPA_KA ~ 0.10
+</code></pre>
+<p>A name may not appear in both a <code>kappa</code> and a <code>block_kappa</code> line.</p>
+<h2 id="model-file-setup"><a class="header" href="#model-file-setup">Model File Setup</a></h2>
+<pre><code>[parameters]
+  theta TVCL(0.2, 0.001, 10.0)
+  theta TVV(10.0, 0.1, 500.0)
+  theta TVKA(1.5, 0.01, 50.0)
+
+  omega ETA_CL ~ 0.09          # BSV
+  omega ETA_V  ~ 0.04
+  omega ETA_KA ~ 0.30
+
+  kappa KAPPA_CL ~ 0.05        # IOV (Option A)
+
+  sigma PROP_ERR ~ 0.02
+
+[individual_parameters]
+  CL = TVCL * exp(ETA_CL + KAPPA_CL)
+  V  = TVV  * exp(ETA_V)
+  KA = TVKA * exp(ETA_KA)
+
+[structural_model]
+  pk one_cpt_oral(cl=CL, v=V, ka=KA)
+
+[error_model]
+  DV ~ proportional(PROP_ERR)
+
+[fit_options]
+  method     = foce
+  iov_column = OCC
+</code></pre>
+<p>See <code>examples/warfarin_iov.ferx</code> for a complete runnable example.</p>
+<h2 id="algorithm-details"><a class="header" href="#algorithm-details">Algorithm Details</a></h2>
+<h3 id="inner-loop"><a class="header" href="#inner-loop">Inner loop</a></h3>
+<p>When a model has kappa declarations and the subject has occasion labels, the inner optimizer runs <code>find_ebe_iov</code> instead of the standard <code>find_ebe</code>. It jointly optimizes over:</p>
+<p>\[ p = [\underbrace{\eta_1, \ldots, \eta_{n_\eta}}<em>{\text{BSV}},\ \underbrace{\kappa</em>{1,1}, \ldots, \kappa_{1,n_\kappa}}<em>{\text{occasion 1}},\ \ldots,\ \underbrace{\kappa</em>{K,1}, \ldots, \kappa_{K,n_\kappa}}_{\text{occasion K}}] \]</p>
+<p>The joint negative log-posterior is:</p>
+<p>\[
+-\log p(p \mid y_i) = \frac{1}{2}\left[
+\eta^T \Omega^{-1} \eta + \log|\Omega|</p>
 <ul>
-<li>
-<p><strong><a href="foce.html">FOCE / FOCEI</a></strong> – First-Order Conditional Estimation (with or without interaction). The workhorse of population PK, using nested optimization to find maximum likelihood estimates.</p>
-</li>
-<li>
-<p><strong><a href="gauss-newton.html">Gauss-Newton (BHHH)</a></strong> – A fast alternative that exploits the nonlinear-least-squares structure of the FOCE objective. Converges in 10-30 iterations using the outer product of per-subject gradients as an approximate Hessian. Available as pure GN or a GN+FOCEI hybrid.</p>
-</li>
-<li>
-<p><strong><a href="saem.html">SAEM</a></strong> – Stochastic Approximation Expectation-Maximization. Uses MCMC sampling for random effects, providing more robust convergence on complex models.</p>
-</li>
-<li>
-<p><strong><a href="sir.html">SIR</a></strong> – Sampling Importance Resampling. An optional post-estimation step that provides non-parametric parameter uncertainty estimates (95% CIs), more robust than the asymptotic covariance matrix.</p>
-</li>
+<li>\sum_{k=1}^{K} \kappa_k^T \Omega_\text{IOV}^{-1} \kappa_k</li>
+<li>K \log|\Omega_\text{IOV}|</li>
+<li>\sum_{j} \left(\frac{(y_{ij} - f_{ij}^{(k_j)})^2}{V_{ij}} + \log V_{ij}\right)
+\right]
+\]</li>
 </ul>
-<h2 id="quick-comparison"><a class="header" href="#quick-comparison">Quick Comparison</a></h2>
+<p>where \( k_j \) is the occasion of observation <em>j</em> and \( f_{ij}^{(k)} = f(\theta, \eta_i, \kappa_{ik}) \).</p>
+<p>Optimization uses BFGS; the gradient is computed by finite differences (no AD path for IOV).</p>
+<h3 id="outer-loop"><a class="header" href="#outer-loop">Outer loop</a></h3>
+<p>The IOV omega is packed after the sigma block in the optimizer vector. For Option A (diagonal Ω_IOV) only the log-diagonal entries are appended; for Option B the full Cholesky lower triangle is appended (log-diagonals plus off-diagonals as-is), mirroring the BSV omega packing:</p>
+<p>\[
+x = [\log\theta,\ \text{chol}(\Omega_\text{BSV}),\ \log\sigma,\ \text{chol}(\Omega_\text{IOV})]
+\]</p>
+<p>The per-subject FOCE objective uses a block-diagonal omega that stacks the BSV block with <em>K</em> copies of Ω_IOV:</p>
+<p>\[
+\Omega_\text{full} = \text{blockdiag}(\Omega_\text{BSV},\ \Omega_\text{IOV},\ \ldots,\ \Omega_\text{IOV})
+\]</p>
+<p>The H-matrix (Jacobian ∂f/∂η) covers BSV etas only — kappa columns are not included in the FOCE linearization.</p>
+<h3 id="covariance-step"><a class="header" href="#covariance-step">Covariance step</a></h3>
+<p>When <code>covariance = true</code>, standard errors for the IOV omega diagonal (or its Cholesky elements) are computed via the finite-difference Hessian at convergence, using the same procedure as for BSV omega.</p>
+<h2 id="output"><a class="header" href="#output">Output</a></h2>
+<p>The following IOV-related fields are populated on <code>FitResult</code> and printed by <code>print_results()</code>. The fit YAML gains an <code>omega_iov:</code> section listing the kappa variances and (for Option B) the off-diagonal covariances/correlations.</p>
 <div class="table-wrapper">
 <table>
 <thead>
-<tr><th>Feature</th><th>FOCE/FOCEI</th><th>Gauss-Newton</th><th>SAEM</th></tr>
+<tr><th>Field</th><th>Description</th></tr>
 </thead>
 <tbody>
-<tr><td>Random effect estimation</td><td>MAP (optimization)</td><td>MAP (optimization)</td><td>MCMC (sampling)</td></tr>
-<tr><td>Convergence speed</td><td>Medium (~50-100 evals)</td><td>Fast (~10-30 iterations)</td><td>Slower (~400 iterations)</td></tr>
-<tr><td>Local minima robustness</td><td>Can get stuck</td><td>Can get stuck</td><td>More robust</td></tr>
-<tr><td>Gradient required</td><td>Yes (AD or FD)</td><td>Yes (FD, per-subject)</td><td>No (for E-step)</td></tr>
-<tr><td>Stochastic</td><td>No</td><td>No</td><td>Yes</td></tr>
-<tr><td>Best for</td><td>General use</td><td>Fast iteration, well-conditioned models</td><td>Complex models, many random effects</td></tr>
+<tr><td><code>omega_iov</code></td><td>Estimated IOV covariance matrix (<code>Option&lt;DMatrix&lt;f64&gt;&gt;</code>)</td></tr>
+<tr><td><code>kappa_names</code></td><td>Names of kappa parameters in declaration order</td></tr>
+<tr><td><code>kappa_fixed</code></td><td>Per-kappa <code>FIX</code> flags</td></tr>
+<tr><td><code>se_kappa</code></td><td>Standard errors for IOV omega elements (requires <code>covariance = true</code>)</td></tr>
+<tr><td><code>ebe_kappas</code></td><td>Per-subject, per-occasion kappa EBEs. <code>ebe_kappas[i][k]</code> is the kappa vector for subject <em>i</em>, occasion <em>k</em></td></tr>
 </tbody>
 </table>
 </div>
-<h2 id="choosing-a-method"><a class="header" href="#choosing-a-method">Choosing a Method</a></h2>
-<p><strong>Start with FOCE</strong> for standard 1- or 2-compartment models with 2-4 random effects. It is deterministic and well-understood.</p>
-<p><strong>Try Gauss-Newton (<code>gn</code> or <code>gn_hybrid</code>)</strong> when you want faster convergence during model development, or when FOCE is slow to converge.</p>
-<p><strong>Switch to SAEM</strong> when:</p>
+<p>When the dataset has occasion labels the sdtab CSV gains an <code>OCC</code> column (one row per observation, the subject’s occasion index for that row).</p>
+<blockquote>
+<p><strong>Note</strong>: <code>shrinkage_kappa</code> exists as a placeholder field on <code>FitResult</code> but is not yet computed — it is always returned as an empty <code>Vec</code>. Use <code>ebe_kappas</code> directly if you need a manual shrinkage diagnostic.</p>
+</blockquote>
+<h2 id="limitations"><a class="header" href="#limitations">Limitations</a></h2>
 <ul>
-<li>FOCE fails to converge or produces implausible estimates</li>
-<li>The model has many random effects (&gt;4)</li>
-<li>You suspect the FOCE solution is a local minimum</li>
-<li>The model has complex nonlinear random effect structure</li>
+<li><strong>SAEM is not supported</strong> with IOV models — an error is returned directing you to use <code>foce</code> or <code>focei</code>.</li>
+<li><strong>Automatic differentiation (AD) is not used</strong> for IOV inner-loop gradients; finite differences are used instead. For large models this is slower than the AD path used for BSV-only models.</li>
+<li>The occasion column must contain non-negative integers. Non-integer or negative values are silently treated as missing (<code>OCC = 0</code>) and a single summary warning is emitted.</li>
+<li>Per-kappa shrinkage is not yet computed (see Output note above).</li>
+<li>Kappa EBEs are not yet emitted as columns in the sdtab CSV; access them via <code>FitResult.ebe_kappas</code>.</li>
 </ul>
-<p>All methods produce comparable results on well-behaved models. The final OFV from SAEM and GN is computed using the FOCE approximation, so AIC/BIC values are directly comparable.</p>
+<h2 id="comparison-to-nonmem"><a class="header" href="#comparison-to-nonmem">Comparison to NONMEM</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Concept</th><th>NONMEM</th><th>FeRx</th></tr>
+</thead>
+<tbody>
+<tr><td>Diagonal IOV</td><td><code>OMEGA BLOCK(n) SAME</code> with one kappa per block</td><td><code>kappa NAME ~ variance</code> (Option A)</td></tr>
+<tr><td>Correlated IOV</td><td><code>OMEGA BLOCK(n)</code> shared across occasions</td><td><code>block_kappa (N1, N2) = [...]</code> (Option B)</td></tr>
+<tr><td>Occasion column</td><td><code>OCC</code> in <code>$INPUT</code>; referenced in <code>$PK</code></td><td><code>iov_column = OCC</code> in <code>[fit_options]</code></td></tr>
+<tr><td>Kappa in PK</td><td><code>ETA(n)</code> with <code>SAME</code> block</td><td><code>KAPPA_xxx</code> in <code>[individual_parameters]</code></td></tr>
+</tbody>
+</table>
+</div>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../model-file/simulation.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../estimation/sir.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="../estimation/foce.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../data-format.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -239,11 +335,11 @@
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../model-file/simulation.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../estimation/sir.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="../estimation/foce.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../data-format.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>

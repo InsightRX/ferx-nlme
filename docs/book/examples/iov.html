@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Estimation Methods - FeRx-NLME Documentation</title>
+        <title>Inter-Occasion Variability - FeRx-NLME Documentation</title>
 
 
         <!-- Custom HTML head -->
@@ -177,59 +177,136 @@
 
                 <div id="mdbook-content" class="content">
                     <main>
-                        <h1 id="estimation-methods"><a class="header" href="#estimation-methods">Estimation Methods</a></h1>
-<p>FeRx implements two families of estimation methods for nonlinear mixed effects models:</p>
+                        <h1 id="inter-occasion-variability-iov"><a class="header" href="#inter-occasion-variability-iov">Inter-Occasion Variability (IOV)</a></h1>
+<p>This example extends the one-compartment oral warfarin model to account for occasion-to-occasion variability in clearance. The complete model file is <code>examples/warfarin_iov.ferx</code>.</p>
+<h2 id="when-to-use-iov"><a class="header" href="#when-to-use-iov">When to use IOV</a></h2>
+<p>Use IOV when:</p>
 <ul>
-<li>
-<p><strong><a href="foce.html">FOCE / FOCEI</a></strong> – First-Order Conditional Estimation (with or without interaction). The workhorse of population PK, using nested optimization to find maximum likelihood estimates.</p>
-</li>
-<li>
-<p><strong><a href="gauss-newton.html">Gauss-Newton (BHHH)</a></strong> – A fast alternative that exploits the nonlinear-least-squares structure of the FOCE objective. Converges in 10-30 iterations using the outer product of per-subject gradients as an approximate Hessian. Available as pure GN or a GN+FOCEI hybrid.</p>
-</li>
-<li>
-<p><strong><a href="saem.html">SAEM</a></strong> – Stochastic Approximation Expectation-Maximization. Uses MCMC sampling for random effects, providing more robust convergence on complex models.</p>
-</li>
-<li>
-<p><strong><a href="sir.html">SIR</a></strong> – Sampling Importance Resampling. An optional post-estimation step that provides non-parametric parameter uncertainty estimates (95% CIs), more robust than the asymptotic covariance matrix.</p>
-</li>
+<li>Subjects have data from multiple study periods (crossover designs, multiple visits)</li>
+<li>You expect within-subject PK variability across periods that is larger than pure residual error</li>
+<li>NONMEM models used <code>OMEGA BLOCK SAME</code> syntax for one or more parameters</li>
 </ul>
-<h2 id="quick-comparison"><a class="header" href="#quick-comparison">Quick Comparison</a></h2>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Feature</th><th>FOCE/FOCEI</th><th>Gauss-Newton</th><th>SAEM</th></tr>
-</thead>
-<tbody>
-<tr><td>Random effect estimation</td><td>MAP (optimization)</td><td>MAP (optimization)</td><td>MCMC (sampling)</td></tr>
-<tr><td>Convergence speed</td><td>Medium (~50-100 evals)</td><td>Fast (~10-30 iterations)</td><td>Slower (~400 iterations)</td></tr>
-<tr><td>Local minima robustness</td><td>Can get stuck</td><td>Can get stuck</td><td>More robust</td></tr>
-<tr><td>Gradient required</td><td>Yes (AD or FD)</td><td>Yes (FD, per-subject)</td><td>No (for E-step)</td></tr>
-<tr><td>Stochastic</td><td>No</td><td>No</td><td>Yes</td></tr>
-<tr><td>Best for</td><td>General use</td><td>Fast iteration, well-conditioned models</td><td>Complex models, many random effects</td></tr>
-</tbody>
-</table>
-</div>
-<h2 id="choosing-a-method"><a class="header" href="#choosing-a-method">Choosing a Method</a></h2>
-<p><strong>Start with FOCE</strong> for standard 1- or 2-compartment models with 2-4 random effects. It is deterministic and well-understood.</p>
-<p><strong>Try Gauss-Newton (<code>gn</code> or <code>gn_hybrid</code>)</strong> when you want faster convergence during model development, or when FOCE is slow to converge.</p>
-<p><strong>Switch to SAEM</strong> when:</p>
+<h2 id="dataset"><a class="header" href="#dataset">Dataset</a></h2>
+<p>The dataset must include an occasion-index column. Add an integer <code>OCC</code> column (or any name you choose — tell FeRx via <code>iov_column</code>):</p>
+<pre><code class="language-csv">ID,TIME,DV,EVID,AMT,CMT,MDV,OCC
+1,0,.,1,100,1,1,1
+1,1,9.49,0,.,.,0,1
+1,2,14.42,0,.,.,0,1
+1,3,17.56,0,.,.,0,1
+1,24,.,1,100,1,1,2
+1,25,10.1,0,.,.,0,2
+1,26,8.2,0,.,.,0,2
+</code></pre>
+<p>Occasion 1 = first period, occasion 2 = second period. Dose records and observation records in the same period share the same OCC value.</p>
+<h2 id="model-file-option-a--diagonal-iov"><a class="header" href="#model-file-option-a--diagonal-iov">Model File (Option A — diagonal IOV)</a></h2>
+<p>This is the contents of <a href="https://github.com/InsightRX/ferx-nlme/blob/main/examples/warfarin_iov.ferx"><code>examples/warfarin_iov.ferx</code></a>:</p>
+<pre><code>model warfarin_iov
+
+[parameters]
+  theta TVCL(0.2, 0.001, 10.0)
+  theta TVV(10.0, 0.1, 500.0)
+  theta TVKA(1.5, 0.01, 50.0)
+
+  omega ETA_CL ~ 0.09      # between-subject variability in CL
+  omega ETA_V  ~ 0.04
+  omega ETA_KA ~ 0.30
+
+  kappa KAPPA_CL ~ 0.01    # inter-occasion variability in CL
+
+  sigma PROP_ERR ~ 0.02
+
+[individual_parameters]
+  CL = TVCL * exp(ETA_CL + KAPPA_CL)
+  V  = TVV  * exp(ETA_V)
+  KA = TVKA * exp(ETA_KA)
+
+[structural_model]
+  pk one_cpt_oral(cl=CL, v=V, ka=KA)
+
+[error_model]
+  DV ~ proportional(PROP_ERR)
+
+[fit_options]
+  method     = foce
+  iov_column = OCC
+  covariance = false
+</code></pre>
+<p>The key additions compared to a standard model:</p>
+<ol>
+<li><code>kappa KAPPA_CL ~ 0.01</code> — declares IOV on CL with starting variance 0.01</li>
+<li><code>+ KAPPA_CL</code> in the CL expression — kappa enters just like a BSV eta</li>
+<li><code>iov_column = OCC</code> — tells FeRx which dataset column carries occasion labels</li>
+</ol>
+<p>Set <code>covariance = true</code> if you want standard errors on the IOV variance (the shipped example leaves it off to keep the demo fast).</p>
+<h2 id="model-file-option-b--correlated-iov"><a class="header" href="#model-file-option-b--correlated-iov">Model File (Option B — correlated IOV)</a></h2>
+<p>If you have IOV on both CL and V and suspect they covary across occasions, use <code>block_kappa</code>:</p>
+<pre><code>[parameters]
+  ...
+  omega ETA_CL ~ 0.09
+  omega ETA_V  ~ 0.04
+  omega ETA_KA ~ 0.30
+
+  block_kappa (KAPPA_CL, KAPPA_V) = [0.05, 0.01, 0.03]
+
+  sigma PROP_ERR ~ 0.02
+
+[individual_parameters]
+  CL = TVCL * exp(ETA_CL + KAPPA_CL)
+  V  = TVV  * exp(ETA_V  + KAPPA_V)
+  KA = TVKA * exp(ETA_KA)
+</code></pre>
+<p>The three values in <code>[0.05, 0.01, 0.03]</code> are the lower triangle of Ω_IOV:</p>
 <ul>
-<li>FOCE fails to converge or produces implausible estimates</li>
-<li>The model has many random effects (&gt;4)</li>
-<li>You suspect the FOCE solution is a local minimum</li>
-<li>The model has complex nonlinear random effect structure</li>
+<li><code>0.05</code> = Var(KAPPA_CL)</li>
+<li><code>0.01</code> = Cov(KAPPA_CL, KAPPA_V)</li>
+<li><code>0.03</code> = Var(KAPPA_V)</li>
 </ul>
-<p>All methods produce comparable results on well-behaved models. The final OFV from SAEM and GN is computed using the FOCE approximation, so AIC/BIC values are directly comparable.</p>
+<h2 id="running-the-fit"><a class="header" href="#running-the-fit">Running the Fit</a></h2>
+<p>The repository does not ship a warfarin dataset with occasion labels — point <code>--data</code> at your own NONMEM-format CSV that includes an <code>OCC</code> column (see <a href="#dataset">Dataset</a> above):</p>
+<pre><code class="language-bash">ferx examples/warfarin_iov.ferx --data path/to/your_occ_data.csv
+</code></pre>
+<p>Or via the Rust API:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>let result = fit_from_files("examples/warfarin_iov.ferx", "path/to/your_occ_data.csv")?;
+println!("Omega IOV: {:?}", result.omega_iov);
+<span class="boring">}</span></code></pre>
+<h2 id="interpreting-output"><a class="header" href="#interpreting-output">Interpreting Output</a></h2>
+<p>The console summary gains a <code>KAPPA (IOV) Estimates</code> block, and the fit YAML gains an <code>omega_iov:</code> section.</p>
+<p>Console output (Option A, single kappa on CL):</p>
+<pre><code>--- KAPPA (IOV) Estimates ---
+  KAPPA_CL = 0.041200  (CV% = 20.3)  SE = 0.008000
+</code></pre>
+<p>For Option B with off-diagonal correlations a <code>--- Correlations ---</code> block follows the diagonal entries.</p>
+<p>Per-subject, per-occasion kappa EBEs are returned on <code>FitResult.ebe_kappas</code>. They are not yet emitted as columns in the sdtab CSV — access them via the Rust API if you need per-occasion plots:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>for (i, subject_kappas) in result.ebe_kappas.iter().enumerate() {
+    for (k, kappa_vec) in subject_kappas.iter().enumerate() {
+        println!("subject {} occasion {}: {:?}", i + 1, k + 1, kappa_vec);
+    }
+}
+<span class="boring">}</span></code></pre>
+<blockquote>
+<p><strong>Note</strong>: per-kappa shrinkage is not yet computed (<code>shrinkage_kappa</code> is always returned empty). If you need a shrinkage diagnostic for IOV, derive it manually from <code>ebe_kappas</code> and <code>omega_iov</code>.</p>
+</blockquote>
+<h2 id="tips"><a class="header" href="#tips">Tips</a></h2>
+<ul>
+<li><strong>Start with IOV on CL only</strong> — it is the most commonly occasion-sensitive parameter. Add IOV on other parameters only when the OFV improvement justifies it.</li>
+<li><strong>Compare OFV</strong> between BSV-only and IOV models — the difference is a likelihood-ratio test for the added IOV variance(s). Note that for a variance parameter at the boundary (H₀: σ² = 0) the asymptotic null is a 50:50 mixture of a point mass at 0 and χ²₁, not a plain χ²₁.</li>
+<li><strong>Use FOCEI for proportional errors</strong> — the interaction term matters more when individual predictions vary across occasions.</li>
+<li><strong>SAEM is not supported</strong> with IOV — use <code>foce</code> or <code>focei</code>.</li>
+</ul>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../model-file/simulation.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../examples/bloq.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="../estimation/foce.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../api/index.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                             </a>
 
@@ -239,11 +316,11 @@
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../model-file/simulation.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../examples/bloq.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="../estimation/foce.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../api/index.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
                     </a>
             </nav>

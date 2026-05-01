@@ -36,10 +36,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "ayu";
-            window.path_to_searchindex_js = "searchindex-06bfd8f0.js";
+            window.path_to_searchindex_js = "searchindex-d92b68b3.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-66605922.js"></script>
+        <script src="toc-911e3088.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -700,6 +700,43 @@ omega ETA_KA ~ 0.40
 block_omega (ETA_CL, ETA_V) = [0.09, 0.02, 0.04]
 </code></pre>
 <p>produces <code>[ETA_KA, ETA_CL, ETA_V]</code> (indices 1, 2, 3). The <code>[individual_parameters]</code> block should list assignments in the same order for clarity, though the parameter mapping is by name, not position.</p>
+<h2 id="kappa-inter-occasion-variability"><a class="header" href="#kappa-inter-occasion-variability">Kappa (Inter-Occasion Variability)</a></h2>
+<p>Inter-Occasion Variability (IOV) is declared with <code>kappa</code> (independent per-parameter) or <code>block_kappa</code> (correlated across parameters). Kappa parameters must be paired with <code>iov_column</code> in <code>[fit_options]</code> and an occasion column in the dataset.</p>
+<h3 id="diagonal-kappa--option-a"><a class="header" href="#diagonal-kappa--option-a">Diagonal kappa — Option A</a></h3>
+<pre><code>kappa NAME ~ variance
+kappa NAME ~ variance FIX
+</code></pre>
+<p>Each <code>kappa</code> line adds one diagonal element to the IOV omega matrix. Occasions are independent.</p>
+<p>Example:</p>
+<pre><code>kappa KAPPA_CL ~ 0.05
+kappa KAPPA_V  ~ 0.03
+kappa KAPPA_CL ~ 0.02 FIX
+</code></pre>
+<h3 id="block-kappa--option-b-correlated-iov"><a class="header" href="#block-kappa--option-b-correlated-iov">Block kappa — Option B (correlated IOV)</a></h3>
+<pre><code>block_kappa (NAME1, NAME2, ...) = [lower_triangle_values]
+block_kappa (NAME1, NAME2, ...) = [lower_triangle_values] FIX
+</code></pre>
+<p>Mirrors the <code>block_omega</code> syntax — values are the lower triangle of the IOV covariance matrix, row-wise. Use this when IOV effects are expected to be correlated (e.g. correlated occasion shifts in CL and V).</p>
+<p>Example (2×2 block):</p>
+<pre><code>block_kappa (KAPPA_CL, KAPPA_V) = [0.05, 0.01, 0.03]
+</code></pre>
+<p>where <code>0.05</code> = Var(KAPPA_CL), <code>0.01</code> = Cov(KAPPA_CL, KAPPA_V), <code>0.03</code> = Var(KAPPA_V).</p>
+<h3 id="using-kappas-in-individual-parameters"><a class="header" href="#using-kappas-in-individual-parameters">Using kappas in individual parameters</a></h3>
+<p>Reference kappa names exactly like BSV etas in <code>[individual_parameters]</code>:</p>
+<pre><code>[individual_parameters]
+  CL = TVCL * exp(ETA_CL + KAPPA_CL)
+  V  = TVV  * exp(ETA_V  + KAPPA_V)
+  KA = TVKA * exp(ETA_KA)           # no IOV on absorption
+</code></pre>
+<p>Kappas can be combined freely — a parameter can carry BSV only, IOV only, or both.</p>
+<h3 id="mixed-diagonal-and-block-kappa"><a class="header" href="#mixed-diagonal-and-block-kappa">Mixed diagonal and block kappa</a></h3>
+<p>You can mix <code>kappa</code> (uncorrelated) and <code>block_kappa</code> (correlated) declarations in the same model:</p>
+<pre><code>block_kappa (KAPPA_CL, KAPPA_V) = [0.05, 0.01, 0.03]
+kappa KAPPA_KA ~ 0.10
+</code></pre>
+<p>A name may not appear in both <code>kappa</code> and <code>block_kappa</code> — this is a parse error.</p>
+<h3 id="declaration-order-1"><a class="header" href="#declaration-order-1">Declaration order</a></h3>
+<p>Kappa declaration order determines the IOV omega matrix layout and the kappa column order in output. Kappas follow all BSV etas in the internal indexing: if a model has 3 BSV etas and 2 kappas, the kappas sit at indices 4 and 5.</p>
 <h2 id="sigma-residual-error"><a class="header" href="#sigma-residual-error">Sigma (Residual Error)</a></h2>
 <pre><code>sigma NAME ~ value
 </code></pre>
@@ -1054,6 +1091,7 @@ PARAM = THETA + ETA                   # additive
 <tr><td><code>global_maxeval</code></td><td>integer</td><td>auto</td><td>Max evaluations for global search</td></tr>
 <tr><td><code>bloq_method</code></td><td><code>drop</code>, <code>m3</code></td><td><code>drop</code></td><td>How to handle rows with <code>CENS=1</code>. <code>m3</code> enables Beal’s M3 likelihood (see <a href="#bloq-m3-method">BLOQ example</a>).</td></tr>
 <tr><td><code>mu_referencing</code></td><td><code>true</code>, <code>false</code></td><td><code>true</code></td><td>Re-centre inner-loop ETA estimates on the current population mean (auto-detected from <code>[individual_parameters]</code>). See the <a href="#do-i-need-to-use-mu-referencing-in-my-model-definitions-like-in-nonmem--nlmixr2">FAQ entry</a> for details. Set <code>false</code> to reproduce pre-automatic-mu behaviour.</td></tr>
+<tr><td><code>iov_column</code></td><td>string</td><td>—</td><td>Name of the occasion column in the dataset (e.g. <code>OCC</code>). Required when the model uses <code>kappa</code> or <code>block_kappa</code> declarations. The column must contain integer occasion indices. Case-insensitive. Only supported with <code>foce</code> / <code>focei</code> — not <code>saem</code>. See <a href="#inter-occasion-variability-iov">IOV documentation</a>.</td></tr>
 </tbody>
 </table>
 </div>
@@ -1199,6 +1237,12 @@ warnings.</p>
   optimizer          = trust_region
   maxiter            = 200
   steihaug_max_iters = 30
+</code></pre>
+<p>FOCE with Inter-Occasion Variability:</p>
+<pre><code>[fit_options]
+  method     = foce
+  iov_column = OCC
+  covariance = true
 </code></pre>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="simulation"><a class="header" href="#simulation">Simulation</a></h1>
@@ -1629,6 +1673,146 @@ SAEM iterations complete. Computing final EBEs and OFV...
 <h2 id="reference"><a class="header" href="#reference">Reference</a></h2>
 <p>Dosne A-G, Bergstrand M, Karlsson MO. “Improving the estimation of parameter uncertainty distributions in nonlinear mixed effects models using sampling importance resampling.” <em>J Pharmacokinet Pharmacodyn</em>. 2017;44(6):539-562. doi:10.1007/s10928-017-9542-0</p>
 <div style="break-before: page; page-break-before: always;"></div>
+<h1 id="inter-occasion-variability-iov"><a class="header" href="#inter-occasion-variability-iov">Inter-Occasion Variability (IOV)</a></h1>
+<p>Inter-Occasion Variability (IOV) models the fact that a subject’s PK parameters may shift between occasions (treatment periods, study visits, dosing intervals). Unlike between-subject variability (BSV), which is fixed for a subject across the whole study, IOV is a random effect that is re-drawn for each occasion.</p>
+<h2 id="concepts"><a class="header" href="#concepts">Concepts</a></h2>
+<h3 id="occasions"><a class="header" href="#occasions">Occasions</a></h3>
+<p>An <strong>occasion</strong> is a distinct time window during which the same kappa value applies. Occasions are identified by an integer column in the dataset (e.g. <code>OCC</code>). All rows — dose records and observation records — that share the same occasion index belong to one occasion.</p>
+<h3 id="kappa-parameters"><a class="header" href="#kappa-parameters">Kappa parameters</a></h3>
+<p><strong>Kappa</strong> (κ) is the IOV random effect, analogous to eta (η) for BSV. Each kappa is drawn independently per occasion:</p>
+<p>\[ \kappa_{ik} \sim \mathcal{N}(0, \Omega_\text{IOV}) \]</p>
+<p>where <em>i</em> indexes subjects and <em>k</em> indexes occasions. The IOV omega matrix Ω_IOV is estimated alongside the BSV omega.</p>
+<h3 id="individual-parameters-1"><a class="header" href="#individual-parameters-1">Individual parameters</a></h3>
+<p>Kappas enter the individual-parameter expressions in the same way as etas:</p>
+<pre><code>CL = TVCL * exp(ETA_CL + KAPPA_CL)
+</code></pre>
+<p>At each occasion <em>k</em>, the effective individual CL is <code>TVCL * exp(ETA_CL_i + KAPPA_CL_ik)</code>. The BSV eta captures stable between-subject differences; the kappa captures occasion-to-occasion fluctuation within a subject.</p>
+<h2 id="option-a-diagonal-iov-independent-kappas"><a class="header" href="#option-a-diagonal-iov-independent-kappas">Option A: Diagonal IOV (independent kappas)</a></h2>
+<p>Each kappa is declared independently, giving a <strong>diagonal</strong> Ω_IOV:</p>
+<pre><code>[parameters]
+  ...
+  kappa KAPPA_CL ~ 0.05
+  kappa KAPPA_V  ~ 0.03
+</code></pre>
+<p>The two kappas are uncorrelated across occasions. This is the most common formulation and corresponds to NONMEM’s IOV Option A.</p>
+<p>Use <code>FIX</code> to hold a kappa variance constant during estimation:</p>
+<pre><code>kappa KAPPA_CL ~ 0.05 FIX
+</code></pre>
+<h2 id="option-b-block-iov-correlated-kappas"><a class="header" href="#option-b-block-iov-correlated-kappas">Option B: Block IOV (correlated kappas)</a></h2>
+<p>When occasion effects on different parameters are expected to covary, use <code>block_kappa</code>:</p>
+<pre><code>[parameters]
+  ...
+  block_kappa (KAPPA_CL, KAPPA_V) = [0.05, 0.01, 0.03]
+</code></pre>
+<p>Values are the lower triangle of Ω_IOV: Var(KAPPA_CL), Cov(KAPPA_CL, KAPPA_V), Var(KAPPA_V). This mirrors the <code>block_omega</code> syntax for BSV.</p>
+<h3 id="mixed-option-a--b"><a class="header" href="#mixed-option-a--b">Mixed Option A + B</a></h3>
+<p><code>kappa</code> and <code>block_kappa</code> declarations can be combined freely — uncorrelated kappas can coexist with a correlated block:</p>
+<pre><code>block_kappa (KAPPA_CL, KAPPA_V) = [0.05, 0.01, 0.03]
+kappa KAPPA_KA ~ 0.10
+</code></pre>
+<p>A name may not appear in both a <code>kappa</code> and a <code>block_kappa</code> line.</p>
+<h2 id="model-file-setup"><a class="header" href="#model-file-setup">Model File Setup</a></h2>
+<pre><code>[parameters]
+  theta TVCL(0.2, 0.001, 10.0)
+  theta TVV(10.0, 0.1, 500.0)
+  theta TVKA(1.5, 0.01, 50.0)
+
+  omega ETA_CL ~ 0.09          # BSV
+  omega ETA_V  ~ 0.04
+  omega ETA_KA ~ 0.30
+
+  kappa KAPPA_CL ~ 0.05        # IOV (Option A)
+
+  sigma PROP_ERR ~ 0.02
+
+[individual_parameters]
+  CL = TVCL * exp(ETA_CL + KAPPA_CL)
+  V  = TVV  * exp(ETA_V)
+  KA = TVKA * exp(ETA_KA)
+
+[structural_model]
+  pk one_cpt_oral(cl=CL, v=V, ka=KA)
+
+[error_model]
+  DV ~ proportional(PROP_ERR)
+
+[fit_options]
+  method     = foce
+  iov_column = OCC
+</code></pre>
+<p>See <code>examples/warfarin_iov.ferx</code> for a complete runnable example.</p>
+<h2 id="algorithm-details"><a class="header" href="#algorithm-details">Algorithm Details</a></h2>
+<h3 id="inner-loop"><a class="header" href="#inner-loop">Inner loop</a></h3>
+<p>When a model has kappa declarations and the subject has occasion labels, the inner optimizer runs <code>find_ebe_iov</code> instead of the standard <code>find_ebe</code>. It jointly optimizes over:</p>
+<p>\[ p = [\underbrace{\eta_1, \ldots, \eta_{n_\eta}}<em>{\text{BSV}},\ \underbrace{\kappa</em>{1,1}, \ldots, \kappa_{1,n_\kappa}}<em>{\text{occasion 1}},\ \ldots,\ \underbrace{\kappa</em>{K,1}, \ldots, \kappa_{K,n_\kappa}}_{\text{occasion K}}] \]</p>
+<p>The joint negative log-posterior is:</p>
+<p>\[
+-\log p(p \mid y_i) = \frac{1}{2}\left[
+\eta^T \Omega^{-1} \eta + \log|\Omega|</p>
+<ul>
+<li>\sum_{k=1}^{K} \kappa_k^T \Omega_\text{IOV}^{-1} \kappa_k</li>
+<li>K \log|\Omega_\text{IOV}|</li>
+<li>\sum_{j} \left(\frac{(y_{ij} - f_{ij}^{(k_j)})^2}{V_{ij}} + \log V_{ij}\right)
+\right]
+\]</li>
+</ul>
+<p>where \( k_j \) is the occasion of observation <em>j</em> and \( f_{ij}^{(k)} = f(\theta, \eta_i, \kappa_{ik}) \).</p>
+<p>Optimization uses BFGS; the gradient is computed by finite differences (no AD path for IOV).</p>
+<h3 id="outer-loop"><a class="header" href="#outer-loop">Outer loop</a></h3>
+<p>The IOV omega is packed after the sigma block in the optimizer vector. For Option A (diagonal Ω_IOV) only the log-diagonal entries are appended; for Option B the full Cholesky lower triangle is appended (log-diagonals plus off-diagonals as-is), mirroring the BSV omega packing:</p>
+<p>\[
+x = [\log\theta,\ \text{chol}(\Omega_\text{BSV}),\ \log\sigma,\ \text{chol}(\Omega_\text{IOV})]
+\]</p>
+<p>The per-subject FOCE objective uses a block-diagonal omega that stacks the BSV block with <em>K</em> copies of Ω_IOV:</p>
+<p>\[
+\Omega_\text{full} = \text{blockdiag}(\Omega_\text{BSV},\ \Omega_\text{IOV},\ \ldots,\ \Omega_\text{IOV})
+\]</p>
+<p>The H-matrix (Jacobian ∂f/∂η) covers BSV etas only — kappa columns are not included in the FOCE linearization.</p>
+<h3 id="covariance-step-1"><a class="header" href="#covariance-step-1">Covariance step</a></h3>
+<p>When <code>covariance = true</code>, standard errors for the IOV omega diagonal (or its Cholesky elements) are computed via the finite-difference Hessian at convergence, using the same procedure as for BSV omega.</p>
+<h2 id="output-2"><a class="header" href="#output-2">Output</a></h2>
+<p>The following IOV-related fields are populated on <code>FitResult</code> and printed by <code>print_results()</code>. The fit YAML gains an <code>omega_iov:</code> section listing the kappa variances and (for Option B) the off-diagonal covariances/correlations.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Field</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>omega_iov</code></td><td>Estimated IOV covariance matrix (<code>Option&lt;DMatrix&lt;f64&gt;&gt;</code>)</td></tr>
+<tr><td><code>kappa_names</code></td><td>Names of kappa parameters in declaration order</td></tr>
+<tr><td><code>kappa_fixed</code></td><td>Per-kappa <code>FIX</code> flags</td></tr>
+<tr><td><code>se_kappa</code></td><td>Standard errors for IOV omega elements (requires <code>covariance = true</code>)</td></tr>
+<tr><td><code>ebe_kappas</code></td><td>Per-subject, per-occasion kappa EBEs. <code>ebe_kappas[i][k]</code> is the kappa vector for subject <em>i</em>, occasion <em>k</em></td></tr>
+</tbody>
+</table>
+</div>
+<p>When the dataset has occasion labels the sdtab CSV gains an <code>OCC</code> column (one row per observation, the subject’s occasion index for that row).</p>
+<blockquote>
+<p><strong>Note</strong>: <code>shrinkage_kappa</code> exists as a placeholder field on <code>FitResult</code> but is not yet computed — it is always returned as an empty <code>Vec</code>. Use <code>ebe_kappas</code> directly if you need a manual shrinkage diagnostic.</p>
+</blockquote>
+<h2 id="limitations-1"><a class="header" href="#limitations-1">Limitations</a></h2>
+<ul>
+<li><strong>SAEM is not supported</strong> with IOV models — an error is returned directing you to use <code>foce</code> or <code>focei</code>.</li>
+<li><strong>Automatic differentiation (AD) is not used</strong> for IOV inner-loop gradients; finite differences are used instead. For large models this is slower than the AD path used for BSV-only models.</li>
+<li>The occasion column must contain non-negative integers. Non-integer or negative values are silently treated as missing (<code>OCC = 0</code>) and a single summary warning is emitted.</li>
+<li>Per-kappa shrinkage is not yet computed (see Output note above).</li>
+<li>Kappa EBEs are not yet emitted as columns in the sdtab CSV; access them via <code>FitResult.ebe_kappas</code>.</li>
+</ul>
+<h2 id="comparison-to-nonmem"><a class="header" href="#comparison-to-nonmem">Comparison to NONMEM</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Concept</th><th>NONMEM</th><th>FeRx</th></tr>
+</thead>
+<tbody>
+<tr><td>Diagonal IOV</td><td><code>OMEGA BLOCK(n) SAME</code> with one kappa per block</td><td><code>kappa NAME ~ variance</code> (Option A)</td></tr>
+<tr><td>Correlated IOV</td><td><code>OMEGA BLOCK(n)</code> shared across occasions</td><td><code>block_kappa (N1, N2) = [...]</code> (Option B)</td></tr>
+<tr><td>Occasion column</td><td><code>OCC</code> in <code>$INPUT</code>; referenced in <code>$PK</code></td><td><code>iov_column = OCC</code> in <code>[fit_options]</code></td></tr>
+<tr><td>Kappa in PK</td><td><code>ETA(n)</code> with <code>SAME</code> block</td><td><code>KAPPA_xxx</code> in <code>[individual_parameters]</code></td></tr>
+</tbody>
+</table>
+</div>
+<div style="break-before: page; page-break-before: always;"></div>
 <h1 id="data-format"><a class="header" href="#data-format">Data Format</a></h1>
 <p>FeRx reads data in NONMEM-compatible CSV format. This is the standard format used across population PK tools.</p>
 <h2 id="required-columns"><a class="header" href="#required-columns">Required Columns</a></h2>
@@ -1662,6 +1846,24 @@ SAEM iterations complete. Computing final EBEs and OFV...
 </tbody>
 </table>
 </div>
+<h2 id="occasion-column-iov"><a class="header" href="#occasion-column-iov">Occasion Column (IOV)</a></h2>
+<p>When using Inter-Occasion Variability (IOV), add an occasion-index column to the dataset and specify its name with <code>iov_column</code> in <code>[fit_options]</code>. The column:</p>
+<ul>
+<li>Contains <strong>integer occasion indices</strong> (e.g. 1, 2, 3…) — one per row</li>
+<li>Applies to both dose rows and observation rows</li>
+<li>Is <strong>excluded from covariate auto-detection</strong></li>
+</ul>
+<p>Example dataset with <code>OCC</code> column:</p>
+<pre><code class="language-csv">ID,TIME,DV,EVID,AMT,CMT,MDV,OCC
+1,0,.,1,100,1,1,1
+1,1,9.5,0,.,.,0,1
+1,2,7.3,0,.,.,0,1
+1,24,.,1,100,1,1,2
+1,25,10.1,0,.,.,0,2
+1,26,8.2,0,.,.,0,2
+</code></pre>
+<p>The occasion index can be any positive integer; they do not need to start at 1 or be consecutive, but a different number means a different occasion with its own kappa EBE.</p>
+<p>See <a href="#inter-occasion-variability-iov">IOV documentation</a> for full details.</p>
 <h2 id="covariate-columns"><a class="header" href="#covariate-columns">Covariate Columns</a></h2>
 <p>Any column not in the standard set above is automatically treated as a covariate. Covariate values are:</p>
 <ul>
@@ -2300,6 +2502,127 @@ censored row carries less Fisher information than its Gaussian counterpart).
 A warning is emitted; for &gt;20% censoring prefer <code>focei</code>.</li>
 <li><strong>SAEM</strong> optimizes θ/σ with M3 in the M-step directly, so no special handling
 is required beyond setting <code>bloq_method = m3</code>.</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="inter-occasion-variability-iov-1"><a class="header" href="#inter-occasion-variability-iov-1">Inter-Occasion Variability (IOV)</a></h1>
+<p>This example extends the one-compartment oral warfarin model to account for occasion-to-occasion variability in clearance. The complete model file is <code>examples/warfarin_iov.ferx</code>.</p>
+<h2 id="when-to-use-iov"><a class="header" href="#when-to-use-iov">When to use IOV</a></h2>
+<p>Use IOV when:</p>
+<ul>
+<li>Subjects have data from multiple study periods (crossover designs, multiple visits)</li>
+<li>You expect within-subject PK variability across periods that is larger than pure residual error</li>
+<li>NONMEM models used <code>OMEGA BLOCK SAME</code> syntax for one or more parameters</li>
+</ul>
+<h2 id="dataset"><a class="header" href="#dataset">Dataset</a></h2>
+<p>The dataset must include an occasion-index column. Add an integer <code>OCC</code> column (or any name you choose — tell FeRx via <code>iov_column</code>):</p>
+<pre><code class="language-csv">ID,TIME,DV,EVID,AMT,CMT,MDV,OCC
+1,0,.,1,100,1,1,1
+1,1,9.49,0,.,.,0,1
+1,2,14.42,0,.,.,0,1
+1,3,17.56,0,.,.,0,1
+1,24,.,1,100,1,1,2
+1,25,10.1,0,.,.,0,2
+1,26,8.2,0,.,.,0,2
+</code></pre>
+<p>Occasion 1 = first period, occasion 2 = second period. Dose records and observation records in the same period share the same OCC value.</p>
+<h2 id="model-file-option-a--diagonal-iov"><a class="header" href="#model-file-option-a--diagonal-iov">Model File (Option A — diagonal IOV)</a></h2>
+<p>This is the contents of <a href="https://github.com/InsightRX/ferx-nlme/blob/main/examples/warfarin_iov.ferx"><code>examples/warfarin_iov.ferx</code></a>:</p>
+<pre><code>model warfarin_iov
+
+[parameters]
+  theta TVCL(0.2, 0.001, 10.0)
+  theta TVV(10.0, 0.1, 500.0)
+  theta TVKA(1.5, 0.01, 50.0)
+
+  omega ETA_CL ~ 0.09      # between-subject variability in CL
+  omega ETA_V  ~ 0.04
+  omega ETA_KA ~ 0.30
+
+  kappa KAPPA_CL ~ 0.01    # inter-occasion variability in CL
+
+  sigma PROP_ERR ~ 0.02
+
+[individual_parameters]
+  CL = TVCL * exp(ETA_CL + KAPPA_CL)
+  V  = TVV  * exp(ETA_V)
+  KA = TVKA * exp(ETA_KA)
+
+[structural_model]
+  pk one_cpt_oral(cl=CL, v=V, ka=KA)
+
+[error_model]
+  DV ~ proportional(PROP_ERR)
+
+[fit_options]
+  method     = foce
+  iov_column = OCC
+  covariance = false
+</code></pre>
+<p>The key additions compared to a standard model:</p>
+<ol>
+<li><code>kappa KAPPA_CL ~ 0.01</code> — declares IOV on CL with starting variance 0.01</li>
+<li><code>+ KAPPA_CL</code> in the CL expression — kappa enters just like a BSV eta</li>
+<li><code>iov_column = OCC</code> — tells FeRx which dataset column carries occasion labels</li>
+</ol>
+<p>Set <code>covariance = true</code> if you want standard errors on the IOV variance (the shipped example leaves it off to keep the demo fast).</p>
+<h2 id="model-file-option-b--correlated-iov"><a class="header" href="#model-file-option-b--correlated-iov">Model File (Option B — correlated IOV)</a></h2>
+<p>If you have IOV on both CL and V and suspect they covary across occasions, use <code>block_kappa</code>:</p>
+<pre><code>[parameters]
+  ...
+  omega ETA_CL ~ 0.09
+  omega ETA_V  ~ 0.04
+  omega ETA_KA ~ 0.30
+
+  block_kappa (KAPPA_CL, KAPPA_V) = [0.05, 0.01, 0.03]
+
+  sigma PROP_ERR ~ 0.02
+
+[individual_parameters]
+  CL = TVCL * exp(ETA_CL + KAPPA_CL)
+  V  = TVV  * exp(ETA_V  + KAPPA_V)
+  KA = TVKA * exp(ETA_KA)
+</code></pre>
+<p>The three values in <code>[0.05, 0.01, 0.03]</code> are the lower triangle of Ω_IOV:</p>
+<ul>
+<li><code>0.05</code> = Var(KAPPA_CL)</li>
+<li><code>0.01</code> = Cov(KAPPA_CL, KAPPA_V)</li>
+<li><code>0.03</code> = Var(KAPPA_V)</li>
+</ul>
+<h2 id="running-the-fit"><a class="header" href="#running-the-fit">Running the Fit</a></h2>
+<p>The repository does not ship a warfarin dataset with occasion labels — point <code>--data</code> at your own NONMEM-format CSV that includes an <code>OCC</code> column (see <a href="#dataset">Dataset</a> above):</p>
+<pre><code class="language-bash">ferx examples/warfarin_iov.ferx --data path/to/your_occ_data.csv
+</code></pre>
+<p>Or via the Rust API:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>let result = fit_from_files("examples/warfarin_iov.ferx", "path/to/your_occ_data.csv")?;
+println!("Omega IOV: {:?}", result.omega_iov);
+<span class="boring">}</span></code></pre>
+<h2 id="interpreting-output"><a class="header" href="#interpreting-output">Interpreting Output</a></h2>
+<p>The console summary gains a <code>KAPPA (IOV) Estimates</code> block, and the fit YAML gains an <code>omega_iov:</code> section.</p>
+<p>Console output (Option A, single kappa on CL):</p>
+<pre><code>--- KAPPA (IOV) Estimates ---
+  KAPPA_CL = 0.041200  (CV% = 20.3)  SE = 0.008000
+</code></pre>
+<p>For Option B with off-diagonal correlations a <code>--- Correlations ---</code> block follows the diagonal entries.</p>
+<p>Per-subject, per-occasion kappa EBEs are returned on <code>FitResult.ebe_kappas</code>. They are not yet emitted as columns in the sdtab CSV — access them via the Rust API if you need per-occasion plots:</p>
+<pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>for (i, subject_kappas) in result.ebe_kappas.iter().enumerate() {
+    for (k, kappa_vec) in subject_kappas.iter().enumerate() {
+        println!("subject {} occasion {}: {:?}", i + 1, k + 1, kappa_vec);
+    }
+}
+<span class="boring">}</span></code></pre>
+<blockquote>
+<p><strong>Note</strong>: per-kappa shrinkage is not yet computed (<code>shrinkage_kappa</code> is always returned empty). If you need a shrinkage diagnostic for IOV, derive it manually from <code>ebe_kappas</code> and <code>omega_iov</code>.</p>
+</blockquote>
+<h2 id="tips"><a class="header" href="#tips">Tips</a></h2>
+<ul>
+<li><strong>Start with IOV on CL only</strong> — it is the most commonly occasion-sensitive parameter. Add IOV on other parameters only when the OFV improvement justifies it.</li>
+<li><strong>Compare OFV</strong> between BSV-only and IOV models — the difference is a likelihood-ratio test for the added IOV variance(s). Note that for a variance parameter at the boundary (H₀: σ² = 0) the asymptotic null is a 50:50 mixture of a point mass at 0 and χ²₁, not a plain χ²₁.</li>
+<li><strong>Use FOCEI for proportional errors</strong> — the interaction term matters more when individual predictions vary across occasions.</li>
+<li><strong>SAEM is not supported</strong> with IOV — use <code>foce</code> or <code>focei</code>.</li>
 </ul>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="rust-api"><a class="header" href="#rust-api">Rust API</a></h1>
