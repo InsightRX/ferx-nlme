@@ -23,6 +23,30 @@ FeRx reads data in NONMEM-compatible CSV format. This is the standard format use
 | `SS` | integer | 0 | Steady-state flag. 1 = assume steady state |
 | `CENS` | integer | 0 | Censoring flag. 1 = observation is below LLOQ; `DV` carries the LLOQ value. Paired with `bloq_method = m3` in `[fit_options]` to enable likelihood-based handling — see [BLOQ example](examples/bloq.md). |
 
+## Occasion Column (IOV)
+
+When using Inter-Occasion Variability (IOV), add an occasion-index column to the dataset and specify its name with `iov_column` in `[fit_options]`. The column:
+
+- Contains **integer occasion indices** (e.g. 1, 2, 3…) — one per row
+- Applies to both dose rows and observation rows
+- Is **excluded from covariate auto-detection**
+
+Example dataset with `OCC` column:
+
+```csv
+ID,TIME,DV,EVID,AMT,CMT,MDV,OCC
+1,0,.,1,100,1,1,1
+1,1,9.5,0,.,.,0,1
+1,2,7.3,0,.,.,0,1
+1,24,.,1,100,1,1,2
+1,25,10.1,0,.,.,0,2
+1,26,8.2,0,.,.,0,2
+```
+
+The occasion index can be any positive integer; they do not need to start at 1 or be consecutive, but a different number means a different occasion with its own kappa EBE.
+
+See [IOV documentation](estimation/iov.md) for full details.
+
 ## Covariate Columns
 
 Any column not in the standard set above is automatically treated as a covariate. Covariate values are:
