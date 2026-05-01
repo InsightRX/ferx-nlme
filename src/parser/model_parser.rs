@@ -930,8 +930,12 @@ fn extract_blocks(content: &str) -> Result<HashMap<String, Vec<String>>, String>
     let mut current_block: Option<String> = None;
 
     for line in content.lines() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with("//") {
+        let without_comment = match line.find('#').into_iter().chain(line.find("//")).min() {
+            Some(idx) => &line[..idx],
+            None => line,
+        };
+        let trimmed = without_comment.trim();
+        if trimmed.is_empty() {
             continue;
         }
 
