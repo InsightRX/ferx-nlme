@@ -515,6 +515,20 @@ pub fn build_block_diag_omega(
 ///   `combined_eta_k = [eta[0..n_eta], kappas[k][0..n_kappa]]`
 /// Predictions for occasion-k observations use those PK params with the full
 /// subject dose history.
+///
+/// **Option A simplification — cross-occasion dose carryover.**
+/// Each occasion's predictions are computed with that occasion's pk_params
+/// against the *entire* dose history of the subject; only the obs rows
+/// belonging to that occasion are then scored. So a dose given in occasion
+/// `j` contributes to an occasion-`k` observation (`k > j`) using
+/// occasion-`k`'s CL/V/etc., not occasion-`j`'s. NONMEM's strict per-dose
+/// occasion accounting (each dose's contribution computed with its own
+/// occasion's parameters across the intervals it dominates) is not modeled
+/// here; for typical IOV designs (sparse PK with non-overlapping occasion
+/// windows) the difference is small, but for densely sampled designs with
+/// significant cross-occasion carryover the bias can matter. The
+/// FD Jacobian in `compute_jacobian_fd_iov` shares this convention so
+/// gradients and NLL values are internally consistent.
 pub fn individual_nll_iov(
     model: &CompiledModel,
     subject: &Subject,

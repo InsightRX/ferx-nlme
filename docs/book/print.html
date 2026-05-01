@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "ayu";
-            window.path_to_searchindex_js = "searchindex-2f461d70.js";
+            window.path_to_searchindex_js = "searchindex-06bfd8f0.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-66605922.js"></script>
@@ -1128,6 +1128,19 @@ Each Hessian costs O(n²) OFV evaluations, so it is fastest when the number
 of packed parameters is small. Increase <code>steihaug_max_iters</code> when the
 parameter count exceeds the default of 50.</li>
 </ul>
+<h2 id="parameter-scaling-and-ebe-convergence"><a class="header" href="#parameter-scaling-and-ebe-convergence">Parameter Scaling and EBE Convergence</a></h2>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Key</th><th>Default</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>scale_params</code></td><td><code>true</code></td><td>Scale packed parameters to O(1) before passing to the optimizer. Improves conditioning when log-transformed parameters span several orders of magnitude. Set to <code>false</code> to disable (reproduces pre-PR2 behaviour).</td></tr>
+<tr><td><code>max_unconverged_frac</code></td><td><code>0.1</code></td><td>Fraction of subjects (with at least <code>min_obs_for_convergence_check</code> observations) allowed to have unconverged EBEs before the outer optimizer rejects the step (returns OFV = ∞). Set to <code>1.0</code> to disable the guard.</td></tr>
+<tr><td><code>min_obs_for_convergence_check</code></td><td><code>2</code></td><td>Subjects with fewer than this many observations are excluded from the <code>max_unconverged_frac</code> check (they still run normally).</td></tr>
+</tbody>
+</table>
+</div>
 <h2 id="options-that-dont-apply-to-the-selected-method"><a class="header" href="#options-that-dont-apply-to-the-selected-method">Options That Don’t Apply to the Selected Method</a></h2>
 <p>If you set an option that the chosen estimation method doesn’t consume
 (e.g. <code>n_convergence</code> with <code>method = focei</code>, or <code>optimizer</code> with
