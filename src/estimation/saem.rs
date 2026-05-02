@@ -48,12 +48,13 @@ struct SaemState {
 // Metropolis-Hastings step for one subject
 // ---------------------------------------------------------------------------
 
-/// Run `n_steps` MH iterations for one subject in-place.
+/// Run `n_steps` symmetric random-walk MH iterations for one subject in-place.
 /// Returns (n_accepted, updated_nll).
 ///
-/// During the exploration phase (`mu_k` is `Some`), proposals are centred on
-/// `mu_k` rather than the current eta, which helps the chain escape the
-/// (incorrect) eta = 0 basin when TVCL is far from the true value.
+/// `eta` is in deviation (eta_true) space — the same space the model's
+/// `pk_param_fn` consumes — so proposals are random walks `eta + step * L * z`
+/// from the current position. The acceptance log-ratio is `nll_current -
+/// nll_prop`, which is correct because the symmetric proposal density cancels.
 fn mh_steps(
     eta: &mut [f64],
     nll_current: f64,
@@ -65,7 +66,6 @@ fn mh_steps(
     step_scale: f64,
     rng: &mut impl Rng,
     n_steps: usize,
-    mu_k: Option<&[f64]>,
 ) -> (usize, f64) {
     let n_eta = eta.len();
     let l = &omega.chol;
@@ -73,26 +73,20 @@ fn mh_steps(
     let mut n_accepted = 0;
 
     for _ in 0..n_steps {
-        // Propose: during exploration centre on mu_k; during convergence random-walk from current eta
         let z: Vec<f64> = (0..n_eta).map(|_| rng.sample(StandardNormal)).collect();
         let z_vec = DVector::from_column_slice(&z);
         let perturbation = l * z_vec;
 
-        let eta_prop: Vec<f64> = if let Some(mu) = mu_k {
-            // Exploration: centred proposal from prior mode
-            (0..n_eta)
-                .map(|j| mu[j] + step_scale * perturbation[j])
-                .collect()
-        } else {
-            // Convergence: random walk from current position
-            (0..n_eta)
-                .map(|j| eta[j] + step_scale * perturbation[j])
-                .collect()
-        };
+        let eta_prop: Vec<f64> = (0..n_eta)
+            .map(|j| eta[j] + step_scale * perturbation[j])
+            .collect();
 
         let nll_prop = individual_nll(model, subject, theta, &eta_prop, omega, sigma_values);
 
-        // Accept with log-ratio: log(alpha) = nll_current - nll_prop
+        // Accept with log-ratio: log(alpha) = nll_current - nll_prop.
+        // Symmetric proposal q(η_prop|η) = q(η|η_prop) cancels in the ratio,
+        // so the prior + likelihood difference encoded in `individual_nll` is
+        // the full acceptance criterion.
         let log_u: f64 = rng.gen::<f64>().ln();
         if log_u < nll - nll_prop {
             eta.copy_from_slice(&eta_prop);
@@ -457,7 +451,15 @@ pub fn run_saem(
 
     // Mu-referencing pairs for gradient step M-step: (theta_idx, eta_idx)
     let mu_ref_pairs: Vec<(usize, usize)> = get_mu_ref_pairs(model);
-    let use_grad_step = options.mu_referencing && !mu_ref_pairs.is_empty();
+    // The gradient-step M-step is disabled pending a fix. It uses
+    // `Σᵢ d obs_nll_i / d eta_idx` (sum, not mean) with γ=1 in exploration —
+    // log_theta moves by O(N) per iteration, pinning thetas at the bounds in
+    // the first few steps. The proper SAEM mu-ref M-step for log-mu-ref +
+    // Gaussian likelihood is `log_theta += γ · mean(eta)` (closed-form EM); a
+    // correct version of the gradient step would also need `grad_sum / N`.
+    // Until then, NLopt SLSQP runs the M-step on all thetas with its own line
+    // search, which is robust regardless of N.
+    let use_grad_step = false;
     let mu_ref_eta_indices: Vec<usize> = mu_ref_pairs.iter().map(|&(_, ei)| ei).collect();
     // Accumulator for the `obs_nll_sum` (population OFV) evaluations skipped
     // by pinning mu-ref dims out of NLopt's central-FD gradient.  Each pinned
@@ -485,20 +487,14 @@ pub fn run_saem(
         );
 
         // ---- Step 1: MH simulation (parallelized) ----
-        // During exploration (k <= k1) centre proposals on mu_k to help the
-        // chain find the posterior mode when theta is still far from the truth.
-        let is_exploration = k <= k1;
-        let saem_mu_k_vec = if is_exploration {
-            Some(compute_mu_k(model, &state.theta, options.mu_referencing))
-        } else {
-            None
-        };
+        // Symmetric random-walk MH in eta_true space, identical schedule
+        // throughout exploration and convergence — the only thing that
+        // changes between phases is the SA step-size `gamma`.
         {
             use rayon::prelude::*;
             let theta_ref = &state.theta;
             let sigma_ref = &state.sigma_vals;
             let omega_ref = &omega_k;
-            let mu_k_ref = saem_mu_k_vec.as_deref();
 
             let results: Vec<(Vec<f64>, f64, usize)> = state
                 .etas
@@ -525,7 +521,6 @@ pub fn run_saem(
                         scale,
                         &mut rng,
                         n_mh_steps,
-                        mu_k_ref,
                     );
                     (eta_work, nll_new, n_acc)
                 })
@@ -557,6 +552,22 @@ pub fn run_saem(
         // breaks positive-definiteness once the free-block diagonals shrink
         // during the exploration phase.
         state.omega_mat = state.s2.clone();
+        // When the model declared a diagonal omega (no `block_omega`), the
+        // off-diagonals aren't free parameters — zero the sample-covariance
+        // off-diagonals. Without this, `s2 = (1/N) Σ ηη^T` accumulates random
+        // sampling correlations that feed into the next iteration's Cholesky
+        // proposal, coupling etas the user declared independent. The chain
+        // then drives Ω toward a rank-deficient state, log|Ω| → -∞, and the
+        // M-step pushes thetas to bounds to compensate.
+        if init_params.omega.diagonal {
+            for i in 0..n_eta {
+                for j in 0..n_eta {
+                    if i != j {
+                        state.omega_mat[(i, j)] = 0.0;
+                    }
+                }
+            }
+        }
         for i in 0..n_eta {
             for j in 0..n_eta {
                 let fi = init_params.omega_fixed.get(i).copied().unwrap_or(false);
