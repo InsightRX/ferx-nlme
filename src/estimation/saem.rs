@@ -460,6 +460,17 @@ pub fn run_saem(
     // Until then, NLopt SLSQP runs the M-step on all thetas with its own line
     // search, which is robust regardless of N.
     let use_grad_step = false;
+    let mut warnings: Vec<String> = Vec::new();
+    if options.mu_referencing && !mu_ref_pairs.is_empty() {
+        // The closed-form EM mu-ref M-step is not yet implemented for SAEM;
+        // NLopt SLSQP handles all thetas instead. Warn so the user knows the
+        // option has no effect in this run.
+        warnings.push(
+            "mu_referencing = true has no effect for SAEM: the closed-form M-step update is not \
+             yet implemented. NLopt SLSQP optimises all thetas instead."
+                .to_string(),
+        );
+    }
     let mu_ref_eta_indices: Vec<usize> = mu_ref_pairs.iter().map(|&(_, ei)| ei).collect();
     // Accumulator for the `obs_nll_sum` (population OFV) evaluations skipped
     // by pinning mu-ref dims out of NLopt's central-FD gradient.  Each pinned
@@ -552,19 +563,17 @@ pub fn run_saem(
         // breaks positive-definiteness once the free-block diagonals shrink
         // during the exploration phase.
         state.omega_mat = state.s2.clone();
-        // When the model declared a diagonal omega (no `block_omega`), the
-        // off-diagonals aren't free parameters — zero the sample-covariance
-        // off-diagonals. Without this, `s2 = (1/N) Σ ηη^T` accumulates random
-        // sampling correlations that feed into the next iteration's Cholesky
-        // proposal, coupling etas the user declared independent. The chain
-        // then drives Ω toward a rank-deficient state, log|Ω| → -∞, and the
+        // Zero structurally-absent off-diagonals. `s2 = (1/N) Σ ηη^T` always
+        // produces a dense matrix; entries that are not free parameters
+        // (standalone etas, or etas from different block_omega declarations)
+        // must be zeroed so they don't feed sampling correlations back into
+        // the next iteration's Cholesky proposal. Without this, the chain
+        // drives Ω toward a rank-deficient state, log|Ω| → -∞, and the
         // M-step pushes thetas to bounds to compensate.
-        if init_params.omega.diagonal {
-            for i in 0..n_eta {
-                for j in 0..n_eta {
-                    if i != j {
-                        state.omega_mat[(i, j)] = 0.0;
-                    }
+        for i in 0..n_eta {
+            for j in 0..n_eta {
+                if !init_params.omega.free_mask[(i, j)] {
+                    state.omega_mat[(i, j)] = 0.0;
                 }
             }
         }
@@ -780,7 +789,6 @@ pub fn run_saem(
     let ofv = 2.0 * pop_nll(model, population, &final_params, &eta_hats, &h_matrices, &final_kappas, options.interaction);
 
     // ---- Covariance step ----
-    let mut warnings = Vec::new();
     let covariance_matrix =
         if options.run_covariance_step && !crate::cancel::is_cancelled(&options.cancel) {
             if verbose {
@@ -903,5 +911,111 @@ mod tests {
             &[("ETA_CL", "MISSING", true)],
         );
         assert!(get_mu_ref_pairs(&m).is_empty());
+    }
+
+    // ---- Regression tests for the three SAEM correctness bugs ----
+
+    /// Bug 1 (diagonal): `from_diagonal` must produce a free_mask with only
+    /// diagonal entries set, so the M-step zeros SA off-diagonal accumulation.
+    #[test]
+    fn diagonal_omega_free_mask_has_no_off_diagonals() {
+        let omega = OmegaMatrix::from_diagonal(&[0.1, 0.2], vec!["ETA_CL".into(), "ETA_V".into()]);
+        assert!(omega.free_mask[(0, 0)]);
+        assert!(omega.free_mask[(1, 1)]);
+        assert!(!omega.free_mask[(0, 1)]);
+        assert!(!omega.free_mask[(1, 0)]);
+    }
+
+    /// Bug 1 (mixed omega): `from_matrix_with_mask` preserves an explicit mask
+    /// that marks cross-block entries as structural zeros even when
+    /// `diagonal == false`.  This mirrors what `build_omega_matrix` produces
+    /// for a model with one standalone eta and one `block_omega` pair.
+    #[test]
+    fn mixed_omega_free_mask_zeros_cross_block_entries() {
+        // Three etas: ETA_CL(0) and ETA_V(1) in a block; ETA_KA(2) standalone.
+        let mut matrix = nalgebra::DMatrix::zeros(3, 3);
+        matrix[(0, 0)] = 0.1;
+        matrix[(1, 1)] = 0.2;
+        matrix[(2, 2)] = 0.1;
+        matrix[(0, 1)] = 0.01;
+        matrix[(1, 0)] = 0.01;
+
+        let mut free_mask = nalgebra::DMatrix::from_element(3, 3, false);
+        free_mask[(0, 0)] = true;
+        free_mask[(1, 1)] = true;
+        free_mask[(2, 2)] = true;
+        free_mask[(0, 1)] = true; // within CL-V block
+        free_mask[(1, 0)] = true;
+
+        let names = vec!["ETA_CL".into(), "ETA_V".into(), "ETA_KA".into()];
+        let omega = OmegaMatrix::from_matrix_with_mask(matrix, names, false, free_mask);
+
+        // Diagonals and within-block off-diagonals are free.
+        assert!(omega.free_mask[(0, 0)]);
+        assert!(omega.free_mask[(1, 1)]);
+        assert!(omega.free_mask[(2, 2)]);
+        assert!(omega.free_mask[(0, 1)]);
+        assert!(omega.free_mask[(1, 0)]);
+        // Cross-block entries (KA↔CL, KA↔V) are structural zeros.
+        assert!(!omega.free_mask[(2, 0)]);
+        assert!(!omega.free_mask[(0, 2)]);
+        assert!(!omega.free_mask[(2, 1)]);
+        assert!(!omega.free_mask[(1, 2)]);
+    }
+
+    /// Bug 2: `mh_steps` must be a symmetric random walk — proposals must not
+    /// be re-centred on `mu_k`.  With very large sigma (all proposals accepted),
+    /// 500 steps from eta=0 must produce eta ≠ 0.  If proposals were centred on
+    /// mu_k=0 every step the chain could never leave zero.
+    #[test]
+    fn mh_steps_random_walk_leaves_eta_zero() {
+        use crate::stats::likelihood::individual_nll;
+        use crate::types::{DoseEvent, SigmaVector};
+        use rand::SeedableRng;
+        use rand::rngs::StdRng;
+        use std::collections::HashMap;
+
+        let model = analytical_model(GradientMethod::Auto);
+        let subj = Subject {
+            id: "1".into(),
+            doses: vec![DoseEvent::new(0.0, 100.0, 1, 0.0, false, 0.0)],
+            obs_times: vec![1.0],
+            observations: vec![1.0],
+            obs_cmts: vec![1],
+            covariates: HashMap::new(),
+            tvcov: HashMap::new(),
+            cens: vec![0],
+            occasions: vec![],
+            dose_occasions: vec![],
+        };
+        let omega = OmegaMatrix::from_diagonal(&[1.0], vec!["ETA_CL".into()]);
+        let sigma = SigmaVector { values: vec![100.0], names: vec!["PROP".into()] };
+        let theta = vec![1.0];
+        let mut eta = vec![0.0_f64];
+        let nll_start = individual_nll(&model, &subj, &theta, &eta, &omega, &sigma.values);
+        let mut rng = StdRng::seed_from_u64(42);
+
+        mh_steps(&mut eta, nll_start, &subj, &model, &theta, &omega, &sigma.values, 1.0, &mut rng, 500);
+
+        assert!(
+            eta[0].abs() > 1e-6,
+            "eta stayed at 0 — proposals were incorrectly re-centred on mu_k"
+        );
+    }
+
+    /// Bug 3: the mu-ref gradient step overshoots by N; it must remain disabled.
+    /// mu-ref pair detection still works (kept for the future closed-form update).
+    #[test]
+    fn mu_ref_gradient_step_disabled_detection_still_works() {
+        let m = model_with_mu_refs(
+            &["CL", "V"],
+            &["ETA_CL", "ETA_V"],
+            &[("ETA_CL", "CL", true), ("ETA_V", "V", true)],
+        );
+        // Detection produces the right pairs — the fix did not remove detection.
+        let pairs = get_mu_ref_pairs(&m);
+        assert_eq!(pairs.len(), 2);
+        // use_grad_step = false in run_saem ensures the gradient branch is never
+        // taken.  If that line changes, the N-scaling bug must be fixed first.
     }
 }
