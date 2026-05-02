@@ -143,37 +143,50 @@ fn theta_sigma_mstep_light(
     }
 
     // Objective operating on unscaled log-space parameters.
+    //
+    // The central-FD gradient parallelises over both the parameter dimension
+    // (outer) and subjects (inner via `obs_nll_sum`). Rayon's work-stealing
+    // schedules the nested par_iter without oversubscription; in practice
+    // nested wins because n_dims (~5–10) alone rarely saturates n_cores (10),
+    // while subject-level parallelism alone leaves the FD dims serialised
+    // across many small per-sweep sync barriers.
     let obj = |xv: &[f64], grad: Option<&mut [f64]>, _: &mut ()| -> f64 {
         let th: Vec<f64> = xv[..n_theta].iter().map(|&v| v.exp()).collect();
         let sg: Vec<f64> = xv[n_theta..].iter().map(|&v| v.exp()).collect();
         let val = obs_nll_sum(model, population, &th, &sg, etas);
 
         if let Some(g) = grad {
+            use rayon::prelude::*;
             let h = 1e-5;
-            let mut xp = xv.to_vec();
-            for i in 0..n {
-                // Pinned dims (lower == upper) cannot move; skip their FD
-                // evaluations entirely.  This is what makes the SAEM mu-ref
-                // gradient step actually save NLopt OFV evaluations — without
-                // it, NLopt's central FD would still hit each pinned dim.
-                if lower[i] == upper[i] {
-                    g[i] = 0.0;
-                    continue;
-                }
-                xp[i] = xv[i] + h;
-                let th_p: Vec<f64> = xp[..n_theta].iter().map(|&v| v.exp()).collect();
-                let sg_p: Vec<f64> = xp[n_theta..].iter().map(|&v| v.exp()).collect();
-                let fp = obs_nll_sum(model, population, &th_p, &sg_p, etas);
-                xp[i] = xv[i] - h;
-                let th_m: Vec<f64> = xp[..n_theta].iter().map(|&v| v.exp()).collect();
-                let sg_m: Vec<f64> = xp[n_theta..].iter().map(|&v| v.exp()).collect();
-                let fm = obs_nll_sum(model, population, &th_m, &sg_m, etas);
-                g[i] = (fp - fm) / (2.0 * h);
-                if !g[i].is_finite() {
-                    g[i] = 0.0;
-                }
-                xp[i] = xv[i];
-            }
+            let g_vec: Vec<f64> = (0..n)
+                .into_par_iter()
+                .map(|i| {
+                    // Pinned dims (lower == upper) cannot move; skip their FD
+                    // evaluations entirely.  This is what makes the SAEM mu-ref
+                    // gradient step actually save NLopt OFV evaluations —
+                    // without it, NLopt's central FD would still hit each
+                    // pinned dim.
+                    if lower[i] == upper[i] {
+                        return 0.0;
+                    }
+                    let mut xp = xv.to_vec();
+                    xp[i] = xv[i] + h;
+                    let th_p: Vec<f64> = xp[..n_theta].iter().map(|&v| v.exp()).collect();
+                    let sg_p: Vec<f64> = xp[n_theta..].iter().map(|&v| v.exp()).collect();
+                    let fp = obs_nll_sum(model, population, &th_p, &sg_p, etas);
+                    xp[i] = xv[i] - h;
+                    let th_m: Vec<f64> = xp[..n_theta].iter().map(|&v| v.exp()).collect();
+                    let sg_m: Vec<f64> = xp[n_theta..].iter().map(|&v| v.exp()).collect();
+                    let fm = obs_nll_sum(model, population, &th_m, &sg_m, etas);
+                    let gi = (fp - fm) / (2.0 * h);
+                    if gi.is_finite() {
+                        gi
+                    } else {
+                        0.0
+                    }
+                })
+                .collect();
+            g.copy_from_slice(&g_vec);
         }
 
         if val.is_finite() {
