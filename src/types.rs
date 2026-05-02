@@ -502,8 +502,14 @@ pub struct FitResult {
     pub bic: f64,
     pub theta: Vec<f64>,
     pub theta_names: Vec<String>,
+    /// Names of the random effects (etas), parallel to the omega diagonal.
+    pub eta_names: Vec<String>,
     pub omega: DMatrix<f64>,
     pub sigma: Vec<f64>,
+    /// Names of the sigma parameters, parallel to `sigma`.
+    pub sigma_names: Vec<String>,
+    /// Residual error model (additive, proportional, combined).
+    pub error_model: ErrorModel,
     pub covariance_matrix: Option<DMatrix<f64>>,
     pub se_theta: Option<Vec<f64>>,
     pub se_omega: Option<Vec<f64>>,
