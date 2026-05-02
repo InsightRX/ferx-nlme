@@ -273,9 +273,10 @@ fn obs_nll_sum(
     sigma_values: &[f64],
     etas: &[Vec<f64>],
 ) -> f64 {
+    use rayon::prelude::*;
     population
         .subjects
-        .iter()
+        .par_iter()
         .enumerate()
         .map(|(i, subject)| obs_nll_single(model, subject, theta, sigma_values, &etas[i]))
         .sum()
