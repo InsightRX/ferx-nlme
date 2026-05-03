@@ -569,28 +569,35 @@ pub fn run_saem(
                 let n_subj = state.etas.len() as f64;
                 let mut temp_theta_lower = log_theta_lower.clone();
                 let mut temp_theta_upper = log_theta_upper.clone();
+                let mut n_pinned: u64 = 0;
                 for &(theta_idx, eta_idx) in &mu_ref_pairs {
                     if init_params.theta_fixed.get(theta_idx).copied().unwrap_or(false) {
                         continue;
                     }
                     let mean_eta: f64 =
                         state.etas.iter().map(|e| e[eta_idx]).sum::<f64>() / n_subj;
-                    log_theta[theta_idx] += gamma * mean_eta;
-                    log_theta[theta_idx] = log_theta[theta_idx]
+                    let log_theta_before = log_theta[theta_idx];
+                    log_theta[theta_idx] = (log_theta_before + gamma * mean_eta)
                         .clamp(log_theta_lower[theta_idx], log_theta_upper[theta_idx]);
-                    // Re-centre etas for this dim by the same shift so they
-                    // remain deviations from the *new* log(TVP).
+                    // Re-centre etas by the *actual* shift applied to log_theta,
+                    // not by `gamma * mean_eta` directly: when the update is
+                    // clamped at a bound the realised delta is smaller, and
+                    // shifting etas by the unclamped quantity would break
+                    // log(P_i) = log(TVP) + η_i until the next MH refresh.
+                    let delta = log_theta[theta_idx] - log_theta_before;
                     for e in state.etas.iter_mut() {
-                        e[eta_idx] -= gamma * mean_eta;
+                        e[eta_idx] -= delta;
                     }
                     // Pin so NLopt leaves the closed-form value unchanged.
                     temp_theta_lower[theta_idx] = log_theta[theta_idx];
                     temp_theta_upper[theta_idx] = log_theta[theta_idx];
+                    n_pinned += 1;
                 }
                 // Each pinned mu-ref dim avoids 2 obs_nll_sum calls per NLopt
-                // gradient request, capped at `mstep_maxiter` requests.
-                mstep_grad_step_evals_saved +=
-                    2 * mstep_maxiter as u64 * mu_ref_pairs.len() as u64;
+                // gradient request, capped at `mstep_maxiter` requests. FIXed
+                // thetas are not pinned by the closed form (NLopt sees them as
+                // FIXed via the regular bounds path) so they aren't counted.
+                mstep_grad_step_evals_saved += 2 * mstep_maxiter as u64 * n_pinned;
 
                 // NLopt for non-mu-ref thetas (pinned) and sigma.
                 let (theta_new, sigma_new) = theta_sigma_mstep_light(
@@ -915,12 +922,21 @@ mod tests {
         assert!(!omega.free_mask[(1, 2)]);
     }
 
-    /// Bug 2: `mh_steps` is a symmetric random walk — proposals are not
-    /// re-centred on `mu_k`. Starting from eta=0 with a wide sigma, 500 steps
-    /// must move eta away from zero. Under the pre-fix mu_k-centred kernel
-    /// (mu_k=0 in this case), the chain could never leave zero by construction.
+    /// Bug 2: `mh_steps` is a symmetric random walk — proposals are
+    /// `eta_prop = eta + step·perturbation`, not `mu_k + step·perturbation`.
+    ///
+    /// Discriminator: with `step_scale = 0` the new kernel proposes exactly
+    /// the current eta, so the chain cannot move regardless of the data.
+    /// The pre-fix `mu_k`-centred kernel proposed exactly `mu_k` (= log TVCL),
+    /// so a starting eta far from `mu_k` would either jump to `mu_k`
+    /// whenever the proposal looked better, or oscillate. We pick a starting
+    /// eta of 5.0 with TVCL=1 (mu_k=0): the simulated observation lives near
+    /// the data-generating eta=0 region, so individual_nll(eta=0) is much
+    /// lower than individual_nll(eta=5), meaning the broken kernel would
+    /// accept the eta=0 proposal with probability ≈1 on the first step.
+    /// The new kernel must leave eta at exactly 5.0.
     #[test]
-    fn mh_steps_random_walk_leaves_eta_zero() {
+    fn mh_steps_random_walk_uses_current_eta_not_mu_k() {
         use crate::stats::likelihood::individual_nll;
         use crate::types::{DoseEvent, SigmaVector};
         use rand::SeedableRng;
@@ -941,9 +957,9 @@ mod tests {
             dose_occasions: vec![],
         };
         let omega = OmegaMatrix::from_diagonal(&[1.0], vec!["ETA_CL".into()]);
-        let sigma = SigmaVector { values: vec![100.0], names: vec!["PROP".into()] };
-        let theta = vec![1.0];
-        let mut eta = vec![0.0_f64];
+        let sigma = SigmaVector { values: vec![1.0], names: vec!["PROP".into()] };
+        let theta = vec![1.0]; // mu_k = log(1) = 0
+        let mut eta = vec![5.0_f64]; // far from mu_k
         let nll_start = individual_nll(&model, &subj, &theta, &eta, &omega, &sigma.values);
         let mut rng = StdRng::seed_from_u64(42);
 
@@ -955,14 +971,17 @@ mod tests {
             &theta,
             &omega,
             &sigma.values,
-            1.0,
+            0.0, // zero perturbation: random walk MUST stay put exactly
             &mut rng,
-            500,
+            100,
         );
 
-        assert!(
-            eta[0].abs() > 1e-6,
-            "eta stayed at 0 — proposals were incorrectly re-centred on mu_k"
+        // Random walk with step=0: every proposal == current eta, accepted as
+        // identity. The pre-fix kernel would have proposed mu_k=0 every step
+        // and accepted it (lower nll than eta=5), driving eta to 0.
+        assert_eq!(
+            eta[0], 5.0,
+            "eta moved despite step_scale=0 — proposals were re-centred on mu_k"
         );
     }
 
