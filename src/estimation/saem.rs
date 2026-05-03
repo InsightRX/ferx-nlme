@@ -18,6 +18,7 @@ use rand::prelude::*;
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 use rand_distr::StandardNormal;
+use rayon::prelude::*;
 
 // ---------------------------------------------------------------------------
 // SAEM state
@@ -150,11 +151,10 @@ fn theta_sigma_mstep_light(
         let val = obs_nll_sum(model, population, &th, &sg, etas);
 
         if let Some(g) = grad {
-            use rayon::prelude::*;
             let h = 1e-5;
             let g_vec: Vec<f64> = (0..n)
                 .into_par_iter()
-                .map(|i| {
+                .map_init(|| xv.to_vec(), |xp, i| {
                     // Pinned dims (lower == upper) cannot move; skip their FD
                     // evaluations entirely.  This is what makes the SAEM mu-ref
                     // gradient step actually save NLopt OFV evaluations —
@@ -163,7 +163,7 @@ fn theta_sigma_mstep_light(
                     if lower[i] == upper[i] {
                         return 0.0;
                     }
-                    let mut xp = xv.to_vec();
+                    xp.copy_from_slice(xv);
                     xp[i] = xv[i] + h;
                     let th_p: Vec<f64> = xp[..n_theta].iter().map(|&v| v.exp()).collect();
                     let sg_p: Vec<f64> = xp[n_theta..].iter().map(|&v| v.exp()).collect();
@@ -280,7 +280,6 @@ fn obs_nll_sum(
     sigma_values: &[f64],
     etas: &[Vec<f64>],
 ) -> f64 {
-    use rayon::prelude::*;
     population
         .subjects
         .par_iter()
@@ -502,7 +501,6 @@ pub fn run_saem(
         // throughout exploration and convergence — the only thing that
         // changes between phases is the SA step-size `gamma`.
         {
-            use rayon::prelude::*;
             let theta_ref = &state.theta;
             let sigma_ref = &state.sigma_vals;
             let omega_ref = &omega_k;
@@ -596,7 +594,6 @@ pub fn run_saem(
             if use_grad_step {
                 // Gradient step for mu-referenced thetas: ∂condNLL/∂mu_j = Σᵢ ∂obs_nll_i/∂eta_k
                 let subject_eta_grads: Vec<Vec<f64>> = {
-                    use rayon::prelude::*;
                     let theta_ref = &state.theta;
                     let sigma_ref = &state.sigma_vals;
                     let eta_idx_ref = &mu_ref_eta_indices;
@@ -687,7 +684,6 @@ pub fn run_saem(
             init_params.omega.diagonal,
         );
         {
-            use rayon::prelude::*;
             let new_nlls: Vec<f64> = state
                 .etas
                 .par_iter()
