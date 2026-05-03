@@ -1,0 +1,365 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Parameters - FeRx-NLME Documentation</title>
+
+
+        <!-- Custom HTML head -->
+        
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="../favicon.svg">
+        <link rel="shortcut icon" href="../favicon.png">
+        <link rel="stylesheet" href="../css/variables.css">
+        <link rel="stylesheet" href="../css/general.css">
+        <link rel="stylesheet" href="../css/chrome.css">
+        <link rel="stylesheet" href="../css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="../fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" href="../highlight.css">
+        <link rel="stylesheet" href="../tomorrow-night.css">
+        <link rel="stylesheet" href="../ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+
+    </head>
+    <body class="sidebar-visible no-js">
+    <div id="body-container">
+        <!-- Provide site root to javascript -->
+        <script>
+            var path_to_root = "../";
+            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "ayu" : "light";
+        </script>
+
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                var theme = localStorage.getItem('mdbook-theme');
+                var sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            var theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            var html = document.querySelector('html');
+            html.classList.remove('light')
+            html.classList.add(theme);
+            var body = document.querySelector('body');
+            body.classList.remove('no-js')
+            body.classList.add('js');
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            var body = document.querySelector('body');
+            var sidebar = null;
+            var sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+            }
+            sidebar_toggle.checked = sidebar === 'visible';
+            body.classList.remove('sidebar-visible');
+            body.classList.add("sidebar-" + sidebar);
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <div class="sidebar-scrollbox">
+                <ol class="chapter"><li class="chapter-item expanded "><a href="../introduction.html"><strong aria-hidden="true">1.</strong> Introduction</a></li><li class="chapter-item expanded "><a href="../getting-started.html"><strong aria-hidden="true">2.</strong> Getting Started</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../installation.html"><strong aria-hidden="true">2.1.</strong> Installation</a></li><li class="chapter-item expanded "><a href="../quick-start.html"><strong aria-hidden="true">2.2.</strong> Quick Start</a></li></ol></li><li class="chapter-item expanded "><a href="../model-file/index.html"><strong aria-hidden="true">3.</strong> Model File Reference</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../model-file/parameters.html" class="active"><strong aria-hidden="true">3.1.</strong> Parameters</a></li><li class="chapter-item expanded "><a href="../model-file/individual-parameters.html"><strong aria-hidden="true">3.2.</strong> Individual Parameters</a></li><li class="chapter-item expanded "><a href="../model-file/structural-model.html"><strong aria-hidden="true">3.3.</strong> Structural Model</a></li><li class="chapter-item expanded "><a href="../model-file/error-model.html"><strong aria-hidden="true">3.4.</strong> Error Model</a></li><li class="chapter-item expanded "><a href="../model-file/ode-models.html"><strong aria-hidden="true">3.5.</strong> ODE Models</a></li><li class="chapter-item expanded "><a href="../model-file/fit-options.html"><strong aria-hidden="true">3.6.</strong> Fit Options</a></li><li class="chapter-item expanded "><a href="../model-file/simulation.html"><strong aria-hidden="true">3.7.</strong> Simulation</a></li></ol></li><li class="chapter-item expanded "><a href="../estimation/index.html"><strong aria-hidden="true">4.</strong> Estimation Methods</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../estimation/foce.html"><strong aria-hidden="true">4.1.</strong> FOCE / FOCEI</a></li><li class="chapter-item expanded "><a href="../estimation/gauss-newton.html"><strong aria-hidden="true">4.2.</strong> Gauss-Newton (BHHH)</a></li><li class="chapter-item expanded "><a href="../estimation/saem.html"><strong aria-hidden="true">4.3.</strong> SAEM</a></li><li class="chapter-item expanded "><a href="../estimation/sir.html"><strong aria-hidden="true">4.4.</strong> SIR</a></li><li class="chapter-item expanded "><a href="../estimation/iov.html"><strong aria-hidden="true">4.5.</strong> Inter-Occasion Variability (IOV)</a></li></ol></li><li class="chapter-item expanded "><a href="../data-format.html"><strong aria-hidden="true">5.</strong> Data Format</a></li><li class="chapter-item expanded "><a href="../cli.html"><strong aria-hidden="true">6.</strong> CLI Reference</a></li><li class="chapter-item expanded "><a href="../output.html"><strong aria-hidden="true">7.</strong> Output Files</a></li><li class="chapter-item expanded "><a href="../examples/index.html"><strong aria-hidden="true">8.</strong> Examples</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../examples/one-cpt-oral.html"><strong aria-hidden="true">8.1.</strong> One-Compartment Oral</a></li><li class="chapter-item expanded "><a href="../examples/two-cpt-iv.html"><strong aria-hidden="true">8.2.</strong> Two-Compartment IV</a></li><li class="chapter-item expanded "><a href="../examples/covariates.html"><strong aria-hidden="true">8.3.</strong> Covariates</a></li><li class="chapter-item expanded "><a href="../examples/ode-model.html"><strong aria-hidden="true">8.4.</strong> ODE Model</a></li><li class="chapter-item expanded "><a href="../examples/bloq.html"><strong aria-hidden="true">8.5.</strong> BLOQ (M3 method)</a></li><li class="chapter-item expanded "><a href="../examples/iov.html"><strong aria-hidden="true">8.6.</strong> Inter-Occasion Variability</a></li></ol></li><li class="chapter-item expanded "><a href="../api/index.html"><strong aria-hidden="true">9.</strong> Rust API</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../api/types.html"><strong aria-hidden="true">9.1.</strong> Core Types</a></li><li class="chapter-item expanded "><a href="../api/fitting.html"><strong aria-hidden="true">9.2.</strong> Fitting Functions</a></li><li class="chapter-item expanded "><a href="../api/simulation.html"><strong aria-hidden="true">9.3.</strong> Simulation</a></li><li class="chapter-item expanded "><a href="../api/parsing.html"><strong aria-hidden="true">9.4.</strong> Parsing</a></li></ol></li><li class="chapter-item expanded "><a href="../faq.html"><strong aria-hidden="true">10.</strong> FAQ</a></li></ol>
+            </div>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <!-- Track and set sidebar scroll position -->
+        <script>
+            var sidebarScrollbox = document.querySelector('#sidebar .sidebar-scrollbox');
+            sidebarScrollbox.addEventListener('click', function(e) {
+                if (e.target.tagName === 'A') {
+                    sessionStorage.setItem('sidebar-scroll', sidebarScrollbox.scrollTop);
+                }
+            }, { passive: true });
+            var sidebarScrollTop = sessionStorage.getItem('sidebar-scroll');
+            sessionStorage.removeItem('sidebar-scroll');
+            if (sidebarScrollTop) {
+                // preserve sidebar scroll position when navigating via links within sidebar
+                sidebarScrollbox.scrollTop = sidebarScrollTop;
+            } else {
+                // scroll sidebar to current active section when navigating via "next/previous chapter" buttons
+                var activeSection = document.querySelector('#sidebar .active');
+                if (activeSection) {
+                    activeSection.scrollIntoView({ block: 'center' });
+                }
+            }
+        </script>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">FeRx-NLME Documentation</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+                        <a href="https://github.com/insightrx/ferx-nlme" title="Git repository" aria-label="Git repository">
+                            <i id="git-repository-button" class="fa fa-github"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="parameters"><a class="header" href="#parameters">Parameters</a></h1>
+<p>The <code>[parameters]</code> block defines all model parameters: fixed effects (theta), between-subject variability (omega), and residual error (sigma).</p>
+<h2 id="theta-fixed-effects"><a class="header" href="#theta-fixed-effects">Theta (Fixed Effects)</a></h2>
+<pre><code>theta NAME(initial_value, lower_bound, upper_bound)
+</code></pre>
+<ul>
+<li><strong>NAME</strong>: Parameter name (used in <code>[individual_parameters]</code> expressions)</li>
+<li><strong>initial_value</strong>: Starting value for estimation</li>
+<li><strong>lower_bound</strong>: Lower bound constraint (must be &gt; 0; parameters are log-transformed internally)</li>
+<li><strong>upper_bound</strong>: Upper bound constraint</li>
+</ul>
+<p>Example:</p>
+<pre><code>theta TVCL(0.134, 0.001, 10.0)
+theta TVV(8.1, 0.1, 500.0)
+theta TVKA(1.0, 0.01, 50.0)
+</code></pre>
+<h2 id="omega-between-subject-variability"><a class="header" href="#omega-between-subject-variability">Omega (Between-Subject Variability)</a></h2>
+<h3 id="diagonal-omega"><a class="header" href="#diagonal-omega">Diagonal omega</a></h3>
+<pre><code>omega NAME ~ variance
+</code></pre>
+<ul>
+<li><strong>NAME</strong>: Random effect name (used in <code>[individual_parameters]</code> as <code>ETA_XXX</code>)</li>
+<li><strong>variance</strong>: Initial variance estimate (diagonal element of the omega matrix)</li>
+</ul>
+<p>Example:</p>
+<pre><code>omega ETA_CL ~ 0.07
+omega ETA_V  ~ 0.02
+omega ETA_KA ~ 0.40
+</code></pre>
+<p>Each variance represents the between-subject variability for that parameter. The coefficient of variation (CV%) is approximately <code>sqrt(variance) * 100</code> for log-normally distributed parameters. For example, <code>omega ETA_CL ~ 0.09</code> corresponds to ~30% CV.</p>
+<h3 id="block-omega-correlated-random-effects"><a class="header" href="#block-omega-correlated-random-effects">Block omega (correlated random effects)</a></h3>
+<p>To estimate correlations between random effects, use <code>block_omega</code>:</p>
+<pre><code>block_omega (NAME1, NAME2, ...) = [lower_triangle_values]
+</code></pre>
+<p>The values are the lower triangle of the covariance matrix, specified row-wise. For a 2x2 block:</p>
+<pre><code>block_omega (ETA_CL, ETA_V) = [var_CL, cov_CL_V, var_V]
+</code></pre>
+<p>For a 3x3 block:</p>
+<pre><code>block_omega (ETA_CL, ETA_V, ETA_KA) = [var_CL, cov_CL_V, var_V, cov_CL_KA, cov_V_KA, var_KA]
+</code></pre>
+<p>You can mix diagonal and block omega specifications. Diagonal omegas specify uncorrelated random effects, while block omegas estimate the full covariance sub-matrix:</p>
+<pre><code>block_omega (ETA_CL, ETA_V) = [0.09, 0.02, 0.04]
+omega ETA_KA ~ 0.40
+</code></pre>
+<p>This estimates a 3x3 omega where ETA_CL and ETA_V are correlated (2x2 block), but ETA_KA is uncorrelated with both.</p>
+<h3 id="declaration-order"><a class="header" href="#declaration-order">Declaration order</a></h3>
+<p>The order of <code>omega</code> and <code>block_omega</code> lines in the <code>[parameters]</code> block determines the ETA indexing throughout the model: in the omega matrix and all output. For example:</p>
+<pre><code>block_omega (ETA_CL, ETA_V) = [0.09, 0.02, 0.04]
+omega ETA_KA ~ 0.40
+</code></pre>
+<p>produces ETA order <code>[ETA_CL, ETA_V, ETA_KA]</code> (indices 1, 2, 3), while:</p>
+<pre><code>omega ETA_KA ~ 0.40
+block_omega (ETA_CL, ETA_V) = [0.09, 0.02, 0.04]
+</code></pre>
+<p>produces <code>[ETA_KA, ETA_CL, ETA_V]</code> (indices 1, 2, 3). The <code>[individual_parameters]</code> block should list assignments in the same order for clarity, though the parameter mapping is by name, not position.</p>
+<h2 id="kappa-inter-occasion-variability"><a class="header" href="#kappa-inter-occasion-variability">Kappa (Inter-Occasion Variability)</a></h2>
+<p>Inter-Occasion Variability (IOV) is declared with <code>kappa</code> (independent per-parameter) or <code>block_kappa</code> (correlated across parameters). Kappa parameters must be paired with <code>iov_column</code> in <code>[fit_options]</code> and an occasion column in the dataset.</p>
+<h3 id="diagonal-kappa--option-a"><a class="header" href="#diagonal-kappa--option-a">Diagonal kappa — Option A</a></h3>
+<pre><code>kappa NAME ~ variance
+kappa NAME ~ variance FIX
+</code></pre>
+<p>Each <code>kappa</code> line adds one diagonal element to the IOV omega matrix. Occasions are independent.</p>
+<p>Example:</p>
+<pre><code>kappa KAPPA_CL ~ 0.05
+kappa KAPPA_V  ~ 0.03
+kappa KAPPA_CL ~ 0.02 FIX
+</code></pre>
+<h3 id="block-kappa--option-b-correlated-iov"><a class="header" href="#block-kappa--option-b-correlated-iov">Block kappa — Option B (correlated IOV)</a></h3>
+<pre><code>block_kappa (NAME1, NAME2, ...) = [lower_triangle_values]
+block_kappa (NAME1, NAME2, ...) = [lower_triangle_values] FIX
+</code></pre>
+<p>Mirrors the <code>block_omega</code> syntax — values are the lower triangle of the IOV covariance matrix, row-wise. Use this when IOV effects are expected to be correlated (e.g. correlated occasion shifts in CL and V).</p>
+<p>Example (2×2 block):</p>
+<pre><code>block_kappa (KAPPA_CL, KAPPA_V) = [0.05, 0.01, 0.03]
+</code></pre>
+<p>where <code>0.05</code> = Var(KAPPA_CL), <code>0.01</code> = Cov(KAPPA_CL, KAPPA_V), <code>0.03</code> = Var(KAPPA_V).</p>
+<h3 id="using-kappas-in-individual-parameters"><a class="header" href="#using-kappas-in-individual-parameters">Using kappas in individual parameters</a></h3>
+<p>Reference kappa names exactly like BSV etas in <code>[individual_parameters]</code>:</p>
+<pre><code>[individual_parameters]
+  CL = TVCL * exp(ETA_CL + KAPPA_CL)
+  V  = TVV  * exp(ETA_V  + KAPPA_V)
+  KA = TVKA * exp(ETA_KA)           # no IOV on absorption
+</code></pre>
+<p>Kappas can be combined freely — a parameter can carry BSV only, IOV only, or both.</p>
+<h3 id="mixed-diagonal-and-block-kappa"><a class="header" href="#mixed-diagonal-and-block-kappa">Mixed diagonal and block kappa</a></h3>
+<p>You can mix <code>kappa</code> (uncorrelated) and <code>block_kappa</code> (correlated) declarations in the same model:</p>
+<pre><code>block_kappa (KAPPA_CL, KAPPA_V) = [0.05, 0.01, 0.03]
+kappa KAPPA_KA ~ 0.10
+</code></pre>
+<p>A name may not appear in both <code>kappa</code> and <code>block_kappa</code> — this is a parse error.</p>
+<h3 id="declaration-order-1"><a class="header" href="#declaration-order-1">Declaration order</a></h3>
+<p>Kappa declaration order determines the IOV omega matrix layout and the kappa column order in output. Kappas follow all BSV etas in the internal indexing: if a model has 3 BSV etas and 2 kappas, the kappas sit at indices 4 and 5.</p>
+<h2 id="sigma-residual-error"><a class="header" href="#sigma-residual-error">Sigma (Residual Error)</a></h2>
+<pre><code>sigma NAME ~ value
+</code></pre>
+<ul>
+<li><strong>NAME</strong>: Residual error parameter name (referenced in <code>[error_model]</code>)</li>
+<li><strong>value</strong>: Initial value</li>
+</ul>
+<p>Example:</p>
+<pre><code>sigma PROP_ERR ~ 0.01
+sigma ADD_ERR  ~ 1.0
+</code></pre>
+<p>The interpretation of sigma depends on the error model:</p>
+<div class="table-wrapper"><table><thead><tr><th>Error Model</th><th>Sigma Meaning</th></tr></thead><tbody>
+<tr><td>Additive</td><td>Standard deviation of additive error</td></tr>
+<tr><td>Proportional</td><td>Coefficient of proportional error</td></tr>
+<tr><td>Combined</td><td>First sigma = proportional coefficient, second = additive SD</td></tr>
+</tbody></table>
+</div>
+<h2 id="complete-examples"><a class="header" href="#complete-examples">Complete Examples</a></h2>
+<p>Diagonal omega (no correlations):</p>
+<pre><code>[parameters]
+  theta TVCL(0.134, 0.001, 10.0)
+  theta TVV(8.1, 0.1, 500.0)
+  theta TVKA(1.0, 0.01, 50.0)
+
+  omega ETA_CL ~ 0.07
+  omega ETA_V  ~ 0.02
+  omega ETA_KA ~ 0.40
+
+  sigma PROP_ERR ~ 0.01
+</code></pre>
+<p>Block omega (correlated CL and V):</p>
+<pre><code>[parameters]
+  theta TVCL(0.134, 0.001, 10.0)
+  theta TVV(8.1, 0.1, 500.0)
+  theta TVKA(1.0, 0.01, 50.0)
+
+  block_omega (ETA_CL, ETA_V) = [0.09, 0.02, 0.04]
+  omega ETA_KA ~ 0.40
+
+  sigma PROP_ERR ~ 0.01
+</code></pre>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../model-file/index.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+
+                            <a rel="next prefetch" href="../model-file/individual-parameters.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../model-file/index.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+
+                    <a rel="next prefetch" href="../model-file/individual-parameters.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="../elasticlunr.min.js"></script>
+        <script src="../mark.min.js"></script>
+        <script src="../searcher.js"></script>
+
+        <script src="../clipboard.min.js"></script>
+        <script src="../highlight.js"></script>
+        <script src="../book.js"></script>
+
+        <!-- Custom JS scripts -->
+        <script src="../mathjax-config.js"></script>
+
+
+    </div>
+    </body>
+</html>

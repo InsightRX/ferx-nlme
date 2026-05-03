@@ -1,0 +1,324 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>SAEM - FeRx-NLME Documentation</title>
+
+
+        <!-- Custom HTML head -->
+        
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="../favicon.svg">
+        <link rel="shortcut icon" href="../favicon.png">
+        <link rel="stylesheet" href="../css/variables.css">
+        <link rel="stylesheet" href="../css/general.css">
+        <link rel="stylesheet" href="../css/chrome.css">
+        <link rel="stylesheet" href="../css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="../fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" href="../highlight.css">
+        <link rel="stylesheet" href="../tomorrow-night.css">
+        <link rel="stylesheet" href="../ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+
+    </head>
+    <body class="sidebar-visible no-js">
+    <div id="body-container">
+        <!-- Provide site root to javascript -->
+        <script>
+            var path_to_root = "../";
+            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "ayu" : "light";
+        </script>
+
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                var theme = localStorage.getItem('mdbook-theme');
+                var sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            var theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            var html = document.querySelector('html');
+            html.classList.remove('light')
+            html.classList.add(theme);
+            var body = document.querySelector('body');
+            body.classList.remove('no-js')
+            body.classList.add('js');
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            var body = document.querySelector('body');
+            var sidebar = null;
+            var sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+            }
+            sidebar_toggle.checked = sidebar === 'visible';
+            body.classList.remove('sidebar-visible');
+            body.classList.add("sidebar-" + sidebar);
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <div class="sidebar-scrollbox">
+                <ol class="chapter"><li class="chapter-item expanded "><a href="../introduction.html"><strong aria-hidden="true">1.</strong> Introduction</a></li><li class="chapter-item expanded "><a href="../getting-started.html"><strong aria-hidden="true">2.</strong> Getting Started</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../installation.html"><strong aria-hidden="true">2.1.</strong> Installation</a></li><li class="chapter-item expanded "><a href="../quick-start.html"><strong aria-hidden="true">2.2.</strong> Quick Start</a></li></ol></li><li class="chapter-item expanded "><a href="../model-file/index.html"><strong aria-hidden="true">3.</strong> Model File Reference</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../model-file/parameters.html"><strong aria-hidden="true">3.1.</strong> Parameters</a></li><li class="chapter-item expanded "><a href="../model-file/individual-parameters.html"><strong aria-hidden="true">3.2.</strong> Individual Parameters</a></li><li class="chapter-item expanded "><a href="../model-file/structural-model.html"><strong aria-hidden="true">3.3.</strong> Structural Model</a></li><li class="chapter-item expanded "><a href="../model-file/error-model.html"><strong aria-hidden="true">3.4.</strong> Error Model</a></li><li class="chapter-item expanded "><a href="../model-file/ode-models.html"><strong aria-hidden="true">3.5.</strong> ODE Models</a></li><li class="chapter-item expanded "><a href="../model-file/fit-options.html"><strong aria-hidden="true">3.6.</strong> Fit Options</a></li><li class="chapter-item expanded "><a href="../model-file/simulation.html"><strong aria-hidden="true">3.7.</strong> Simulation</a></li></ol></li><li class="chapter-item expanded "><a href="../estimation/index.html"><strong aria-hidden="true">4.</strong> Estimation Methods</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../estimation/foce.html"><strong aria-hidden="true">4.1.</strong> FOCE / FOCEI</a></li><li class="chapter-item expanded "><a href="../estimation/gauss-newton.html"><strong aria-hidden="true">4.2.</strong> Gauss-Newton (BHHH)</a></li><li class="chapter-item expanded "><a href="../estimation/saem.html" class="active"><strong aria-hidden="true">4.3.</strong> SAEM</a></li><li class="chapter-item expanded "><a href="../estimation/sir.html"><strong aria-hidden="true">4.4.</strong> SIR</a></li><li class="chapter-item expanded "><a href="../estimation/iov.html"><strong aria-hidden="true">4.5.</strong> Inter-Occasion Variability (IOV)</a></li></ol></li><li class="chapter-item expanded "><a href="../data-format.html"><strong aria-hidden="true">5.</strong> Data Format</a></li><li class="chapter-item expanded "><a href="../cli.html"><strong aria-hidden="true">6.</strong> CLI Reference</a></li><li class="chapter-item expanded "><a href="../output.html"><strong aria-hidden="true">7.</strong> Output Files</a></li><li class="chapter-item expanded "><a href="../examples/index.html"><strong aria-hidden="true">8.</strong> Examples</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../examples/one-cpt-oral.html"><strong aria-hidden="true">8.1.</strong> One-Compartment Oral</a></li><li class="chapter-item expanded "><a href="../examples/two-cpt-iv.html"><strong aria-hidden="true">8.2.</strong> Two-Compartment IV</a></li><li class="chapter-item expanded "><a href="../examples/covariates.html"><strong aria-hidden="true">8.3.</strong> Covariates</a></li><li class="chapter-item expanded "><a href="../examples/ode-model.html"><strong aria-hidden="true">8.4.</strong> ODE Model</a></li><li class="chapter-item expanded "><a href="../examples/bloq.html"><strong aria-hidden="true">8.5.</strong> BLOQ (M3 method)</a></li><li class="chapter-item expanded "><a href="../examples/iov.html"><strong aria-hidden="true">8.6.</strong> Inter-Occasion Variability</a></li></ol></li><li class="chapter-item expanded "><a href="../api/index.html"><strong aria-hidden="true">9.</strong> Rust API</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../api/types.html"><strong aria-hidden="true">9.1.</strong> Core Types</a></li><li class="chapter-item expanded "><a href="../api/fitting.html"><strong aria-hidden="true">9.2.</strong> Fitting Functions</a></li><li class="chapter-item expanded "><a href="../api/simulation.html"><strong aria-hidden="true">9.3.</strong> Simulation</a></li><li class="chapter-item expanded "><a href="../api/parsing.html"><strong aria-hidden="true">9.4.</strong> Parsing</a></li></ol></li><li class="chapter-item expanded "><a href="../faq.html"><strong aria-hidden="true">10.</strong> FAQ</a></li></ol>
+            </div>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <!-- Track and set sidebar scroll position -->
+        <script>
+            var sidebarScrollbox = document.querySelector('#sidebar .sidebar-scrollbox');
+            sidebarScrollbox.addEventListener('click', function(e) {
+                if (e.target.tagName === 'A') {
+                    sessionStorage.setItem('sidebar-scroll', sidebarScrollbox.scrollTop);
+                }
+            }, { passive: true });
+            var sidebarScrollTop = sessionStorage.getItem('sidebar-scroll');
+            sessionStorage.removeItem('sidebar-scroll');
+            if (sidebarScrollTop) {
+                // preserve sidebar scroll position when navigating via links within sidebar
+                sidebarScrollbox.scrollTop = sidebarScrollTop;
+            } else {
+                // scroll sidebar to current active section when navigating via "next/previous chapter" buttons
+                var activeSection = document.querySelector('#sidebar .active');
+                if (activeSection) {
+                    activeSection.scrollIntoView({ block: 'center' });
+                }
+            }
+        </script>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">FeRx-NLME Documentation</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+                        <a href="https://github.com/insightrx/ferx-nlme" title="Git repository" aria-label="Git repository">
+                            <i id="git-repository-button" class="fa fa-github"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="saem"><a class="header" href="#saem">SAEM</a></h1>
+<p>Stochastic Approximation Expectation-Maximization (SAEM) is an alternative estimation method that uses MCMC sampling for random effects instead of MAP optimization. It is more robust to local minima and can handle complex random effect structures.</p>
+<h2 id="algorithm-overview"><a class="header" href="#algorithm-overview">Algorithm Overview</a></h2>
+<p>SAEM replaces the deterministic inner loop of FOCE with stochastic sampling, following the Monolix convention with a two-phase step-size schedule.</p>
+<h3 id="references"><a class="header" href="#references">References</a></h3>
+<ul>
+<li>Delyon, Lavielle, Moulines (1999). <em>Convergence of a stochastic approximation version of the EM algorithm.</em> Annals of Statistics, 94--128.</li>
+<li>Kuhn &amp; Lavielle (2004). <em>Coupling a stochastic approximation version of EM with an MCMC procedure.</em> ESAIM: Probability and Statistics 8:115--131.</li>
+</ul>
+<h2 id="two-phase-schedule"><a class="header" href="#two-phase-schedule">Two-Phase Schedule</a></h2>
+<h3 id="phase-1-exploration-iterations-1-to-k1"><a class="header" href="#phase-1-exploration-iterations-1-to-k1">Phase 1: Exploration (iterations 1 to K1)</a></h3>
+<p>Step size \( \gamma_k = 1 \). The algorithm explores the parameter space rapidly, with the sufficient statistics being fully replaced each iteration. This allows fast movement toward the basin of the MLE.</p>
+<p>Default: 150 iterations.</p>
+<h3 id="phase-2-convergence-iterations-k11-to-k1k2"><a class="header" href="#phase-2-convergence-iterations-k11-to-k1k2">Phase 2: Convergence (iterations K1+1 to K1+K2)</a></h3>
+<p>Step size \( \gamma_k = 1/(k - K_1) \). The algorithm performs a decreasing-weight average, which guarantees almost-sure convergence to the MLE under regularity conditions.</p>
+<p>Default: 250 iterations.</p>
+<h2 id="per-iteration-steps"><a class="header" href="#per-iteration-steps">Per-Iteration Steps</a></h2>
+<p>Each SAEM iteration consists of:</p>
+<h3 id="1-e-step-metropolis-hastings-sampling"><a class="header" href="#1-e-step-metropolis-hastings-sampling">1. E-Step: Metropolis-Hastings Sampling</a></h3>
+<p>For each subject, run <code>n_mh_steps</code> Metropolis-Hastings iterations to sample from the conditional distribution of random effects:</p>
+<p>\[ p(\eta_i | y_i, \theta, \Omega, \sigma) \]</p>
+<p><strong>Proposal</strong>: symmetric random walk in deviation space, \( \eta_{\text{prop}} = \eta_{\text{current}} + \delta_i \cdot L \cdot z \), with \( z \sim N(0, I) \) and \( L = \text{chol}(\Omega) \). The schedule is identical across both phases — only the SA step size \( \gamma_k \) changes between exploration and convergence.</p>
+<p>The MH kernel is symmetric in \( \eta \), so the proposal density cancels and the acceptance log-ratio is the difference of <code>individual_nll</code> values, which encodes the prior \( N(0, \Omega) \) plus the observation likelihood.</p>
+<p><strong>Acceptance</strong>: Accept with probability \( \min(1, \exp(\text{NLL}<em>{\text{current}} - \text{NLL}</em>{\text{prop}})) \).</p>
+<p>The MH sampling is parallelized across subjects using Rayon.</p>
+<h3 id="2-stochastic-approximation-update"><a class="header" href="#2-stochastic-approximation-update">2. Stochastic Approximation Update</a></h3>
+<p>Update the sufficient statistic for \( \Omega \):</p>
+<p>\[ S_2 \leftarrow (1 - \gamma_k) \cdot S_2 + \gamma_k \cdot \frac{1}{N} \sum_{i=1}^{N} \eta_i \eta_i^T \]</p>
+<h3 id="3-m-step-for-omega-closed-form"><a class="header" href="#3-m-step-for-omega-closed-form">3. M-Step for Omega (Closed Form)</a></h3>
+<p>\[ \Omega_k = S_2 \]</p>
+<p>with structurally-zero entries (cross-block off-diagonals, standalone-vs-block off-diagonals, and all off-diagonals in a fully-diagonal Ω) zeroed out — the SA accumulator \( (1/N) \sum_i \eta_i \eta_i^T \) is dense by construction, but the model declares which entries are free parameters. Without this projection the chain feeds spurious sampling correlations into the next iteration's MH proposal Cholesky and Ω drifts toward rank-deficiency.</p>
+<h3 id="4-m-step-for-theta-and-sigma-optimization"><a class="header" href="#4-m-step-for-theta-and-sigma-optimization">4. M-Step for Theta and Sigma (Optimization)</a></h3>
+<p>Minimize the conditional observation negative log-likelihood with ETAs held fixed:</p>
+<p>\[ \sum_{i=1}^{N} \sum_{j=1}^{n_i} \left[ \frac{1}{2} \log V_{ij} + \frac{1}{2} \frac{(y_{ij} - f_{ij})^2}{V_{ij}} \right] \]</p>
+<p>When <code>mu_referencing = true</code> (the default), ferx detects lognormal parameters from the <code>[individual_parameters]</code> block and applies the <strong>closed-form EM update</strong> for those thetas instead of running NLopt:</p>
+<p>\[ \log \theta_j \leftarrow \log \theta_j + \gamma_k \cdot \overline{\eta_j} \]</p>
+<p>where \( \overline{\eta_j} = (1/N) \sum_i \eta_{i,j} \) is the empirical mean of the post-MH random effects for the eta paired with \( \theta_j \). For a log-mu-referenced model where \( \log P_i = \log \theta + \eta_i \) with \( \eta_i \sim N(0, \omega^2) \), this is exactly the M-step that maximises the complete-data log-likelihood, scaled by the SA step size \( \gamma_k \). After the update the etas are re-centred by the same shift so they remain deviations from the new \( \log \theta_j \).</p>
+<p>NLopt still runs for any remaining thetas (non-mu-referenced) and for sigma — the closed-form-updated thetas are pinned at their new values for the NLopt call.</p>
+<p>When <code>mu_referencing = false</code>, the full NLopt M-step runs for all thetas as before.</p>
+<p>The number of NLopt evaluations saved is stored in <code>FitResult::saem_mu_ref_m_step_evals_saved</code>, accumulated across SAEM iterations as <code>2 × mstep_maxiter × n_mu_ref_pairs</code> per outer step (one finite-difference probe pair per pinned mu-ref dimension, capped at <code>mstep_maxiter</code> NLopt gradient requests). The field is <code>None</code> when mu-referencing is off or method ≠ SAEM.</p>
+<h3 id="5-adaptive-mh-step-sizes"><a class="header" href="#5-adaptive-mh-step-sizes">5. Adaptive MH Step Sizes</a></h3>
+<p>Every <code>adapt_interval</code> iterations, the per-subject step sizes \( \delta_i \) are adjusted:</p>
+<ul>
+<li>If acceptance rate &gt; 40%: increase \( \delta_i \) by 10% (up to 5.0)</li>
+<li>If acceptance rate &lt; 40%: decrease \( \delta_i \) by 10% (down to 0.01)</li>
+</ul>
+<p>This targets an acceptance rate around 40%, balancing exploration and mixing.</p>
+<h2 id="post-saem-finalization"><a class="header" href="#post-saem-finalization">Post-SAEM Finalization</a></h2>
+<p>After the SAEM iterations complete:</p>
+<ol>
+<li><strong>EBE Refinement</strong>: Run the standard FOCE inner loop (BFGS optimization) warm-started from the SAEM ETAs to obtain final empirical Bayes estimates</li>
+<li><strong>FOCE OFV</strong>: Compute the objective function using the FOCE/Laplace approximation, so AIC and BIC are directly comparable with FOCE results</li>
+<li><strong>Covariance Step</strong>: Optionally compute standard errors via finite-difference Hessian (same method as FOCE)</li>
+<li><strong>Diagnostics</strong>: Compute PRED, IPRED, CWRES, IWRES for each subject</li>
+</ol>
+<h2 id="configuration"><a class="header" href="#configuration">Configuration</a></h2>
+<pre><code>[fit_options]
+  method        = saem
+  n_exploration = 150      # Phase 1 iterations
+  n_convergence = 250      # Phase 2 iterations
+  n_mh_steps    = 3        # MH steps per subject per iteration
+  adapt_interval = 50      # Step-size adaptation frequency
+  seed          = 12345    # RNG seed for reproducibility
+  covariance    = true     # Compute standard errors
+</code></pre>
+<h2 id="tuning-guide"><a class="header" href="#tuning-guide">Tuning Guide</a></h2>
+<h3 id="not-converging"><a class="header" href="#not-converging">Not Converging</a></h3>
+<ul>
+<li>Increase <code>n_exploration</code> (e.g., 300) to give more time for basin finding</li>
+<li>Increase <code>n_convergence</code> (e.g., 500) for a longer averaging window</li>
+<li>Increase <code>n_mh_steps</code> (e.g., 5-10) for better mixing in the E-step</li>
+</ul>
+<h3 id="slow-convergence"><a class="header" href="#slow-convergence">Slow Convergence</a></h3>
+<ul>
+<li>Decrease <code>n_exploration</code> and <code>n_convergence</code> if parameters stabilize early</li>
+<li>Use <code>adapt_interval = 25</code> for faster step-size adaptation</li>
+</ul>
+<h3 id="reproducibility"><a class="header" href="#reproducibility">Reproducibility</a></h3>
+<ul>
+<li>Always set <code>seed</code> for reproducible results</li>
+<li>Different seeds will produce slightly different estimates due to the stochastic nature of the algorithm</li>
+</ul>
+<h2 id="output"><a class="header" href="#output">Output</a></h2>
+<p>The SAEM iteration progress is printed to stderr:</p>
+<pre><code>SAEM: 10 subjects, 3 ETAs, 400 total iter (150 explore + 250 converge)
+  SAEM iter    1/400 [explore] gamma=1.000  condNLL=95.244
+  SAEM iter   50/400 [explore] gamma=1.000  condNLL=56.705
+  SAEM iter  150/400 [explore] gamma=1.000  condNLL=46.071
+  SAEM iter  200/400 [converge] gamma=0.020  condNLL=36.799
+  SAEM iter  400/400 [converge] gamma=0.004  condNLL=38.096
+SAEM iterations complete. Computing final EBEs and OFV...
+</code></pre>
+<p>The <code>condNLL</code> is the conditional observation negative log-likelihood (not the final OFV). It should generally decrease during the exploration phase and stabilize during convergence.</p>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../estimation/gauss-newton.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+
+                            <a rel="next prefetch" href="../estimation/sir.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../estimation/gauss-newton.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+
+                    <a rel="next prefetch" href="../estimation/sir.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="../elasticlunr.min.js"></script>
+        <script src="../mark.min.js"></script>
+        <script src="../searcher.js"></script>
+
+        <script src="../clipboard.min.js"></script>
+        <script src="../highlight.js"></script>
+        <script src="../book.js"></script>
+
+        <!-- Custom JS scripts -->
+        <script src="../mathjax-config.js"></script>
+
+
+    </div>
+    </body>
+</html>

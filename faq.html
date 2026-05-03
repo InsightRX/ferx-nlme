@@ -1,0 +1,319 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>FAQ - FeRx-NLME Documentation</title>
+
+
+        <!-- Custom HTML head -->
+        
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="favicon.svg">
+        <link rel="shortcut icon" href="favicon.png">
+        <link rel="stylesheet" href="css/variables.css">
+        <link rel="stylesheet" href="css/general.css">
+        <link rel="stylesheet" href="css/chrome.css">
+        <link rel="stylesheet" href="css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" href="highlight.css">
+        <link rel="stylesheet" href="tomorrow-night.css">
+        <link rel="stylesheet" href="ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+
+    </head>
+    <body class="sidebar-visible no-js">
+    <div id="body-container">
+        <!-- Provide site root to javascript -->
+        <script>
+            var path_to_root = "";
+            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "ayu" : "light";
+        </script>
+
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                var theme = localStorage.getItem('mdbook-theme');
+                var sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            var theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            var html = document.querySelector('html');
+            html.classList.remove('light')
+            html.classList.add(theme);
+            var body = document.querySelector('body');
+            body.classList.remove('no-js')
+            body.classList.add('js');
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            var body = document.querySelector('body');
+            var sidebar = null;
+            var sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+            }
+            sidebar_toggle.checked = sidebar === 'visible';
+            body.classList.remove('sidebar-visible');
+            body.classList.add("sidebar-" + sidebar);
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <div class="sidebar-scrollbox">
+                <ol class="chapter"><li class="chapter-item expanded "><a href="introduction.html"><strong aria-hidden="true">1.</strong> Introduction</a></li><li class="chapter-item expanded "><a href="getting-started.html"><strong aria-hidden="true">2.</strong> Getting Started</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="installation.html"><strong aria-hidden="true">2.1.</strong> Installation</a></li><li class="chapter-item expanded "><a href="quick-start.html"><strong aria-hidden="true">2.2.</strong> Quick Start</a></li></ol></li><li class="chapter-item expanded "><a href="model-file/index.html"><strong aria-hidden="true">3.</strong> Model File Reference</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="model-file/parameters.html"><strong aria-hidden="true">3.1.</strong> Parameters</a></li><li class="chapter-item expanded "><a href="model-file/individual-parameters.html"><strong aria-hidden="true">3.2.</strong> Individual Parameters</a></li><li class="chapter-item expanded "><a href="model-file/structural-model.html"><strong aria-hidden="true">3.3.</strong> Structural Model</a></li><li class="chapter-item expanded "><a href="model-file/error-model.html"><strong aria-hidden="true">3.4.</strong> Error Model</a></li><li class="chapter-item expanded "><a href="model-file/ode-models.html"><strong aria-hidden="true">3.5.</strong> ODE Models</a></li><li class="chapter-item expanded "><a href="model-file/fit-options.html"><strong aria-hidden="true">3.6.</strong> Fit Options</a></li><li class="chapter-item expanded "><a href="model-file/simulation.html"><strong aria-hidden="true">3.7.</strong> Simulation</a></li></ol></li><li class="chapter-item expanded "><a href="estimation/index.html"><strong aria-hidden="true">4.</strong> Estimation Methods</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="estimation/foce.html"><strong aria-hidden="true">4.1.</strong> FOCE / FOCEI</a></li><li class="chapter-item expanded "><a href="estimation/gauss-newton.html"><strong aria-hidden="true">4.2.</strong> Gauss-Newton (BHHH)</a></li><li class="chapter-item expanded "><a href="estimation/saem.html"><strong aria-hidden="true">4.3.</strong> SAEM</a></li><li class="chapter-item expanded "><a href="estimation/sir.html"><strong aria-hidden="true">4.4.</strong> SIR</a></li><li class="chapter-item expanded "><a href="estimation/iov.html"><strong aria-hidden="true">4.5.</strong> Inter-Occasion Variability (IOV)</a></li></ol></li><li class="chapter-item expanded "><a href="data-format.html"><strong aria-hidden="true">5.</strong> Data Format</a></li><li class="chapter-item expanded "><a href="cli.html"><strong aria-hidden="true">6.</strong> CLI Reference</a></li><li class="chapter-item expanded "><a href="output.html"><strong aria-hidden="true">7.</strong> Output Files</a></li><li class="chapter-item expanded "><a href="examples/index.html"><strong aria-hidden="true">8.</strong> Examples</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="examples/one-cpt-oral.html"><strong aria-hidden="true">8.1.</strong> One-Compartment Oral</a></li><li class="chapter-item expanded "><a href="examples/two-cpt-iv.html"><strong aria-hidden="true">8.2.</strong> Two-Compartment IV</a></li><li class="chapter-item expanded "><a href="examples/covariates.html"><strong aria-hidden="true">8.3.</strong> Covariates</a></li><li class="chapter-item expanded "><a href="examples/ode-model.html"><strong aria-hidden="true">8.4.</strong> ODE Model</a></li><li class="chapter-item expanded "><a href="examples/bloq.html"><strong aria-hidden="true">8.5.</strong> BLOQ (M3 method)</a></li><li class="chapter-item expanded "><a href="examples/iov.html"><strong aria-hidden="true">8.6.</strong> Inter-Occasion Variability</a></li></ol></li><li class="chapter-item expanded "><a href="api/index.html"><strong aria-hidden="true">9.</strong> Rust API</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="api/types.html"><strong aria-hidden="true">9.1.</strong> Core Types</a></li><li class="chapter-item expanded "><a href="api/fitting.html"><strong aria-hidden="true">9.2.</strong> Fitting Functions</a></li><li class="chapter-item expanded "><a href="api/simulation.html"><strong aria-hidden="true">9.3.</strong> Simulation</a></li><li class="chapter-item expanded "><a href="api/parsing.html"><strong aria-hidden="true">9.4.</strong> Parsing</a></li></ol></li><li class="chapter-item expanded "><a href="faq.html" class="active"><strong aria-hidden="true">10.</strong> FAQ</a></li></ol>
+            </div>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <!-- Track and set sidebar scroll position -->
+        <script>
+            var sidebarScrollbox = document.querySelector('#sidebar .sidebar-scrollbox');
+            sidebarScrollbox.addEventListener('click', function(e) {
+                if (e.target.tagName === 'A') {
+                    sessionStorage.setItem('sidebar-scroll', sidebarScrollbox.scrollTop);
+                }
+            }, { passive: true });
+            var sidebarScrollTop = sessionStorage.getItem('sidebar-scroll');
+            sessionStorage.removeItem('sidebar-scroll');
+            if (sidebarScrollTop) {
+                // preserve sidebar scroll position when navigating via links within sidebar
+                sidebarScrollbox.scrollTop = sidebarScrollTop;
+            } else {
+                // scroll sidebar to current active section when navigating via "next/previous chapter" buttons
+                var activeSection = document.querySelector('#sidebar .active');
+                if (activeSection) {
+                    activeSection.scrollIntoView({ block: 'center' });
+                }
+            }
+        </script>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">FeRx-NLME Documentation</h1>
+
+                    <div class="right-buttons">
+                        <a href="print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+                        <a href="https://github.com/insightrx/ferx-nlme" title="Git repository" aria-label="Git repository">
+                            <i id="git-repository-button" class="fa fa-github"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="frequently-asked-questions"><a class="header" href="#frequently-asked-questions">Frequently Asked Questions</a></h1>
+<h2 id="do-i-need-to-use-mu-referencing-in-my-model-definitions-like-in-nonmem--nlmixr2"><a class="header" href="#do-i-need-to-use-mu-referencing-in-my-model-definitions-like-in-nonmem--nlmixr2">Do I need to use MU-referencing in my model definitions, like in NONMEM / nlmixr2?</a></h2>
+<p><strong>No.</strong> You do not need to write an explicit <code>MU_i</code> intermediate variable — ferx detects the same structure automatically from the right-hand side of each <code>[individual_parameters]</code> line.</p>
+<p>In NONMEM and nlmixr2, MU-referencing is a convention in which each random effect <code>ETA(i)</code> is linearly associated with a single <code>MU_i</code> term (typically <code>MU_i = LOG(THETA(i))</code>), so individual parameters look like:</p>
+<pre><code>MU_1 = LOG(THETA(1))
+CL   = EXP(MU_1 + ETA(1))
+</code></pre>
+<p>This structure is required by NONMEM's SAEM implementation, whose conjugate-Gibbs E-step is only valid when the <code>MU_i → ETA(i)</code> relationship is strictly linear (typically on a log scale). Deviating from it — for example writing <code>CL = THETA(1) * EXP(ETA(1))</code> without going through an intermediate <code>MU_1</code> — causes NONMEM SAEM to reject the model or silently produce biased estimates.</p>
+<h3 id="how-ferx-handles-it"><a class="header" href="#how-ferx-handles-it">How ferx handles it</a></h3>
+<p>In ferx, you simply write the individual-parameter line in the form that makes sense for your model. The parser inspects each line and records which <code>THETA</code> acts as the "anchor" for each <code>ETA</code>, then uses that information to re-centre the estimation search at every outer iteration. The following patterns are detected automatically:</p>
+<pre><code>CL = TVCL * exp(ETA_CL)              # multiplicative exp — most common
+CL = exp(log(TVCL) + ETA_CL)         # canonical MU form
+CL = TVCL * (WT/70)^0.75 * exp(ETA_CL)   # with covariate adjustment
+CL = TVCL + ETA_CL                   # additive eta (linear shift)
+</code></pre>
+<p>The parser records <code>ETA_CL → (TVCL, log_transformed)</code> and at each outer step computes the shift</p>
+<pre><code>mu[i] = log(theta[i])   # for multiplicative/exp patterns
+mu[i] = theta[i]        # for additive patterns
+</code></pre>
+<p>The inner optimizer (and the SAEM exploration-phase MH proposal) is then centred on this <code>mu</code> shift rather than on <code>eta = 0</code>. This matches the convergence behaviour that NONMEM / nlmixr2 get from an explicit <code>MU_i = LOG(THETA(i))</code> block, without requiring you to write it.</p>
+<p>Patterns that ferx <strong>does not</strong> auto-detect (and therefore falls back to the plain <code>eta = 0</code> start) include:</p>
+<ul>
+<li>Parameters with two or more free thetas in the product (<code>CL = TVCL * TVSCALE * exp(ETA_CL)</code>) — ambiguous anchor.</li>
+<li>Compound eta expressions inside the <code>exp</code> (<code>CL = TVCL * exp(ETA_CL + ETA_OCC)</code>).</li>
+<li>Non-standard transforms the parser doesn't recognise.</li>
+</ul>
+<p>Mu-referencing being absent is not an error — it just means that eta for that parameter is initialised to zero at each outer step, same as the pre-automatic behaviour. When a fit runs, ferx records the list of auto-detected mu-referenced ETAs in <code>FitResult.warnings</code> (as a line starting with <code>mu-ref: …</code>) so you can confirm what the parser picked up.</p>
+<h3 id="why-it-matters"><a class="header" href="#why-it-matters">Why it matters</a></h3>
+<p>Mu-referencing mostly affects convergence speed and robustness, not the final MLE:</p>
+<ul>
+<li><strong>FOCE / FOCEI</strong>: each outer step re-optimises ETA by BFGS. With a mu-shift, the warm-started BFGS sees a much better starting point when <code>THETA</code> moves away from the initial estimate, so fewer inner iterations are needed and pathological steps are less likely.</li>
+<li><strong>SAEM</strong>: during the exploration phase, Metropolis–Hastings proposals are centred on <code>mu_k</code> instead of on the current chain state. This helps the chain escape the (incorrect) <code>eta = 0</code> basin when <code>TVCL</code> is still far from the true value. During the convergence phase the proposal reverts to a symmetric random walk so that detailed balance holds.</li>
+</ul>
+<p>Because the estimator is MLE in both cases, models that converge without mu-referencing will converge to the same estimates with it — just (usually) in fewer iterations.</p>
+<h3 id="disabling-it"><a class="header" href="#disabling-it">Disabling it</a></h3>
+<p>If you want to benchmark against the pre-2026 behaviour, set:</p>
+<pre><code>[fit_options]
+  mu_referencing = false
+</code></pre>
+<p>or, from the Rust API, <code>FitOptions { mu_referencing: false, .. }</code>. The default is <code>true</code>.</p>
+<h3 id="porting-from-nonmem"><a class="header" href="#porting-from-nonmem">Porting from NONMEM</a></h3>
+<p>If you have a NONMEM model that uses an explicit <code>MU_1 = LOG(THETA(1))</code> line, just drop the <code>MU_i</code> intermediate and write the individual parameter directly — ferx will detect the equivalent mu-reference automatically and the fit will be equivalent.</p>
+<h2 id="can-i-use-if--else-statements-like-in-nonmem-or-nlmixr2"><a class="header" href="#can-i-use-if--else-statements-like-in-nonmem-or-nlmixr2">Can I use <code>if</code> / <code>else</code> statements like in NONMEM or nlmixr2?</a></h2>
+<p><strong>Yes.</strong> ferx supports two forms of conditional logic in both
+<code>[individual_parameters]</code> and <code>[odes]</code> blocks:</p>
+<pre><code># Block form
+if (WT &gt; 70) {
+  CL = TVCL * (WT / 70)^0.75 * exp(ETA_CL)
+} else if (SEX == 1) {
+  CL = TVCL * 1.2 * exp(ETA_CL)
+} else {
+  CL = TVCL * exp(ETA_CL)
+}
+
+# Inline (ternary) form
+CL = if (SEX == 1) TVCL * 1.5 else TVCL
+</code></pre>
+<p>Conditions support comparisons (<code>&lt;</code>, <code>&lt;=</code>, <code>&gt;</code>, <code>&gt;=</code>, <code>==</code>, <code>!=</code>) and
+logical operators (<code>&amp;&amp;</code>, <code>||</code>, <code>!</code>). Either form may be combined with
+arbitrary arithmetic, including covariate references and other ETAs.</p>
+<p><strong>Compared to NONMEM:</strong> NONMEM uses Fortran-style <code>IF (cond) THEN ... ELSE ... ENDIF</code> and Fortran comparison aliases (<code>.GT.</code>, <code>.LE.</code>, etc.). ferx uses
+C-style braces and operator symbols. The semantics are otherwise the same —
+exactly one branch fires per evaluation, the rest are ignored.</p>
+<p><strong>Compared to nlmixr2:</strong> nlmixr2's <code>if (cond) { ... } else { ... }</code> syntax
+is a near-verbatim match for ferx's block form. Drop the <code>&lt;-</code> assignments
+in favour of <code>=</code> and the model translates directly.</p>
+<p><strong>Caveat:</strong> when a parameter is assigned inside an <code>if</code> block, ferx skips
+mu-reference detection for that parameter (the <code>(ETA → THETA)</code> link is no
+longer unconditional). See
+<a href="model-file/individual-parameters.html#interaction-with-mu-referencing">Individual Parameters</a>
+for the workaround if you need both conditional logic and mu-referencing
+on the same parameter.</p>
+<p><strong>A note on <code>==</code> and <code>!=</code>:</strong> these operators do an exact bitwise float
+comparison. They work as you'd expect for integer-coded covariates
+(<code>SEX == 1</code>, <code>STUDY != 3</code>) but are unreliable on continuous values, where
+floating-point round-off can flip the result. For continuous thresholds
+prefer a bracketed comparison (<code>WT &gt;= 70 &amp;&amp; WT &lt; 80</code>) over <code>WT == 75</code>.</p>
+<h2 id="which-outer-optimizer-should-i-pick"><a class="header" href="#which-outer-optimizer-should-i-pick">Which outer optimizer should I pick?</a></h2>
+<p><code>slsqp</code> (the default) is the right choice for most models — it is fast, handles
+box constraints cleanly, and behaves well on the log-transformed parameter
+scale that ferx uses internally.</p>
+<p>Reach for a different optimizer when SLSQP misbehaves:</p>
+<ul>
+<li><strong><code>bobyqa</code></strong> — derivative-free, good when FOCE's FD gradients are noisy and
+SLSQP stalls or oscillates. Slower per iteration on smooth problems, but
+often converges when gradient-based methods give up.</li>
+<li><strong><code>trust_region</code></strong> — second-order Newton trust-region. Can be faster near
+convergence because it uses curvature information; tune the CG budget with
+<code>steihaug_max_iters</code> (default 50) if you have more than ~50 packed
+parameters.</li>
+<li><strong><code>lbfgs</code> / <code>bfgs</code></strong> — fall back to these only when NLopt is unavailable.</li>
+</ul>
+<p>See <a href="model-file/fit-options.html#optimizer-choices">Fit Options</a> for the full
+list.</p>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="api/parsing.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="api/parsing.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="elasticlunr.min.js"></script>
+        <script src="mark.min.js"></script>
+        <script src="searcher.js"></script>
+
+        <script src="clipboard.min.js"></script>
+        <script src="highlight.js"></script>
+        <script src="book.js"></script>
+
+        <!-- Custom JS scripts -->
+        <script src="mathjax-config.js"></script>
+
+
+    </div>
+    </body>
+</html>

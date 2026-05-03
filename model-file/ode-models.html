@@ -1,0 +1,329 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>ODE Models - FeRx-NLME Documentation</title>
+
+
+        <!-- Custom HTML head -->
+        
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="../favicon.svg">
+        <link rel="shortcut icon" href="../favicon.png">
+        <link rel="stylesheet" href="../css/variables.css">
+        <link rel="stylesheet" href="../css/general.css">
+        <link rel="stylesheet" href="../css/chrome.css">
+        <link rel="stylesheet" href="../css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="../fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" href="../highlight.css">
+        <link rel="stylesheet" href="../tomorrow-night.css">
+        <link rel="stylesheet" href="../ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+
+    </head>
+    <body class="sidebar-visible no-js">
+    <div id="body-container">
+        <!-- Provide site root to javascript -->
+        <script>
+            var path_to_root = "../";
+            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "ayu" : "light";
+        </script>
+
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                var theme = localStorage.getItem('mdbook-theme');
+                var sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            var theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            var html = document.querySelector('html');
+            html.classList.remove('light')
+            html.classList.add(theme);
+            var body = document.querySelector('body');
+            body.classList.remove('no-js')
+            body.classList.add('js');
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            var body = document.querySelector('body');
+            var sidebar = null;
+            var sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+            }
+            sidebar_toggle.checked = sidebar === 'visible';
+            body.classList.remove('sidebar-visible');
+            body.classList.add("sidebar-" + sidebar);
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <div class="sidebar-scrollbox">
+                <ol class="chapter"><li class="chapter-item expanded "><a href="../introduction.html"><strong aria-hidden="true">1.</strong> Introduction</a></li><li class="chapter-item expanded "><a href="../getting-started.html"><strong aria-hidden="true">2.</strong> Getting Started</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../installation.html"><strong aria-hidden="true">2.1.</strong> Installation</a></li><li class="chapter-item expanded "><a href="../quick-start.html"><strong aria-hidden="true">2.2.</strong> Quick Start</a></li></ol></li><li class="chapter-item expanded "><a href="../model-file/index.html"><strong aria-hidden="true">3.</strong> Model File Reference</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../model-file/parameters.html"><strong aria-hidden="true">3.1.</strong> Parameters</a></li><li class="chapter-item expanded "><a href="../model-file/individual-parameters.html"><strong aria-hidden="true">3.2.</strong> Individual Parameters</a></li><li class="chapter-item expanded "><a href="../model-file/structural-model.html"><strong aria-hidden="true">3.3.</strong> Structural Model</a></li><li class="chapter-item expanded "><a href="../model-file/error-model.html"><strong aria-hidden="true">3.4.</strong> Error Model</a></li><li class="chapter-item expanded "><a href="../model-file/ode-models.html" class="active"><strong aria-hidden="true">3.5.</strong> ODE Models</a></li><li class="chapter-item expanded "><a href="../model-file/fit-options.html"><strong aria-hidden="true">3.6.</strong> Fit Options</a></li><li class="chapter-item expanded "><a href="../model-file/simulation.html"><strong aria-hidden="true">3.7.</strong> Simulation</a></li></ol></li><li class="chapter-item expanded "><a href="../estimation/index.html"><strong aria-hidden="true">4.</strong> Estimation Methods</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../estimation/foce.html"><strong aria-hidden="true">4.1.</strong> FOCE / FOCEI</a></li><li class="chapter-item expanded "><a href="../estimation/gauss-newton.html"><strong aria-hidden="true">4.2.</strong> Gauss-Newton (BHHH)</a></li><li class="chapter-item expanded "><a href="../estimation/saem.html"><strong aria-hidden="true">4.3.</strong> SAEM</a></li><li class="chapter-item expanded "><a href="../estimation/sir.html"><strong aria-hidden="true">4.4.</strong> SIR</a></li><li class="chapter-item expanded "><a href="../estimation/iov.html"><strong aria-hidden="true">4.5.</strong> Inter-Occasion Variability (IOV)</a></li></ol></li><li class="chapter-item expanded "><a href="../data-format.html"><strong aria-hidden="true">5.</strong> Data Format</a></li><li class="chapter-item expanded "><a href="../cli.html"><strong aria-hidden="true">6.</strong> CLI Reference</a></li><li class="chapter-item expanded "><a href="../output.html"><strong aria-hidden="true">7.</strong> Output Files</a></li><li class="chapter-item expanded "><a href="../examples/index.html"><strong aria-hidden="true">8.</strong> Examples</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../examples/one-cpt-oral.html"><strong aria-hidden="true">8.1.</strong> One-Compartment Oral</a></li><li class="chapter-item expanded "><a href="../examples/two-cpt-iv.html"><strong aria-hidden="true">8.2.</strong> Two-Compartment IV</a></li><li class="chapter-item expanded "><a href="../examples/covariates.html"><strong aria-hidden="true">8.3.</strong> Covariates</a></li><li class="chapter-item expanded "><a href="../examples/ode-model.html"><strong aria-hidden="true">8.4.</strong> ODE Model</a></li><li class="chapter-item expanded "><a href="../examples/bloq.html"><strong aria-hidden="true">8.5.</strong> BLOQ (M3 method)</a></li><li class="chapter-item expanded "><a href="../examples/iov.html"><strong aria-hidden="true">8.6.</strong> Inter-Occasion Variability</a></li></ol></li><li class="chapter-item expanded "><a href="../api/index.html"><strong aria-hidden="true">9.</strong> Rust API</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../api/types.html"><strong aria-hidden="true">9.1.</strong> Core Types</a></li><li class="chapter-item expanded "><a href="../api/fitting.html"><strong aria-hidden="true">9.2.</strong> Fitting Functions</a></li><li class="chapter-item expanded "><a href="../api/simulation.html"><strong aria-hidden="true">9.3.</strong> Simulation</a></li><li class="chapter-item expanded "><a href="../api/parsing.html"><strong aria-hidden="true">9.4.</strong> Parsing</a></li></ol></li><li class="chapter-item expanded "><a href="../faq.html"><strong aria-hidden="true">10.</strong> FAQ</a></li></ol>
+            </div>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <!-- Track and set sidebar scroll position -->
+        <script>
+            var sidebarScrollbox = document.querySelector('#sidebar .sidebar-scrollbox');
+            sidebarScrollbox.addEventListener('click', function(e) {
+                if (e.target.tagName === 'A') {
+                    sessionStorage.setItem('sidebar-scroll', sidebarScrollbox.scrollTop);
+                }
+            }, { passive: true });
+            var sidebarScrollTop = sessionStorage.getItem('sidebar-scroll');
+            sessionStorage.removeItem('sidebar-scroll');
+            if (sidebarScrollTop) {
+                // preserve sidebar scroll position when navigating via links within sidebar
+                sidebarScrollbox.scrollTop = sidebarScrollTop;
+            } else {
+                // scroll sidebar to current active section when navigating via "next/previous chapter" buttons
+                var activeSection = document.querySelector('#sidebar .active');
+                if (activeSection) {
+                    activeSection.scrollIntoView({ block: 'center' });
+                }
+            }
+        </script>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">FeRx-NLME Documentation</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+                        <a href="https://github.com/insightrx/ferx-nlme" title="Git repository" aria-label="Git repository">
+                            <i id="git-repository-button" class="fa fa-github"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="ode-models"><a class="header" href="#ode-models">ODE Models</a></h1>
+<p>For pharmacokinetic models without analytical solutions (e.g., saturable elimination, target-mediated drug disposition), FeRx provides an ODE solver.</p>
+<h2 id="structural-model-declaration"><a class="header" href="#structural-model-declaration">Structural Model Declaration</a></h2>
+<pre><code>[structural_model]
+  ode(obs_cmt=OBSERVABLE_COMPARTMENT, states=[state1, state2, ...])
+</code></pre>
+<ul>
+<li><strong>obs_cmt</strong>: The compartment whose concentration is observed (matched to DV)</li>
+<li><strong>states</strong>: List of state variable names (compartments)</li>
+</ul>
+<h2 id="ode-equations"><a class="header" href="#ode-equations">ODE Equations</a></h2>
+<p>The <code>[odes]</code> block defines the right-hand side of the ODE system:</p>
+<pre><code>[odes]
+  d/dt(state_name) = expression
+</code></pre>
+<p>Expressions can reference:</p>
+<ul>
+<li>
+<p>State variables by name</p>
+</li>
+<li>
+<p>Individual parameters defined in <code>[individual_parameters]</code></p>
+</li>
+<li>
+<p>Arithmetic operators and functions (<code>exp</code>, <code>log</code>, <code>sqrt</code>, etc.)</p>
+</li>
+<li>
+<p>Conditional logic with the same <code>if (cond) { ... } else { ... }</code> and inline
+<code>if (cond) expr else expr</code> syntax described in
+<a href="individual-parameters.html">Individual Parameters</a>. For example, you can
+switch between linear and saturable elimination based on the central
+amount:</p>
+<pre><code>[odes]
+  d/dt(depot)   = -KA * depot
+  if (central &gt; KM_THRESHOLD) {
+    d/dt(central) = KA * depot - VMAX * central / (KM + central)
+  } else {
+    d/dt(central) = KA * depot - CL_LIN * central
+  }
+</code></pre>
+<p>Each <code>d/dt(state)</code> reachable from any branch counts as defined; states
+that aren't assigned in the firing branch this step receive a derivative
+of <code>0</code>.</p>
+</li>
+</ul>
+<h2 id="example-michaelis-menten-elimination"><a class="header" href="#example-michaelis-menten-elimination">Example: Michaelis-Menten Elimination</a></h2>
+<p>A one-compartment oral model with saturable (Michaelis-Menten) elimination:</p>
+<pre><code>[parameters]
+  theta TVVMAX(10.0, 0.1, 1000.0)
+  theta TVKM(2.0, 0.01, 100.0)
+  theta TVV(10.0, 0.1, 500.0)
+  theta TVKA(1.0, 0.01, 50.0)
+
+  omega ETA_VMAX ~ 0.09
+  omega ETA_V    ~ 0.04
+
+  sigma PROP_ERR ~ 0.1
+
+[individual_parameters]
+  VMAX = TVVMAX * exp(ETA_VMAX)
+  KM   = TVKM
+  V    = TVV * exp(ETA_V)
+  KA   = TVKA
+
+[structural_model]
+  ode(obs_cmt=central, states=[depot, central])
+
+[odes]
+  d/dt(depot)   = -KA * depot
+  d/dt(central) = KA * depot / V - VMAX * central / (KM + central)
+
+[error_model]
+  DV ~ proportional(PROP_ERR)
+</code></pre>
+<h2 id="solver-details"><a class="header" href="#solver-details">Solver Details</a></h2>
+<p>FeRx uses a Dormand-Prince RK45 adaptive solver:</p>
+<div class="table-wrapper"><table><thead><tr><th>Setting</th><th>Value</th></tr></thead><tbody>
+<tr><td>Method</td><td>Explicit Runge-Kutta 4(5)</td></tr>
+<tr><td>Absolute tolerance</td><td>1e-6</td></tr>
+<tr><td>Relative tolerance</td><td>1e-4</td></tr>
+<tr><td>Max steps</td><td>10,000</td></tr>
+<tr><td>Initial step size</td><td>0.1</td></tr>
+<tr><td>Minimum step size</td><td>1e-12</td></tr>
+</tbody></table>
+</div>
+<p>The solver automatically adapts step sizes based on local error estimates.</p>
+<h2 id="dose-handling"><a class="header" href="#dose-handling">Dose Handling</a></h2>
+<ul>
+<li><strong>Bolus doses</strong>: Applied as instantaneous state changes at dose times. The dose amount is added to the target compartment: <code>state[cmt] += amt</code></li>
+<li><strong>Compartment indexing</strong>: Compartments are 1-indexed in the data file (<code>CMT=1</code> corresponds to the first state in the <code>states</code> list)</li>
+<li><strong>Multiple doses</strong>: The ODE is integrated in segments between dose events, with state discontinuities at each dose</li>
+</ul>
+<h2 id="limitations"><a class="header" href="#limitations">Limitations</a></h2>
+<ul>
+<li>Infusion doses (<code>RATE &gt; 0</code>) are not currently supported for ODE models. Use bolus approximations or analytical models for infusions</li>
+<li>The observable compartment contains the amount (not concentration). Divide by volume in the ODE equations if needed</li>
+<li>Steady-state (<code>SS=1</code>) is not directly supported for ODE models</li>
+</ul>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../model-file/error-model.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+
+                            <a rel="next prefetch" href="../model-file/fit-options.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../model-file/error-model.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+
+                    <a rel="next prefetch" href="../model-file/fit-options.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="../elasticlunr.min.js"></script>
+        <script src="../mark.min.js"></script>
+        <script src="../searcher.js"></script>
+
+        <script src="../clipboard.min.js"></script>
+        <script src="../highlight.js"></script>
+        <script src="../book.js"></script>
+
+        <!-- Custom JS scripts -->
+        <script src="../mathjax-config.js"></script>
+
+
+    </div>
+    </body>
+</html>

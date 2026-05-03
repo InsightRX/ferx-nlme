@@ -1,0 +1,489 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Installation - FeRx-NLME Documentation</title>
+
+
+        <!-- Custom HTML head -->
+        
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="favicon.svg">
+        <link rel="shortcut icon" href="favicon.png">
+        <link rel="stylesheet" href="css/variables.css">
+        <link rel="stylesheet" href="css/general.css">
+        <link rel="stylesheet" href="css/chrome.css">
+        <link rel="stylesheet" href="css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" href="highlight.css">
+        <link rel="stylesheet" href="tomorrow-night.css">
+        <link rel="stylesheet" href="ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+
+    </head>
+    <body class="sidebar-visible no-js">
+    <div id="body-container">
+        <!-- Provide site root to javascript -->
+        <script>
+            var path_to_root = "";
+            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "ayu" : "light";
+        </script>
+
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                var theme = localStorage.getItem('mdbook-theme');
+                var sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            var theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            var html = document.querySelector('html');
+            html.classList.remove('light')
+            html.classList.add(theme);
+            var body = document.querySelector('body');
+            body.classList.remove('no-js')
+            body.classList.add('js');
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            var body = document.querySelector('body');
+            var sidebar = null;
+            var sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+            }
+            sidebar_toggle.checked = sidebar === 'visible';
+            body.classList.remove('sidebar-visible');
+            body.classList.add("sidebar-" + sidebar);
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <div class="sidebar-scrollbox">
+                <ol class="chapter"><li class="chapter-item expanded "><a href="introduction.html"><strong aria-hidden="true">1.</strong> Introduction</a></li><li class="chapter-item expanded "><a href="getting-started.html"><strong aria-hidden="true">2.</strong> Getting Started</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="installation.html" class="active"><strong aria-hidden="true">2.1.</strong> Installation</a></li><li class="chapter-item expanded "><a href="quick-start.html"><strong aria-hidden="true">2.2.</strong> Quick Start</a></li></ol></li><li class="chapter-item expanded "><a href="model-file/index.html"><strong aria-hidden="true">3.</strong> Model File Reference</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="model-file/parameters.html"><strong aria-hidden="true">3.1.</strong> Parameters</a></li><li class="chapter-item expanded "><a href="model-file/individual-parameters.html"><strong aria-hidden="true">3.2.</strong> Individual Parameters</a></li><li class="chapter-item expanded "><a href="model-file/structural-model.html"><strong aria-hidden="true">3.3.</strong> Structural Model</a></li><li class="chapter-item expanded "><a href="model-file/error-model.html"><strong aria-hidden="true">3.4.</strong> Error Model</a></li><li class="chapter-item expanded "><a href="model-file/ode-models.html"><strong aria-hidden="true">3.5.</strong> ODE Models</a></li><li class="chapter-item expanded "><a href="model-file/fit-options.html"><strong aria-hidden="true">3.6.</strong> Fit Options</a></li><li class="chapter-item expanded "><a href="model-file/simulation.html"><strong aria-hidden="true">3.7.</strong> Simulation</a></li></ol></li><li class="chapter-item expanded "><a href="estimation/index.html"><strong aria-hidden="true">4.</strong> Estimation Methods</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="estimation/foce.html"><strong aria-hidden="true">4.1.</strong> FOCE / FOCEI</a></li><li class="chapter-item expanded "><a href="estimation/gauss-newton.html"><strong aria-hidden="true">4.2.</strong> Gauss-Newton (BHHH)</a></li><li class="chapter-item expanded "><a href="estimation/saem.html"><strong aria-hidden="true">4.3.</strong> SAEM</a></li><li class="chapter-item expanded "><a href="estimation/sir.html"><strong aria-hidden="true">4.4.</strong> SIR</a></li><li class="chapter-item expanded "><a href="estimation/iov.html"><strong aria-hidden="true">4.5.</strong> Inter-Occasion Variability (IOV)</a></li></ol></li><li class="chapter-item expanded "><a href="data-format.html"><strong aria-hidden="true">5.</strong> Data Format</a></li><li class="chapter-item expanded "><a href="cli.html"><strong aria-hidden="true">6.</strong> CLI Reference</a></li><li class="chapter-item expanded "><a href="output.html"><strong aria-hidden="true">7.</strong> Output Files</a></li><li class="chapter-item expanded "><a href="examples/index.html"><strong aria-hidden="true">8.</strong> Examples</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="examples/one-cpt-oral.html"><strong aria-hidden="true">8.1.</strong> One-Compartment Oral</a></li><li class="chapter-item expanded "><a href="examples/two-cpt-iv.html"><strong aria-hidden="true">8.2.</strong> Two-Compartment IV</a></li><li class="chapter-item expanded "><a href="examples/covariates.html"><strong aria-hidden="true">8.3.</strong> Covariates</a></li><li class="chapter-item expanded "><a href="examples/ode-model.html"><strong aria-hidden="true">8.4.</strong> ODE Model</a></li><li class="chapter-item expanded "><a href="examples/bloq.html"><strong aria-hidden="true">8.5.</strong> BLOQ (M3 method)</a></li><li class="chapter-item expanded "><a href="examples/iov.html"><strong aria-hidden="true">8.6.</strong> Inter-Occasion Variability</a></li></ol></li><li class="chapter-item expanded "><a href="api/index.html"><strong aria-hidden="true">9.</strong> Rust API</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="api/types.html"><strong aria-hidden="true">9.1.</strong> Core Types</a></li><li class="chapter-item expanded "><a href="api/fitting.html"><strong aria-hidden="true">9.2.</strong> Fitting Functions</a></li><li class="chapter-item expanded "><a href="api/simulation.html"><strong aria-hidden="true">9.3.</strong> Simulation</a></li><li class="chapter-item expanded "><a href="api/parsing.html"><strong aria-hidden="true">9.4.</strong> Parsing</a></li></ol></li><li class="chapter-item expanded "><a href="faq.html"><strong aria-hidden="true">10.</strong> FAQ</a></li></ol>
+            </div>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <!-- Track and set sidebar scroll position -->
+        <script>
+            var sidebarScrollbox = document.querySelector('#sidebar .sidebar-scrollbox');
+            sidebarScrollbox.addEventListener('click', function(e) {
+                if (e.target.tagName === 'A') {
+                    sessionStorage.setItem('sidebar-scroll', sidebarScrollbox.scrollTop);
+                }
+            }, { passive: true });
+            var sidebarScrollTop = sessionStorage.getItem('sidebar-scroll');
+            sessionStorage.removeItem('sidebar-scroll');
+            if (sidebarScrollTop) {
+                // preserve sidebar scroll position when navigating via links within sidebar
+                sidebarScrollbox.scrollTop = sidebarScrollTop;
+            } else {
+                // scroll sidebar to current active section when navigating via "next/previous chapter" buttons
+                var activeSection = document.querySelector('#sidebar .active');
+                if (activeSection) {
+                    activeSection.scrollIntoView({ block: 'center' });
+                }
+            }
+        </script>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">FeRx-NLME Documentation</h1>
+
+                    <div class="right-buttons">
+                        <a href="print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+                        <a href="https://github.com/insightrx/ferx-nlme" title="Git repository" aria-label="Git repository">
+                            <i id="git-repository-button" class="fa fa-github"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="installation"><a class="header" href="#installation">Installation</a></h1>
+<p>FeRx requires a nightly Rust toolchain with the Enzyme LLVM plugin for automatic differentiation. As of 2026, Enzyme is not yet distributed via rustup, so a one-time plugin build is required.</p>
+<p>Pick your platform:</p>
+<ul>
+<li><a href="#linux"><strong>Linux</strong></a> — fully supported, one-time ~30 min plugin build</li>
+<li><a href="#macos"><strong>macOS</strong></a> — supported with caveats</li>
+<li><a href="#windows"><strong>Windows</strong></a> — <strong>not supported</strong> (see <a href="#windows">why below</a>)</li>
+</ul>
+<hr />
+<h2 id="linux"><a class="header" href="#linux">Linux</a></h2>
+<p>Tested on Ubuntu 22.04. Other distributions (Debian, Fedora, Arch) should work with adjustments to the package manager commands.</p>
+<h3 id="1-install-rustup--upstream-nightly"><a class="header" href="#1-install-rustup--upstream-nightly">1. Install rustup + upstream nightly</a></h3>
+<p><strong>Do not use snap's rustup</strong> — its filesystem confinement breaks on non-standard home directories (common on enterprise servers).</p>
+<pre><code class="language-bash"># Remove snap rustup if you had it:
+sudo snap remove rustup
+
+# Official installer
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+source "$HOME/.cargo/env"
+
+rustup toolchain install nightly
+</code></pre>
+<h3 id="2-install-system-dependencies-and-matching-llvm"><a class="header" href="#2-install-system-dependencies-and-matching-llvm">2. Install system dependencies and matching LLVM</a></h3>
+<p>Check which LLVM major version nightly needs:</p>
+<pre><code class="language-bash">rustc +nightly --version --verbose | grep LLVM
+# e.g. "LLVM version: 22.1.2" — major is 22
+</code></pre>
+<p>Use that major version (<code>&lt;MAJOR&gt;</code>) below.</p>
+<pre><code class="language-bash">sudo apt install -y cmake ninja-build clang libssl-dev pkg-config \
+                    python3 build-essential curl git libzstd-dev
+
+# Install matching LLVM from apt.llvm.org (Ubuntu's defaults lag behind):
+wget https://apt.llvm.org/llvm.sh
+chmod +x llvm.sh
+sudo ./llvm.sh &lt;MAJOR&gt;
+
+# Fix GPG keyring permissions if apt warns:
+sudo chmod 644 /etc/apt/trusted.gpg.d/apt.llvm.org.asc
+sudo apt update
+
+sudo apt install -y llvm-&lt;MAJOR&gt;-dev clang-&lt;MAJOR&gt;
+</code></pre>
+<p>For other distros, install the matching llvm-dev + clang packages from your package manager. The LLVM major version must exactly match what rustc reports.</p>
+<h3 id="3-build-the-enzyme-plugin"><a class="header" href="#3-build-the-enzyme-plugin">3. Build the Enzyme plugin</a></h3>
+<pre><code class="language-bash">git clone https://github.com/EnzymeAD/Enzyme /tmp/enzyme-build
+cd /tmp/enzyme-build/enzyme
+mkdir build &amp;&amp; cd build
+
+cmake -G Ninja .. \
+  -DLLVM_DIR=/usr/lib/llvm-&lt;MAJOR&gt;/lib/cmake/llvm \
+  -DENZYME_CLANG=OFF \
+  -DENZYME_FLANG=OFF
+ninja
+# 15–30 min
+</code></pre>
+<h3 id="4-install-the-plugin-into-nightlys-sysroot"><a class="header" href="#4-install-the-plugin-into-nightlys-sysroot">4. Install the plugin into nightly's sysroot</a></h3>
+<p><strong>This location is not obvious</strong> — rustc looks in <code>lib/rustlib/&lt;target&gt;/lib/</code>, not just <code>lib/</code>. Despite the error wording ("folder not found"), it's searching for a file:</p>
+<pre><code class="language-bash">SYSROOT=$(rustc +nightly --print sysroot)
+TARGET=x86_64-unknown-linux-gnu   # or aarch64-unknown-linux-gnu on ARM
+
+cp /tmp/enzyme-build/enzyme/build/Enzyme/LLVMEnzyme-&lt;MAJOR&gt;.so \
+   $SYSROOT/lib/rustlib/$TARGET/lib/libEnzyme-&lt;MAJOR&gt;.so
+</code></pre>
+<p>Note the filename rewrite: <code>LLVMEnzyme-&lt;N&gt;.so</code> → <code>libEnzyme-&lt;N&gt;.so</code> (with <code>lib</code> prefix).</p>
+<h3 id="5-register-the-toolchain-as-enzyme"><a class="header" href="#5-register-the-toolchain-as-enzyme">5. Register the toolchain as <code>enzyme</code></a></h3>
+<p>ferx's build system pins to a toolchain named <code>enzyme</code>:</p>
+<pre><code class="language-bash">rustup toolchain link enzyme "$(rustc +nightly --print sysroot)"
+rustc +enzyme --version
+</code></pre>
+<h3 id="6-verify"><a class="header" href="#6-verify">6. Verify</a></h3>
+<pre><code class="language-bash">rustc +enzyme -Z autodiff=Enable - &lt;/dev/null 2&gt;&amp;1 | head
+</code></pre>
+<p>Expected: <code>error[E0601]: </code>main<code> function not found</code>. That's the success signal. If you see <code>autodiff backend not found in the sysroot</code>, the <code>.so</code> is missing or in the wrong place (step 4).</p>
+<h3 id="multi-user-servers"><a class="header" href="#multi-user-servers">Multi-user servers</a></h3>
+<p>For shared Linux servers, stage the built toolchain in <code>/opt/rust-nightly</code> so all users can share one build:</p>
+<pre><code class="language-bash">sudo mkdir -p /opt/rust-nightly
+sudo cp -a ~/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/. /opt/rust-nightly/
+sudo chown -R root:root /opt/rust-nightly
+sudo chmod -R a+rX /opt/rust-nightly
+sudo chmod a+rx /opt/rust-nightly/bin/*
+</code></pre>
+<p>Each user then links the shared toolchain into their own rustup:</p>
+<pre><code class="language-bash"># per user, once
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none
+rustup toolchain link enzyme /opt/rust-nightly
+</code></pre>
+<p>For R users, add to <code>~/.Renviron</code>:</p>
+<pre><code>PATH=/opt/rust-nightly/bin:${HOME}/.cargo/bin:${PATH}
+RUSTUP_TOOLCHAIN=enzyme
+</code></pre>
+<hr />
+<h2 id="macos"><a class="header" href="#macos">macOS</a></h2>
+<p>Supported on both Intel and Apple Silicon, with caveats around LLVM installation.</p>
+<h3 id="1-install-xcode-command-line-tools"><a class="header" href="#1-install-xcode-command-line-tools">1. Install Xcode Command Line Tools</a></h3>
+<pre><code class="language-bash">xcode-select --install
+</code></pre>
+<h3 id="2-install-rustup--upstream-nightly"><a class="header" href="#2-install-rustup--upstream-nightly">2. Install rustup + upstream nightly</a></h3>
+<pre><code class="language-bash">curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+source "$HOME/.cargo/env"
+
+rustup toolchain install nightly
+</code></pre>
+<h3 id="3-install-matching-llvm-via-homebrew"><a class="header" href="#3-install-matching-llvm-via-homebrew">3. Install matching LLVM via Homebrew</a></h3>
+<p>Check which LLVM major version nightly needs:</p>
+<pre><code class="language-bash">rustc +nightly --version --verbose | grep LLVM
+</code></pre>
+<p>Homebrew only ships a handful of LLVM versions at a time. If the version you need is on Homebrew:</p>
+<pre><code class="language-bash">brew install llvm@&lt;MAJOR&gt;
+# Path will be /opt/homebrew/opt/llvm@&lt;MAJOR&gt; (Apple Silicon)
+# or           /usr/local/opt/llvm@&lt;MAJOR&gt;     (Intel)
+</code></pre>
+<p>If Homebrew doesn't have your version, you'll need to build LLVM from source (much longer — consider sticking with a slightly older nightly that matches an available LLVM version).</p>
+<h3 id="4-build-the-enzyme-plugin"><a class="header" href="#4-build-the-enzyme-plugin">4. Build the Enzyme plugin</a></h3>
+<pre><code class="language-bash">git clone https://github.com/EnzymeAD/Enzyme /tmp/enzyme-build
+cd /tmp/enzyme-build/enzyme
+mkdir build &amp;&amp; cd build
+
+# Adjust paths for your brew prefix (/opt/homebrew or /usr/local)
+cmake -G Ninja .. \
+  -DLLVM_DIR=$(brew --prefix)/opt/llvm@&lt;MAJOR&gt;/lib/cmake/llvm \
+  -DENZYME_CLANG=OFF \
+  -DENZYME_FLANG=OFF
+ninja
+</code></pre>
+<p>You may need to install <code>ninja</code> if not present: <code>brew install ninja cmake</code>.</p>
+<h3 id="5-install-the-plugin-into-nightlys-sysroot"><a class="header" href="#5-install-the-plugin-into-nightlys-sysroot">5. Install the plugin into nightly's sysroot</a></h3>
+<pre><code class="language-bash">SYSROOT=$(rustc +nightly --print sysroot)
+
+# On Apple Silicon:
+TARGET=aarch64-apple-darwin
+# On Intel:
+# TARGET=x86_64-apple-darwin
+
+# Note: on macOS the shared library extension is .dylib, not .so
+cp /tmp/enzyme-build/enzyme/build/Enzyme/LLVMEnzyme-&lt;MAJOR&gt;.dylib \
+   $SYSROOT/lib/rustlib/$TARGET/lib/libEnzyme-&lt;MAJOR&gt;.dylib
+</code></pre>
+<h3 id="6-register-and-verify"><a class="header" href="#6-register-and-verify">6. Register and verify</a></h3>
+<pre><code class="language-bash">rustup toolchain link enzyme "$(rustc +nightly --print sysroot)"
+rustc +enzyme -Z autodiff=Enable - &lt;/dev/null 2&gt;&amp;1 | head
+# Expect: error[E0601]: `main` function not found
+</code></pre>
+<h3 id="macos-caveats"><a class="header" href="#macos-caveats">macOS caveats</a></h3>
+<ul>
+<li><strong>Apple Silicon (M1/M2/M3/M4)</strong>: use <code>aarch64-apple-darwin</code> as <code>TARGET</code>. Intel Macs use <code>x86_64-apple-darwin</code></li>
+<li><strong>System Integrity Protection (SIP)</strong>: If you see code-signing errors loading the <code>.dylib</code> during <code>rustc</code> invocation, try <code>sudo codesign --force --sign - &lt;path-to-libEnzyme.dylib&gt;</code> — should be rare on dev machines</li>
+<li><strong>Nightly toolchain distribution mismatches</strong>: Apple Silicon nightlies occasionally lag x86_64 by a day or two; if LLVM version mismatches after <code>rustup update</code>, prefer installing a specific dated nightly</li>
+</ul>
+<hr />
+<h2 id="windows"><a class="header" href="#windows">Windows</a></h2>
+<p><strong>Windows is not currently supported.</strong> The blockers are:</p>
+<ol>
+<li>
+<p><strong>EnzymeAD plugin build on MSVC is not well-tested.</strong> The Enzyme project primarily targets Linux with LLVM clang/gcc. While Windows builds exist in theory, the toolchain integration (rustc sysroot path conventions, plugin discovery, MSVC vs MinGW linking) has known issues that haven't been worked through.</p>
+</li>
+<li>
+<p><strong>Rust autodiff feature gate interactions with MSVC codegen.</strong> The <code>-Z autodiff=Enable</code> path has not been exercised on the x86_64-pc-windows-msvc target. Anecdotal reports from the Rust autodiff tracking issue show crashes or "backend not found" errors on Windows even when the plugin <code>.dll</code> is present.</p>
+</li>
+<li>
+<p><strong>We haven't set up CI for Windows.</strong> Without a green CI signal we can't promise the build works.</p>
+</li>
+</ol>
+<h3 id="workarounds-for-windows-users"><a class="header" href="#workarounds-for-windows-users">Workarounds for Windows users</a></h3>
+<ul>
+<li><strong>WSL2 (recommended)</strong>: Install Ubuntu under WSL2 and follow the <a href="#linux">Linux instructions</a>. Performance is near-native for CPU-bound workloads like model fitting.</li>
+<li><strong>Docker</strong>: Use the forthcoming ferx-nlme Docker image (coming soon) which ships with the toolchain pre-installed.</li>
+<li><strong>Remote dev</strong>: SSH into a Linux server or cloud VM.</li>
+</ul>
+<h3 id="future-windows-support"><a class="header" href="#future-windows-support">Future Windows support</a></h3>
+<p>Once upstream Enzyme integration lands in rustup (tracked at <a href="https://github.com/rust-lang/rust/issues/124509">rust-lang/rust autodiff tracking issue</a>), Windows support should become straightforward since the plugin distribution problem goes away. No ETA; the feature is still experimental in rustc.</p>
+<p>If you're a Windows developer who would like to help, a CI run against <code>x86_64-pc-windows-msvc</code> + contributed docs for that platform would be very welcome.</p>
+<hr />
+<h2 id="building-ferx-nlme-from-source"><a class="header" href="#building-ferx-nlme-from-source">Building ferx-nlme from source</a></h2>
+<p>Once your Enzyme toolchain is set up:</p>
+<pre><code class="language-bash">git clone https://github.com/InsightRX/ferx-nlme
+cd ferx-nlme
+
+cargo build --release --features autodiff
+# Binary at target/release/ferx
+</code></pre>
+<h3 id="build-options"><a class="header" href="#build-options">Build options</a></h3>
+<pre><code class="language-bash"># Debug build (faster compile, slower runtime)
+cargo build --features autodiff
+
+# Quick type-check without building
+cargo check --features autodiff
+
+# Lints
+cargo clippy --features autodiff
+
+# CI build without autodiff (uses finite differences — no Enzyme needed)
+cargo build --release --no-default-features --features ci
+</code></pre>
+<p>The <code>ci</code> feature is useful for development on machines without the full Enzyme toolchain — at the cost of much slower gradient computation.</p>
+<h3 id="verify-the-build"><a class="header" href="#verify-the-build">Verify the build</a></h3>
+<pre><code class="language-bash">cargo run --release --features autodiff --bin ferx -- examples/warfarin.ferx --simulate
+</code></pre>
+<p>Should print a successful model fit with parameter estimates.</p>
+<hr />
+<h2 id="installing-the-ferx-r-package"><a class="header" href="#installing-the-ferx-r-package">Installing the ferx R package</a></h2>
+<p>Ensure the Enzyme toolchain is set up (above). Then:</p>
+<pre><code class="language-r">devtools::install_github("InsightRX/ferx")
+</code></pre>
+<p>The R package's build is driven by its <code>Makevars</code>, which invokes <code>cargo</code> and resolves the <code>enzyme</code> toolchain via rustup. Both must be set up correctly in your shell/Renviron before calling <code>install_github</code>.</p>
+<p>See the <a href="https://github.com/InsightRX/ferx">ferx R package README</a> for API usage.</p>
+<h3 id="cancelling-a-running-fit-ctrl-c"><a class="header" href="#cancelling-a-running-fit-ctrl-c">Cancelling a running fit (Ctrl-C)</a></h3>
+<p><code>ferx_fit()</code> runs the estimator on a worker thread and polls for R interrupts on the main thread every ~100 ms, so <strong>Ctrl-C</strong> (or RStudio's red stop button) aborts the fit cleanly. The worker exits at the next safe checkpoint — typically within a second or two, but up to one inner-loop evaluation for heavy ODE models. The call then returns with an R error:</p>
+<pre><code>Error: ferx_fit: cancelled by user
+</code></pre>
+<p>Ctrl-Z (SIGTSTP) will <em>not</em> abort the fit — it suspends the whole R process to the shell. Use Ctrl-C instead.</p>
+<hr />
+<h2 id="dependencies"><a class="header" href="#dependencies">Dependencies</a></h2>
+<p>FeRx depends on these crates (managed automatically by Cargo):</p>
+<div class="table-wrapper"><table><thead><tr><th>Crate</th><th>Purpose</th></tr></thead><tbody>
+<tr><td><code>nalgebra</code></td><td>Linear algebra (matrices, Cholesky)</td></tr>
+<tr><td><code>nlopt</code></td><td>Nonlinear optimization (SLSQP, L-BFGS, MMA)</td></tr>
+<tr><td><code>rayon</code></td><td>Parallel computation</td></tr>
+<tr><td><code>rand</code>, <code>rand_distr</code></td><td>Random number generation (SAEM, SIR)</td></tr>
+<tr><td><code>csv</code></td><td>CSV data file reading</td></tr>
+<tr><td><code>regex</code></td><td>Model file expression parsing</td></tr>
+</tbody></table>
+</div>
+<p>The <code>nlopt</code> crate requires the NLopt C library. Most platforms handle this automatically; if the build fails on NLopt, install it via your system package manager:</p>
+<pre><code class="language-bash"># macOS
+brew install nlopt
+
+# Ubuntu/Debian
+sudo apt install libnlopt-dev
+
+# Fedora
+sudo dnf install NLopt-devel
+</code></pre>
+<hr />
+<h2 id="troubleshooting"><a class="header" href="#troubleshooting">Troubleshooting</a></h2>
+<h3 id="error-the-option-z-is-only-accepted-on-the-nightly-compiler"><a class="header" href="#error-the-option-z-is-only-accepted-on-the-nightly-compiler"><code>"error: the option 'Z' is only accepted on the nightly compiler"</code></a></h3>
+<p>Your shell (or R) is finding a non-nightly <code>rustc</code>. Check <code>rustc --version</code> and your <code>PATH</code>. For R, verify <code>Sys.which("rustc")</code> and <code>~/.Renviron</code>.</p>
+<h3 id="autodiff-backend-not-found-in-the-sysroot-failed-to-find-a-libenzyme-n-folder"><a class="header" href="#autodiff-backend-not-found-in-the-sysroot-failed-to-find-a-libenzyme-n-folder"><code>"autodiff backend not found in the sysroot: failed to find a libEnzyme-&lt;N&gt; folder"</code></a></h3>
+<p>Despite the wording ("folder"), rustc is searching for a file. Causes:</p>
+<ul>
+<li><strong>Wrong directory</strong>: the <code>.so</code>/<code>.dylib</code> is in <code>&lt;sysroot&gt;/lib/</code> instead of <code>&lt;sysroot&gt;/lib/rustlib/&lt;target&gt;/lib/</code></li>
+<li><strong>LLVM version mismatch</strong>: rebuild Enzyme against the LLVM version rustc reports</li>
+<li><strong>Filename</strong>: must be <code>libEnzyme-&lt;MAJOR&gt;.so</code> (Linux) or <code>libEnzyme-&lt;MAJOR&gt;.dylib</code> (macOS), with <code>lib</code> prefix</li>
+</ul>
+<h3 id="custom-toolchain-enzyme-specified-in-override-file--is-not-installed"><a class="header" href="#custom-toolchain-enzyme-specified-in-override-file--is-not-installed"><code>"custom toolchain 'enzyme' specified in override file ... is not installed"</code></a></h3>
+<p>Run <code>rustup toolchain link enzyme &lt;path-to-nightly-sysroot&gt;</code>.</p>
+<h3 id="not-a-directory-pathlib-from-rustup-toolchain-link"><a class="header" href="#not-a-directory-pathlib-from-rustup-toolchain-link"><code>"not a directory: '/&lt;path&gt;/lib'"</code> from <code>rustup toolchain link</code></a></h3>
+<p>Permission issue — the user running <code>toolchain link</code> can't read the target path. On shared installs, run <code>sudo chmod -R a+rX /opt/rust-nightly</code>.</p>
+<h3 id="incorrect-value-x-for-unstable-option-autodiff"><a class="header" href="#incorrect-value-x-for-unstable-option-autodiff"><code>"incorrect value 'X' for unstable option 'autodiff'"</code></a></h3>
+<p>Valid autodiff values change between nightly builds. Test with:</p>
+<pre><code class="language-bash">rustc +enzyme -Z autodiff=Enable - &lt;/dev/null 2&gt;&amp;1 | head
+</code></pre>
+<p>If <code>Enable</code> is rejected, try <code>LooseTypes</code>, <code>Inline</code>, or <code>PrintTA</code>.</p>
+<h3 id="enzyme-cannot-handle-forward-unknown-intrinsic-llvmmaximumnum"><a class="header" href="#enzyme-cannot-handle-forward-unknown-intrinsic-llvmmaximumnum"><code>"Enzyme: cannot handle (forward) unknown intrinsic llvm.maximumnum"</code></a></h3>
+<p>Recent rustc lowers <code>f64::max()</code>/<code>f64::min()</code> to intrinsics Enzyme can't yet differentiate. This is a ferx-nlme code-level issue — AD-instrumented functions must use manual <code>if</code> expressions. Should not happen on released ferx-nlme versions; if it does, please file an issue.</p>
+<h3 id="cargo-is-unavailable-for-the-active-toolchain-info-not-error"><a class="header" href="#cargo-is-unavailable-for-the-active-toolchain-info-not-error"><code>"cargo is unavailable for the active toolchain"</code> (info, not error)</a></h3>
+<p>Cargo wasn't copied into your linked toolchain. Either copy it (<code>cp ~/.cargo/bin/cargo /opt/rust-nightly/bin/</code>) or ignore — rustup falls back to nightly's cargo, which works.</p>
+<h3 id="refreshing-when-upstream-nightly-rolls-forward"><a class="header" href="#refreshing-when-upstream-nightly-rolls-forward">Refreshing when upstream nightly rolls forward</a></h3>
+<p>If a new ferx-nlme release references stdlib items your cached toolchain doesn't have (e.g. <code>autodiff_forward</code> not found), rebuild <code>/opt/rust-nightly</code> against the current nightly, and rebuild Enzyme if the LLVM major version changed.</p>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="getting-started.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+
+                            <a rel="next prefetch" href="quick-start.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="getting-started.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+
+                    <a rel="next prefetch" href="quick-start.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="elasticlunr.min.js"></script>
+        <script src="mark.min.js"></script>
+        <script src="searcher.js"></script>
+
+        <script src="clipboard.min.js"></script>
+        <script src="highlight.js"></script>
+        <script src="book.js"></script>
+
+        <!-- Custom JS scripts -->
+        <script src="mathjax-config.js"></script>
+
+
+    </div>
+    </body>
+</html>
