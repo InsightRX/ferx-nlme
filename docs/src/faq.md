@@ -65,6 +65,51 @@ or, from the Rust API, `FitOptions { mu_referencing: false, .. }`. The default i
 
 If you have a NONMEM model that uses an explicit `MU_1 = LOG(THETA(1))` line, just drop the `MU_i` intermediate and write the individual parameter directly — ferx will detect the equivalent mu-reference automatically and the fit will be equivalent.
 
+## Can I use `if` / `else` statements like in NONMEM or nlmixr2?
+
+**Yes.** ferx supports two forms of conditional logic in both
+`[individual_parameters]` and `[odes]` blocks:
+
+```
+# Block form
+if (WT > 70) {
+  CL = TVCL * (WT / 70)^0.75 * exp(ETA_CL)
+} else if (SEX == 1) {
+  CL = TVCL * 1.2 * exp(ETA_CL)
+} else {
+  CL = TVCL * exp(ETA_CL)
+}
+
+# Inline (ternary) form
+CL = if (SEX == 1) TVCL * 1.5 else TVCL
+```
+
+Conditions support comparisons (`<`, `<=`, `>`, `>=`, `==`, `!=`) and
+logical operators (`&&`, `||`, `!`). Either form may be combined with
+arbitrary arithmetic, including covariate references and other ETAs.
+
+**Compared to NONMEM:** NONMEM uses Fortran-style `IF (cond) THEN ... ELSE
+... ENDIF` and Fortran comparison aliases (`.GT.`, `.LE.`, etc.). ferx uses
+C-style braces and operator symbols. The semantics are otherwise the same —
+exactly one branch fires per evaluation, the rest are ignored.
+
+**Compared to nlmixr2:** nlmixr2's `if (cond) { ... } else { ... }` syntax
+is a near-verbatim match for ferx's block form. Drop the `<-` assignments
+in favour of `=` and the model translates directly.
+
+**Caveat:** when a parameter is assigned inside an `if` block, ferx skips
+mu-reference detection for that parameter (the `(ETA → THETA)` link is no
+longer unconditional). See
+[Individual Parameters](model-file/individual-parameters.md#interaction-with-mu-referencing)
+for the workaround if you need both conditional logic and mu-referencing
+on the same parameter.
+
+**A note on `==` and `!=`:** these operators do an exact bitwise float
+comparison. They work as you'd expect for integer-coded covariates
+(`SEX == 1`, `STUDY != 3`) but are unreliable on continuous values, where
+floating-point round-off can flip the result. For continuous thresholds
+prefer a bracketed comparison (`WT >= 70 && WT < 80`) over `WT == 75`.
+
 ## Which outer optimizer should I pick?
 
 `slsqp` (the default) is the right choice for most models — it is fast, handles

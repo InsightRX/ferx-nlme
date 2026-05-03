@@ -26,6 +26,55 @@ Each line assigns a PK parameter using an arithmetic expression that can referen
 | `sqrt()` | `sqrt(WT)` |
 | `abs()` | `abs(ETA_CL)` |
 | Parentheses | `TVCL * (WT/70)^0.75` |
+| Comparisons (in `if` conditions) | `WT > 70`, `SEX == 1`, `AGE != 0` |
+| Logical (in `if` conditions) | `&&` (and), `\|\|` (or), `!` (not) |
+| Inline conditional | `if (SEX == 1) TVCL * 1.5 else TVCL` |
+
+## Conditional Logic (`if` / `else`)
+
+Two forms are supported and may be combined freely.
+
+### Block form
+
+```
+[individual_parameters]
+  if (WT > 70) {
+    CL = TVCL * (WT / 70)^0.75 * exp(ETA_CL)
+  } else if (SEX == 1) {
+    CL = TVCL * 1.2 * exp(ETA_CL)
+  } else {
+    CL = TVCL * exp(ETA_CL)
+  }
+  V = TVV * exp(ETA_V)
+```
+
+The block form is appropriate when the body contains multiple statements or
+when several alternative branches are needed. Conditions support comparison
+operators (`<`, `<=`, `>`, `>=`, `==`, `!=`) and logical operators (`&&`,
+`||`, `!`); parentheses group sub-conditions.
+
+### Inline (ternary) form
+
+```
+[individual_parameters]
+  CL = if (SEX == 1) TVCL * 1.5 else TVCL
+  V  = TVV  * exp(ETA_V)
+```
+
+The inline form produces a value and can appear anywhere an expression is
+allowed. Both `then` and `else` branches are required.
+
+### Interaction with mu-referencing
+
+When the assignment to a parameter is wrapped in an `if` block, the
+`(ETA → THETA)` relationship is no longer unconditional, so ferx skips
+mu-reference detection for that parameter. Unconditional assignments in the
+same block continue to be detected normally.
+
+> **Tip:** if you want mu-referencing for a covariate-adjusted parameter,
+> keep the assignment unconditional and bury the conditional inside the
+> covariate term (e.g.
+> `CL = TVCL * (if (WT > 70) (WT / 70)^0.75 else 1.0) * exp(ETA_CL)`).
 
 ## Common Parameterizations
 

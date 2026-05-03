@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "ayu";
-            window.path_to_searchindex_js = "searchindex-77dc1448.js";
+            window.path_to_searchindex_js = "searchindex-1ccd44c3.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-911e3088.js"></script>
@@ -812,9 +812,47 @@ sigma ADD_ERR  ~ 1.0
 <tr><td><code>sqrt()</code></td><td><code>sqrt(WT)</code></td></tr>
 <tr><td><code>abs()</code></td><td><code>abs(ETA_CL)</code></td></tr>
 <tr><td>Parentheses</td><td><code>TVCL * (WT/70)^0.75</code></td></tr>
+<tr><td>Comparisons (in <code>if</code> conditions)</td><td><code>WT &gt; 70</code>, <code>SEX == 1</code>, <code>AGE != 0</code></td></tr>
+<tr><td>Logical (in <code>if</code> conditions)</td><td><code>&amp;&amp;</code> (and), <code>||</code> (or), <code>!</code> (not)</td></tr>
+<tr><td>Inline conditional</td><td><code>if (SEX == 1) TVCL * 1.5 else TVCL</code></td></tr>
 </tbody>
 </table>
 </div>
+<h2 id="conditional-logic-if--else"><a class="header" href="#conditional-logic-if--else">Conditional Logic (<code>if</code> / <code>else</code>)</a></h2>
+<p>Two forms are supported and may be combined freely.</p>
+<h3 id="block-form"><a class="header" href="#block-form">Block form</a></h3>
+<pre><code>[individual_parameters]
+  if (WT &gt; 70) {
+    CL = TVCL * (WT / 70)^0.75 * exp(ETA_CL)
+  } else if (SEX == 1) {
+    CL = TVCL * 1.2 * exp(ETA_CL)
+  } else {
+    CL = TVCL * exp(ETA_CL)
+  }
+  V = TVV * exp(ETA_V)
+</code></pre>
+<p>The block form is appropriate when the body contains multiple statements or
+when several alternative branches are needed. Conditions support comparison
+operators (<code>&lt;</code>, <code>&lt;=</code>, <code>&gt;</code>, <code>&gt;=</code>, <code>==</code>, <code>!=</code>) and logical operators (<code>&amp;&amp;</code>,
+<code>||</code>, <code>!</code>); parentheses group sub-conditions.</p>
+<h3 id="inline-ternary-form"><a class="header" href="#inline-ternary-form">Inline (ternary) form</a></h3>
+<pre><code>[individual_parameters]
+  CL = if (SEX == 1) TVCL * 1.5 else TVCL
+  V  = TVV  * exp(ETA_V)
+</code></pre>
+<p>The inline form produces a value and can appear anywhere an expression is
+allowed. Both <code>then</code> and <code>else</code> branches are required.</p>
+<h3 id="interaction-with-mu-referencing"><a class="header" href="#interaction-with-mu-referencing">Interaction with mu-referencing</a></h3>
+<p>When the assignment to a parameter is wrapped in an <code>if</code> block, the
+<code>(ETA → THETA)</code> relationship is no longer unconditional, so ferx skips
+mu-reference detection for that parameter. Unconditional assignments in the
+same block continue to be detected normally.</p>
+<blockquote>
+<p><strong>Tip:</strong> if you want mu-referencing for a covariate-adjusted parameter,
+keep the assignment unconditional and bury the conditional inside the
+covariate term (e.g.
+<code>CL = TVCL * (if (WT &gt; 70) (WT / 70)^0.75 else 1.0) * exp(ETA_CL)</code>).</p>
+</blockquote>
 <h2 id="common-parameterizations"><a class="header" href="#common-parameterizations">Common Parameterizations</a></h2>
 <h3 id="exponential-log-normal-random-effects"><a class="header" href="#exponential-log-normal-random-effects">Exponential (log-normal) random effects</a></h3>
 <p>The standard approach for PK parameters that must be positive:</p>
@@ -1003,9 +1041,33 @@ PARAM = THETA + ETA                   # additive
 </code></pre>
 <p>Expressions can reference:</p>
 <ul>
-<li>State variables by name</li>
-<li>Individual parameters defined in <code>[individual_parameters]</code></li>
-<li>Arithmetic operators and functions (<code>exp</code>, <code>log</code>, <code>sqrt</code>, etc.)</li>
+<li>
+<p>State variables by name</p>
+</li>
+<li>
+<p>Individual parameters defined in <code>[individual_parameters]</code></p>
+</li>
+<li>
+<p>Arithmetic operators and functions (<code>exp</code>, <code>log</code>, <code>sqrt</code>, etc.)</p>
+</li>
+<li>
+<p>Conditional logic with the same <code>if (cond) { ... } else { ... }</code> and inline
+<code>if (cond) expr else expr</code> syntax described in
+<a href="#individual-parameters">Individual Parameters</a>. For example, you can
+switch between linear and saturable elimination based on the central
+amount:</p>
+<pre><code>[odes]
+  d/dt(depot)   = -KA * depot
+  if (central &gt; KM_THRESHOLD) {
+    d/dt(central) = KA * depot - VMAX * central / (KM + central)
+  } else {
+    d/dt(central) = KA * depot - CL_LIN * central
+  }
+</code></pre>
+<p>Each <code>d/dt(state)</code> reachable from any branch counts as defined; states
+that aren’t assigned in the firing branch this step receive a derivative
+of <code>0</code>.</p>
+</li>
 </ul>
 <h2 id="example-michaelis-menten-elimination"><a class="header" href="#example-michaelis-menten-elimination">Example: Michaelis-Menten Elimination</a></h2>
 <p>A one-compartment oral model with saturable (Michaelis-Menten) elimination:</p>
@@ -3247,6 +3309,41 @@ mu[i] = theta[i]        # for additive patterns
 <p>or, from the Rust API, <code>FitOptions { mu_referencing: false, .. }</code>. The default is <code>true</code>.</p>
 <h3 id="porting-from-nonmem"><a class="header" href="#porting-from-nonmem">Porting from NONMEM</a></h3>
 <p>If you have a NONMEM model that uses an explicit <code>MU_1 = LOG(THETA(1))</code> line, just drop the <code>MU_i</code> intermediate and write the individual parameter directly — ferx will detect the equivalent mu-reference automatically and the fit will be equivalent.</p>
+<h2 id="can-i-use-if--else-statements-like-in-nonmem-or-nlmixr2"><a class="header" href="#can-i-use-if--else-statements-like-in-nonmem-or-nlmixr2">Can I use <code>if</code> / <code>else</code> statements like in NONMEM or nlmixr2?</a></h2>
+<p><strong>Yes.</strong> ferx supports two forms of conditional logic in both
+<code>[individual_parameters]</code> and <code>[odes]</code> blocks:</p>
+<pre><code># Block form
+if (WT &gt; 70) {
+  CL = TVCL * (WT / 70)^0.75 * exp(ETA_CL)
+} else if (SEX == 1) {
+  CL = TVCL * 1.2 * exp(ETA_CL)
+} else {
+  CL = TVCL * exp(ETA_CL)
+}
+
+# Inline (ternary) form
+CL = if (SEX == 1) TVCL * 1.5 else TVCL
+</code></pre>
+<p>Conditions support comparisons (<code>&lt;</code>, <code>&lt;=</code>, <code>&gt;</code>, <code>&gt;=</code>, <code>==</code>, <code>!=</code>) and
+logical operators (<code>&amp;&amp;</code>, <code>||</code>, <code>!</code>). Either form may be combined with
+arbitrary arithmetic, including covariate references and other ETAs.</p>
+<p><strong>Compared to NONMEM:</strong> NONMEM uses Fortran-style <code>IF (cond) THEN ... ELSE ... ENDIF</code> and Fortran comparison aliases (<code>.GT.</code>, <code>.LE.</code>, etc.). ferx uses
+C-style braces and operator symbols. The semantics are otherwise the same —
+exactly one branch fires per evaluation, the rest are ignored.</p>
+<p><strong>Compared to nlmixr2:</strong> nlmixr2’s <code>if (cond) { ... } else { ... }</code> syntax
+is a near-verbatim match for ferx’s block form. Drop the <code>&lt;-</code> assignments
+in favour of <code>=</code> and the model translates directly.</p>
+<p><strong>Caveat:</strong> when a parameter is assigned inside an <code>if</code> block, ferx skips
+mu-reference detection for that parameter (the <code>(ETA → THETA)</code> link is no
+longer unconditional). See
+<a href="#interaction-with-mu-referencing">Individual Parameters</a>
+for the workaround if you need both conditional logic and mu-referencing
+on the same parameter.</p>
+<p><strong>A note on <code>==</code> and <code>!=</code>:</strong> these operators do an exact bitwise float
+comparison. They work as you’d expect for integer-coded covariates
+(<code>SEX == 1</code>, <code>STUDY != 3</code>) but are unreliable on continuous values, where
+floating-point round-off can flip the result. For continuous thresholds
+prefer a bracketed comparison (<code>WT &gt;= 70 &amp;&amp; WT &lt; 80</code>) over <code>WT == 75</code>.</p>
 <h2 id="which-outer-optimizer-should-i-pick"><a class="header" href="#which-outer-optimizer-should-i-pick">Which outer optimizer should I pick?</a></h2>
 <p><code>slsqp</code> (the default) is the right choice for most models — it is fast, handles
 box constraints cleanly, and behaves well on the log-transformed parameter
