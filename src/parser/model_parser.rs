@@ -86,6 +86,13 @@ fn extract_eta_indices(expr: &Expression) -> Vec<usize> {
 /// to enumerate "tv" parameters for the AD path and to populate the per-var
 /// `vars` map for the ODE RHS. `DiffEq` statements are excluded since they
 /// produce derivative outputs, not vars.
+/// All variable names assigned anywhere in the statement tree (including
+/// inside if-bodies), in first-occurrence order, deduplicated.  Used to
+/// build the `defined_vars` set for `ParseCtx` so that forward references to
+/// branch-local helpers resolve as `Variable` rather than `Covariate`.
+/// **Do not use this for the TV output vector or pk_indices** — use
+/// `top_level_assigned_vars` instead to avoid placing branch-local
+/// temporaries in PK parameter slots.
 fn assigned_vars_in_order(stmts: &[Statement]) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     fn walk(stmts: &[Statement], out: &mut Vec<String>) {
@@ -109,6 +116,25 @@ fn assigned_vars_in_order(stmts: &[Statement]) -> Vec<String> {
         }
     }
     walk(stmts, &mut out);
+    out
+}
+
+/// Variable names assigned at the TOP LEVEL of the statement list only —
+/// not inside if-bodies.  Used to populate `indiv_var_names`, the ordered
+/// vector that maps to PK parameter slots and the TV output array.
+///
+/// Branch-local helpers (e.g. `SCALE = ...` inside an `if` body) are
+/// intentionally excluded: including them would corrupt the AD inner loop
+/// by placing the helper in a PK slot (typically overwriting CL at slot 0).
+fn top_level_assigned_vars(stmts: &[Statement]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for s in stmts {
+        if let Statement::Assign(name, _) = s {
+            if !out.iter().any(|n| n == name) {
+                out.push(name.clone());
+            }
+        }
+    }
     out
 }
 
@@ -294,11 +320,19 @@ pub fn parse_full_model(content: &str) -> Result<ParsedModel, String> {
     // just to discover every assigned name. The second re-parses with that
     // full set registered as defined_vars so any in-block reference (forward
     // or backward) resolves as Variable rather than Covariate.
+    //
+    // `indiv_var_names` contains only TOP-LEVEL assignments — these are the
+    // individual parameters that map to PK slots and the TV output vector.
+    // Branch-local helpers (assigned only inside if-bodies) are intentionally
+    // excluded to prevent them from corrupting the AD inner-loop slot layout.
+    // The ParseCtx still receives the full set (via assigned_vars_in_order) so
+    // branch-local names parse as Variable rather than Covariate.
     let indiv_text = indiv_lines.join("\n");
     let bare_ctx = ParseCtx::new(&theta_names, &eta_names, &[]);
     let pre_stmts = parse_block_statements(&indiv_text, bare_ctx, StatementMode::Plain)?;
-    let indiv_var_names = assigned_vars_in_order(&pre_stmts);
-    let indiv_ctx = ParseCtx::new(&theta_names, &eta_names, &indiv_var_names);
+    let all_assigned = assigned_vars_in_order(&pre_stmts);
+    let indiv_var_names = top_level_assigned_vars(&pre_stmts);
+    let indiv_ctx = ParseCtx::new(&theta_names, &eta_names, &all_assigned);
     let indiv_stmts = parse_block_statements(&indiv_text, indiv_ctx, StatementMode::Plain)?;
 
     // Detect ODE vs analytical model
@@ -502,6 +536,7 @@ pub fn parse_full_model(content: &str) -> Result<ParsedModel, String> {
         mu_refs,
         referenced_covariates,
         gradient_method: GradientMethod::default(),
+        parse_warnings: Vec::new(), // populated below
     };
 
     // ── Optional blocks ──
@@ -519,6 +554,83 @@ pub fn parse_full_model(content: &str) -> Result<ParsedModel, String> {
     // functions can branch without threading bloq_method through every call.
     let mut model = model;
     model.bloq_method = fit_options.bloq_method;
+
+    // Warn when eta-referencing individual parameters are assigned inside
+    // if-blocks and therefore excluded from mu-referencing. Users should
+    // assign the typical-value (TV*) unconditionally and only apply the
+    // conditional inside the individual parameter expression.
+    {
+        // Collect variables that appear inside if-branches but NOT at top level.
+        let conditional_only: Vec<&String> = all_assigned
+            .iter()
+            .filter(|n| !indiv_var_names.contains(n))
+            .collect();
+        // Also collect top-level vars that are assigned ONLY inside if-blocks
+        // (i.e. they appear in an If branch but have no top-level Assign).
+        // Union: any var in an if-branch that references an eta → warn.
+        fn any_if_branch_assigns_eta(
+            stmts: &[Statement],
+            var: &str,
+            n_eta: usize,
+        ) -> bool {
+            for s in stmts {
+                if let Statement::If { branches, else_body } = s {
+                    for (_, body) in branches {
+                        for bs in body {
+                            if let Statement::Assign(name, expr) = bs {
+                                if name == var
+                                    && extract_eta_indices(expr)
+                                        .iter()
+                                        .any(|&i| i < n_eta)
+                                {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                    if let Some(eb) = else_body {
+                        for bs in eb {
+                            if let Statement::Assign(name, expr) = bs {
+                                if name == var
+                                    && extract_eta_indices(expr)
+                                        .iter()
+                                        .any(|&i| i < n_eta)
+                                {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            false
+        }
+        let mut mu_ref_disabled: Vec<String> = Vec::new();
+        for var in &conditional_only {
+            if any_if_branch_assigns_eta(&indiv_stmts, var, n_eta) {
+                mu_ref_disabled.push((*var).clone());
+            }
+        }
+        // Also catch top-level vars whose only eta-bearing assignment is
+        // inside a nested if — these are in indiv_var_names but not mu_refs.
+        for var in &indiv_var_names {
+            if !model.mu_refs.contains_key(var)
+                && any_if_branch_assigns_eta(&indiv_stmts, var, n_eta)
+            {
+                if !mu_ref_disabled.contains(var) {
+                    mu_ref_disabled.push(var.clone());
+                }
+            }
+        }
+        if !mu_ref_disabled.is_empty() {
+            model.parse_warnings.push(format!(
+                "Mu-referencing disabled for conditional parameter(s): {}. \
+                 Assign TV* unconditionally and apply the if-block to the individual \
+                 parameter expression to re-enable mu-referencing.",
+                mu_ref_disabled.join(", ")
+            ));
+        }
+    }
 
     Ok(ParsedModel {
         model,
@@ -868,6 +980,11 @@ fn build_ode_spec(
     // the block (top level OR inside an if-body). Whether the if-body actually
     // fires at run time is the user's problem — our job is to verify that the
     // block at least mentions each state.
+    //
+    // Also reject duplicate d/dt assignments within the same statement scope
+    // (e.g. two `d/dt(central)` at top level or in the same branch body),
+    // since the second write would silently win at runtime. Assignments to the
+    // same state in *different* branches of an if/else are allowed.
     let mut diffeq_states: std::collections::HashSet<String> = std::collections::HashSet::new();
     fn collect_diffeqs(
         stmts: &[Statement],
@@ -890,7 +1007,33 @@ fn build_ode_spec(
             }
         }
     }
+    fn check_duplicate_diffeqs(stmts: &[Statement]) -> Result<(), String> {
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for s in stmts {
+            match s {
+                Statement::DiffEq(name, _) => {
+                    if !seen.insert(name.clone()) {
+                        return Err(format!(
+                            "[odes]: duplicate d/dt({}) — state equation defined more than once in the same scope",
+                            name
+                        ));
+                    }
+                }
+                Statement::If { branches, else_body } => {
+                    for (_, body) in branches {
+                        check_duplicate_diffeqs(body)?;
+                    }
+                    if let Some(eb) = else_body {
+                        check_duplicate_diffeqs(eb)?;
+                    }
+                }
+                Statement::Assign(_, _) => {}
+            }
+        }
+        Ok(())
+    }
     collect_diffeqs(&stmts, &mut diffeq_states);
+    check_duplicate_diffeqs(&stmts)?;
     for s in state_names {
         if !diffeq_states.contains(s) {
             return Err(format!(
@@ -2275,33 +2418,15 @@ fn parse_cond_atom(
     pos: usize,
     ctx: ParseCtx<'_>,
 ) -> Result<(Condition, usize), String> {
-    // Parenthesised sub-condition: `(cond)`. We have to disambiguate from
-    // `(expr) <op> (expr)` since both start with `LParen`. Try parsing as a
-    // condition first; if the inner contents don't form a valid condition,
-    // fall back to the comparison path.
+    // Parenthesised sub-condition: `(cond)`.  Always try to parse the
+    // contents as a condition first.  This handles `(a < b)`, `(!(x == 1))`,
+    // `((a > 0) && (b < 10))`, etc. without any lookahead heuristic.
     if pos < tokens.len() && tokens[pos] == Token::LParen {
-        // Lookahead: is there a logical operator (||, &&, !) at depth-1
-        // inside the parens? If so, treat as a sub-condition.
-        let mut depth = 1;
-        let mut i = pos + 1;
-        let mut has_logic = false;
-        while i < tokens.len() && depth > 0 {
-            match tokens[i] {
-                Token::LParen => depth += 1,
-                Token::RParen => depth -= 1,
-                Token::OrOr | Token::AndAnd if depth == 1 => has_logic = true,
-                _ => {}
-            }
-            i += 1;
+        let (inner, p) = parse_condition(tokens, pos + 1, ctx)?;
+        if p >= tokens.len() || tokens[p] != Token::RParen {
+            return Err("Missing closing `)` in condition".to_string());
         }
-        if has_logic {
-            let (inner, p) = parse_condition(tokens, pos + 1, ctx)?;
-            if p >= tokens.len() || tokens[p] != Token::RParen {
-                return Err("Missing closing `)` in condition".to_string());
-            }
-            return Ok((inner, p + 1));
-        }
-        // Otherwise fall through to the comparison parser below.
+        return Ok((inner, p + 1));
     }
 
     // comparison: expr <cmpop> expr
@@ -4226,5 +4351,136 @@ E = C + 1
         let stmts = parse_block_statements(block, ctx, StatementMode::Plain).unwrap();
         let names = assigned_vars_in_order(&stmts);
         assert_eq!(names, vec!["A", "B", "C", "D", "E"]);
+    }
+
+    // ── Regression tests for review-identified bugs ──────────────────────────
+
+    #[test]
+    fn test_parse_cond_atom_nested_parens_around_simple_compare() {
+        // ((SEX == 1)) — double-parens around a comparison must parse correctly.
+        // Previously the lookahead heuristic (only enter sub-condition path when
+        // || or && is present) caused this to fail with "Missing closing )".
+        let ctx = empty_ctx();
+        let block = "X = if ((SEX == 1)) 1.0 else 2.0";
+        assert!(
+            parse_block_statements(block, ctx, StatementMode::Plain).is_ok(),
+            "double-paren condition should parse"
+        );
+    }
+
+    #[test]
+    fn test_parse_cond_atom_nested_parens_around_negation() {
+        // (!(SEX == 1)) — parens around a negation must parse.
+        let ctx = empty_ctx();
+        let block = "X = if (!(SEX == 1)) 1.0 else 2.0";
+        assert!(
+            parse_block_statements(block, ctx, StatementMode::Plain).is_ok(),
+            "parenthesised negation should parse"
+        );
+    }
+
+    #[test]
+    fn test_top_level_assigned_vars_excludes_branch_locals() {
+        // top_level_assigned_vars must NOT include variables assigned only
+        // inside if-branches — those would corrupt the AD PK slot layout.
+        let block = "
+CL = 1.0
+if (1 > 0) {
+  SCALE = 2.0
+  V = SCALE * 3.0
+} else {
+  V = 4.0
+}
+";
+        let ctx = empty_ctx();
+        let stmts = parse_block_statements(block, ctx, StatementMode::Plain).unwrap();
+        let top = top_level_assigned_vars(&stmts);
+        // SCALE is only assigned inside the if-body — must not appear.
+        assert_eq!(top, vec!["CL"], "top-level vars should only contain CL");
+        // But all_assigned_vars still sees SCALE and V.
+        let all = assigned_vars_in_order(&stmts);
+        assert!(all.contains(&"SCALE".to_string()));
+        assert!(all.contains(&"V".to_string()));
+    }
+
+    #[test]
+    fn test_duplicate_diffeq_in_same_scope_errors() {
+        // Two d/dt(central) at top level must be rejected.
+        let block_text = "d/dt(central) = -0.1 * central\nd/dt(central) = -0.2 * central";
+        let state_names = vec!["central".to_string()];
+        let ctx = ParseCtx::ode(&state_names);
+        let stmts = parse_block_statements(block_text, ctx, StatementMode::Ode).unwrap();
+        let result = (|| -> Result<(), String> {
+            fn check(stmts: &[Statement]) -> Result<(), String> {
+                let mut seen = std::collections::HashSet::new();
+                for s in stmts {
+                    match s {
+                        Statement::DiffEq(name, _) => {
+                            if !seen.insert(name.clone()) {
+                                return Err(format!("duplicate d/dt({})", name));
+                            }
+                        }
+                        Statement::If { branches, else_body } => {
+                            for (_, b) in branches { check(b)?; }
+                            if let Some(eb) = else_body { check(eb)?; }
+                        }
+                        Statement::Assign(_, _) => {}
+                    }
+                }
+                Ok(())
+            }
+            check(&stmts)
+        })();
+        assert!(result.is_err(), "duplicate d/dt in same scope must error");
+    }
+
+    #[test]
+    fn test_duplicate_diffeq_in_different_branches_allowed() {
+        // d/dt(central) in if-branch AND else-branch is legitimate.
+        // build_ode_spec must accept it.
+        let ode_lines: Vec<String> = vec![
+            "if (1 > 0) {".into(),
+            "  d/dt(central) = -0.1 * central".into(),
+            "} else {".into(),
+            "  d/dt(central) = -0.2 * central".into(),
+            "}".into(),
+        ];
+        let state_names = vec!["central".to_string()];
+        let result = build_ode_spec(&ode_lines, &state_names, "central", &[]);
+        assert!(result.is_ok(), "same state in different branches must be allowed");
+    }
+
+    #[test]
+    fn test_mu_ref_warning_for_conditional_param() {
+        // A model where CL is assigned only inside an if-block should emit a
+        // parse_warning about mu-referencing being disabled.
+        let model_str = "
+[parameters]
+  theta TVCL(1.0)
+  omega ETA_CL ~ 0.1
+  sigma EPS ~ 0.01
+
+[individual_parameters]
+  if (1 > 0) {
+    CL = TVCL * exp(ETA_CL)
+  } else {
+    CL = TVCL * exp(ETA_CL)
+  }
+
+[structural_model]
+  pk one_cpt_oral(cl=CL, v=1.0, ka=1.0)
+
+[error_model]
+  DV ~ proportional(EPS)
+";
+        let parsed = super::parse_full_model(model_str).unwrap();
+        assert!(
+            !parsed.model.parse_warnings.is_empty(),
+            "expected a parse warning about mu-ref disabled; got: {:?}",
+            parsed.model.parse_warnings
+        );
+        let w = &parsed.model.parse_warnings[0];
+        assert!(w.contains("CL"), "warning should mention CL");
+        assert!(w.contains("Mu-referencing disabled"), "warning should mention mu-referencing");
     }
 }

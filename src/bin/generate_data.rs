@@ -205,6 +205,7 @@ fn build_warfarin_model() -> CompiledModel {
         mu_refs: HashMap::new(),
         referenced_covariates: Vec::new(),
         gradient_method: GradientMethod::default(),
+        parse_warnings: Vec::new(),
         n_kappa: 0,
         kappa_names: Vec::new(),
     }
@@ -303,6 +304,7 @@ fn generate_two_cpt_iv() {
         mu_refs: HashMap::new(),
         referenced_covariates: Vec::new(),
         gradient_method: GradientMethod::default(),
+        parse_warnings: Vec::new(),
         n_kappa: 0,
         kappa_names: Vec::new(),
     };
@@ -400,6 +402,7 @@ fn generate_two_cpt_oral_cov() {
         mu_refs: HashMap::new(),
         referenced_covariates: Vec::new(),
         gradient_method: GradientMethod::default(),
+        parse_warnings: Vec::new(),
         n_kappa: 0,
         kappa_names: Vec::new(),
     };
@@ -539,6 +542,7 @@ fn generate_mm_oral() {
         mu_refs: HashMap::new(),
         referenced_covariates: Vec::new(),
         gradient_method: GradientMethod::default(),
+        parse_warnings: Vec::new(),
         n_kappa: 0,
         kappa_names: Vec::new(),
     };

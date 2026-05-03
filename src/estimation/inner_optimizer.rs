@@ -1047,6 +1047,7 @@ mod iov_tests {
             bloq_method: BloqMethod::Drop,
             referenced_covariates: Vec::new(),
             gradient_method: GradientMethod::default(),
+            parse_warnings: Vec::new(),
         }
     }
 
@@ -1133,6 +1134,7 @@ mod iov_tests {
             bloq_method: BloqMethod::Drop,
             referenced_covariates: Vec::new(),
             gradient_method: GradientMethod::default(),
+            parse_warnings: Vec::new(),
         };
         let subject = Subject {
             id: "1".into(),

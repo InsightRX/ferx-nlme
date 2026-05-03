@@ -367,7 +367,8 @@ fn fit_inner(
     let n_stages = chain.len();
     let mut stage_params: ModelParameters = init_params.clone();
     let mut result: Option<crate::estimation::outer_optimizer::OuterResult> = None;
-    let mut accumulated_warnings: Vec<String> = unsupported_warnings;
+    let mut accumulated_warnings: Vec<String> = model.parse_warnings.clone();
+    accumulated_warnings.extend(unsupported_warnings);
 
     // Emit NLopt / covariance warnings before any work starts.
     accumulated_warnings.extend(nlopt_missing.iter().cloned());
@@ -1252,6 +1253,7 @@ mod iov_integration {
             bloq_method: BloqMethod::Drop,
             referenced_covariates: Vec::new(),
             gradient_method: GradientMethod::Fd,
+            parse_warnings: Vec::new(),
         }
     }
 
