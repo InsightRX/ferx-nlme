@@ -35,12 +35,9 @@ For each subject, run `n_mh_steps` Metropolis-Hastings iterations to sample from
 
 \\[ p(\eta_i | y_i, \theta, \Omega, \sigma) \\]
 
-**Proposal**:
+**Proposal**: symmetric random walk in deviation space, \\( \eta_{\text{prop}} = \eta_{\text{current}} + \delta_i \cdot L \cdot z \\), with \\( z \sim N(0, I) \\) and \\( L = \text{chol}(\Omega) \\). The schedule is identical across both phases — only the SA step size \\( \gamma_k \\) changes between exploration and convergence.
 
-- *Exploration phase* (with `mu_referencing = true`): \\( \eta_{\text{prop}} = \mu_k + \delta_i \cdot L \cdot z \\), an independence proposal centred on the current population mean \\( \mu_k \\) — auto-detected from `[individual_parameters]`. This helps the chain escape the \\( \eta = 0 \\) basin when `THETA` is far from the truth.
-- *Convergence phase*, and whenever `mu_referencing = false`: \\( \eta_{\text{prop}} = \eta_{\text{current}} + \delta_i \cdot L \cdot z \\), a symmetric random walk that preserves detailed balance during stochastic approximation.
-
-In both cases \\( z \sim N(0, I) \\) and \\( L = \text{chol}(\Omega) \\).
+The MH kernel is symmetric in \\( \eta \\), so the proposal density cancels and the acceptance log-ratio is the difference of `individual_nll` values, which encodes the prior \\( N(0, \Omega) \\) plus the observation likelihood.
 
 **Acceptance**: Accept with probability \\( \min(1, \exp(\text{NLL}_{\text{current}} - \text{NLL}_{\text{prop}})) \\).
 
@@ -56,17 +53,21 @@ Update the sufficient statistic for \\( \Omega \\):
 
 \\[ \Omega_k = S_2 \\]
 
+with structurally-zero entries (cross-block off-diagonals, standalone-vs-block off-diagonals, and all off-diagonals in a fully-diagonal Ω) zeroed out — the SA accumulator \\( (1/N) \sum_i \eta_i \eta_i^T \\) is dense by construction, but the model declares which entries are free parameters. Without this projection the chain feeds spurious sampling correlations into the next iteration's MH proposal Cholesky and Ω drifts toward rank-deficiency.
+
 ### 4. M-Step for Theta and Sigma (Optimization)
 
 Minimize the conditional observation negative log-likelihood with ETAs held fixed:
 
 \\[ \sum_{i=1}^{N} \sum_{j=1}^{n_i} \left[ \frac{1}{2} \log V_{ij} + \frac{1}{2} \frac{(y_{ij} - f_{ij})^2}{V_{ij}} \right] \\]
 
-When `mu_referencing = true` (the default), ferx detects lognormal parameters from the `[individual_parameters]` block and applies a fast **analytic gradient step** for those thetas instead of running NLopt:
+When `mu_referencing = true` (the default), ferx detects lognormal parameters from the `[individual_parameters]` block and applies the **closed-form EM update** for those thetas instead of running NLopt:
 
-\\[ \mu_j \leftarrow \mu_j - \gamma_k \cdot \nabla_{\mu_j} \text{condNLL} \\]
+\\[ \log \theta_j \leftarrow \log \theta_j + \gamma_k \cdot \overline{\eta_j} \\]
 
-where the gradient is computed via central finite differences on the accepted ETAs (2 evaluations per mu-referenced pair per subject). NLopt still runs for any remaining thetas (non-mu-referenced) and for sigma — those are unchanged.
+where \\( \overline{\eta_j} = (1/N) \sum_i \eta_{i,j} \\) is the empirical mean of the post-MH random effects for the eta paired with \\( \theta_j \\). For a log-mu-referenced model where \\( \log P_i = \log \theta + \eta_i \\) with \\( \eta_i \sim N(0, \omega^2) \\), this is exactly the M-step that maximises the complete-data log-likelihood, scaled by the SA step size \\( \gamma_k \\). After the update the etas are re-centred by the same shift so they remain deviations from the new \\( \log \theta_j \\).
+
+NLopt still runs for any remaining thetas (non-mu-referenced) and for sigma — the closed-form-updated thetas are pinned at their new values for the NLopt call.
 
 When `mu_referencing = false`, the full NLopt M-step runs for all thetas as before.
 

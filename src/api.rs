@@ -1530,13 +1530,8 @@ mod extract_se_tests {
         mat[(0, 0)] = 0.04;
         mat[(1, 1)] = 0.09;
         mat[(2, 2)] = 0.16;
-        let chol = mat.clone().cholesky().unwrap().l();
-        let omega = OmegaMatrix {
-            matrix: mat,
-            chol,
-            eta_names: vec!["E1".into(), "E2".into(), "E3".into()],
-            diagonal: false,
-        };
+        let _chol = mat.clone().cholesky().unwrap().l();
+        let omega = OmegaMatrix::from_matrix(mat, vec!["E1".into(), "E2".into(), "E3".into()], false);
         let template = ModelParameters {
             theta: vec![5.0],
             theta_names: vec!["TVCL".into()],
@@ -1629,13 +1624,8 @@ mod extract_se_tests {
         mat[(0, 0)] = 0.04;
         mat[(1, 1)] = 0.09;
         mat[(2, 2)] = 0.16;
-        let chol = mat.clone().cholesky().unwrap().l();
-        let iov = OmegaMatrix {
-            matrix: mat,
-            chol,
-            eta_names: vec!["K1".into(), "K2".into(), "K3".into()],
-            diagonal: false,
-        };
+        let _chol = mat.clone().cholesky().unwrap().l();
+        let iov = OmegaMatrix::from_matrix(mat, vec!["K1".into(), "K2".into(), "K3".into()], false);
         let template = make_template(Some(iov), vec![false; 3]);
         // Packed layout: theta(1) + omega_diag(1) + sigma(1) + kappa_block(6) = 9
         // Within the kappa block (start = 3): L11=0, L21=1, L31=2, L22=3, L32=4, L33=5

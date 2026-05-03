@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "ayu";
-            window.path_to_searchindex_js = "searchindex-1ccd44c3.js";
+            window.path_to_searchindex_js = "searchindex-e12ec2fe.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-911e3088.js"></script>
@@ -1637,12 +1637,8 @@ warnings.</p>
 <h3 id="1-e-step-metropolis-hastings-sampling"><a class="header" href="#1-e-step-metropolis-hastings-sampling">1. E-Step: Metropolis-Hastings Sampling</a></h3>
 <p>For each subject, run <code>n_mh_steps</code> Metropolis-Hastings iterations to sample from the conditional distribution of random effects:</p>
 <p>\[ p(\eta_i | y_i, \theta, \Omega, \sigma) \]</p>
-<p><strong>Proposal</strong>:</p>
-<ul>
-<li><em>Exploration phase</em> (with <code>mu_referencing = true</code>): \( \eta_{\text{prop}} = \mu_k + \delta_i \cdot L \cdot z \), an independence proposal centred on the current population mean \( \mu_k \) — auto-detected from <code>[individual_parameters]</code>. This helps the chain escape the \( \eta = 0 \) basin when <code>THETA</code> is far from the truth.</li>
-<li><em>Convergence phase</em>, and whenever <code>mu_referencing = false</code>: \( \eta_{\text{prop}} = \eta_{\text{current}} + \delta_i \cdot L \cdot z \), a symmetric random walk that preserves detailed balance during stochastic approximation.</li>
-</ul>
-<p>In both cases \( z \sim N(0, I) \) and \( L = \text{chol}(\Omega) \).</p>
+<p><strong>Proposal</strong>: symmetric random walk in deviation space, \( \eta_{\text{prop}} = \eta_{\text{current}} + \delta_i \cdot L \cdot z \), with \( z \sim N(0, I) \) and \( L = \text{chol}(\Omega) \). The schedule is identical across both phases — only the SA step size \( \gamma_k \) changes between exploration and convergence.</p>
+<p>The MH kernel is symmetric in \( \eta \), so the proposal density cancels and the acceptance log-ratio is the difference of <code>individual_nll</code> values, which encodes the prior \( N(0, \Omega) \) plus the observation likelihood.</p>
 <p><strong>Acceptance</strong>: Accept with probability \( \min(1, \exp(\text{NLL}<em>{\text{current}} - \text{NLL}</em>{\text{prop}})) \).</p>
 <p>The MH sampling is parallelized across subjects using Rayon.</p>
 <h3 id="2-stochastic-approximation-update"><a class="header" href="#2-stochastic-approximation-update">2. Stochastic Approximation Update</a></h3>
@@ -1650,12 +1646,14 @@ warnings.</p>
 <p>\[ S_2 \leftarrow (1 - \gamma_k) \cdot S_2 + \gamma_k \cdot \frac{1}{N} \sum_{i=1}^{N} \eta_i \eta_i^T \]</p>
 <h3 id="3-m-step-for-omega-closed-form"><a class="header" href="#3-m-step-for-omega-closed-form">3. M-Step for Omega (Closed Form)</a></h3>
 <p>\[ \Omega_k = S_2 \]</p>
+<p>with structurally-zero entries (cross-block off-diagonals, standalone-vs-block off-diagonals, and all off-diagonals in a fully-diagonal Ω) zeroed out — the SA accumulator \( (1/N) \sum_i \eta_i \eta_i^T \) is dense by construction, but the model declares which entries are free parameters. Without this projection the chain feeds spurious sampling correlations into the next iteration’s MH proposal Cholesky and Ω drifts toward rank-deficiency.</p>
 <h3 id="4-m-step-for-theta-and-sigma-optimization"><a class="header" href="#4-m-step-for-theta-and-sigma-optimization">4. M-Step for Theta and Sigma (Optimization)</a></h3>
 <p>Minimize the conditional observation negative log-likelihood with ETAs held fixed:</p>
 <p>\[ \sum_{i=1}^{N} \sum_{j=1}^{n_i} \left[ \frac{1}{2} \log V_{ij} + \frac{1}{2} \frac{(y_{ij} - f_{ij})^2}{V_{ij}} \right] \]</p>
-<p>When <code>mu_referencing = true</code> (the default), ferx detects lognormal parameters from the <code>[individual_parameters]</code> block and applies a fast <strong>analytic gradient step</strong> for those thetas instead of running NLopt:</p>
-<p>\[ \mu_j \leftarrow \mu_j - \gamma_k \cdot \nabla_{\mu_j} \text{condNLL} \]</p>
-<p>where the gradient is computed via central finite differences on the accepted ETAs (2 evaluations per mu-referenced pair per subject). NLopt still runs for any remaining thetas (non-mu-referenced) and for sigma — those are unchanged.</p>
+<p>When <code>mu_referencing = true</code> (the default), ferx detects lognormal parameters from the <code>[individual_parameters]</code> block and applies the <strong>closed-form EM update</strong> for those thetas instead of running NLopt:</p>
+<p>\[ \log \theta_j \leftarrow \log \theta_j + \gamma_k \cdot \overline{\eta_j} \]</p>
+<p>where \( \overline{\eta_j} = (1/N) \sum_i \eta_{i,j} \) is the empirical mean of the post-MH random effects for the eta paired with \( \theta_j \). For a log-mu-referenced model where \( \log P_i = \log \theta + \eta_i \) with \( \eta_i \sim N(0, \omega^2) \), this is exactly the M-step that maximises the complete-data log-likelihood, scaled by the SA step size \( \gamma_k \). After the update the etas are re-centred by the same shift so they remain deviations from the new \( \log \theta_j \).</p>
+<p>NLopt still runs for any remaining thetas (non-mu-referenced) and for sigma — the closed-form-updated thetas are pinned at their new values for the NLopt call.</p>
 <p>When <code>mu_referencing = false</code>, the full NLopt M-step runs for all thetas as before.</p>
 <p>The number of NLopt evaluations saved is stored in <code>FitResult::saem_mu_ref_m_step_evals_saved</code>, accumulated across SAEM iterations as <code>2 × mstep_maxiter × n_mu_ref_pairs</code> per outer step (one finite-difference probe pair per pinned mu-ref dimension, capped at <code>mstep_maxiter</code> NLopt gradient requests). The field is <code>None</code> when mu-referencing is off or method ≠ SAEM.</p>
 <h3 id="5-adaptive-mh-step-sizes"><a class="header" href="#5-adaptive-mh-step-sizes">5. Adaptive MH Step Sizes</a></h3>
