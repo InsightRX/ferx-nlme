@@ -1,5 +1,9 @@
 use crate::types::*;
 
+fn fixed_label(name: &str) -> String {
+    format!("{} [FIX]", name)
+}
+
 /// Print NONMEM-style results to stderr
 pub fn print_results(result: &FitResult) {
     eprintln!("\n{}", "=".repeat(60));
@@ -38,8 +42,9 @@ pub fn print_results(result: &FitResult) {
     for (i, name) in result.theta_names.iter().enumerate() {
         let est = result.theta[i];
         let is_fixed = result.theta_fixed.get(i).copied().unwrap_or(false);
+        let label = if is_fixed { fixed_label(name) } else { name.clone() };
         let (se_str, rse_str) = if is_fixed {
-            ("FIXED".to_string(), "FIXED".to_string())
+            ("---".to_string(), "---".to_string())
         } else {
             match &result.se_theta {
                 Some(se) => {
@@ -54,40 +59,46 @@ pub fn print_results(result: &FitResult) {
                 None => ("N/A".to_string(), "N/A".to_string()),
             }
         };
-        eprintln!("{:<16} {:>12.6} {:>12} {:>10}", name, est, se_str, rse_str);
+        eprintln!("{:<16} {:>12.6} {:>12} {:>10}", label, est, se_str, rse_str);
     }
 
     // Omega estimates
     eprintln!("\n--- OMEGA Estimates ---");
     let n_eta = result.omega.nrows();
+    let show_cv = result.covariance_status != CovarianceStatus::Failed;
     // Check if omega has off-diagonal elements
     let has_offdiag = (0..n_eta).any(|i| (0..i).any(|j| result.omega[(i, j)].abs() > 1e-15));
     for i in 0..n_eta {
         let var = result.omega[(i, i)];
-        let cv = if var > 0.0 { var.sqrt() * 100.0 } else { 0.0 };
+        let eta_name = result.eta_names.get(i).map(|s| s.as_str()).unwrap_or("ETA");
         let is_fixed = result.omega_fixed.get(i).copied().unwrap_or(false);
+        let label = if is_fixed { fixed_label(eta_name) } else { eta_name.to_string() };
         let se_str = if is_fixed {
-            "FIXED".to_string()
+            "---".to_string()
         } else {
             match &result.se_omega {
                 Some(se) if i < se.len() => format!("{:.6}", se[i]),
                 _ => "N/A".to_string(),
             }
         };
-        eprintln!(
-            "  OMEGA({},{}) = {:.6}  (CV% = {:.1})  SE = {}",
-            i + 1,
-            i + 1,
-            var,
-            cv,
-            se_str
-        );
+        if show_cv {
+            let cv = if var > 0.0 { var.sqrt() * 100.0 } else { 0.0 };
+            eprintln!(
+                "  {:<20} = {:.6}  (CV% = {:.1})  SE = {}",
+                label, var, cv, se_str
+            );
+        } else {
+            eprintln!("  {:<20} = {:.6}  SE = {}", label, var, se_str);
+        }
     }
     if has_offdiag {
         eprintln!("  --- Correlations ---");
         for i in 0..n_eta {
             for j in 0..i {
                 let cov = result.omega[(i, j)];
+                if cov.abs() <= 1e-15 {
+                    continue;
+                }
                 let var_i = result.omega[(i, i)];
                 let var_j = result.omega[(j, j)];
                 let corr = if var_i > 0.0 && var_j > 0.0 {
@@ -95,30 +106,36 @@ pub fn print_results(result: &FitResult) {
                 } else {
                     0.0
                 };
+                let name_i = result.eta_names.get(i).map(|s| s.as_str()).unwrap_or("ETA");
+                let name_j = result.eta_names.get(j).map(|s| s.as_str()).unwrap_or("ETA");
                 eprintln!(
-                    "  OMEGA({},{}) = {:.6}  (corr = {:.4})",
-                    i + 1,
-                    j + 1,
-                    cov,
-                    corr,
+                    "  {} × {} = {:.6}  (corr = {:.4})",
+                    name_i, name_j, cov, corr,
                 );
             }
         }
     }
 
     // Sigma estimates
-    eprintln!("\n--- SIGMA Estimates ---");
+    let err_type = match result.error_model {
+        ErrorModel::Additive => "additive",
+        ErrorModel::Proportional => "proportional",
+        ErrorModel::Combined => "combined",
+    };
+    eprintln!("\n--- SIGMA Estimates ({}) ---", err_type);
     for (i, &s) in result.sigma.iter().enumerate() {
+        let sig_name = result.sigma_names.get(i).map(|n| n.as_str()).unwrap_or("EPS");
         let is_fixed = result.sigma_fixed.get(i).copied().unwrap_or(false);
+        let label = if is_fixed { fixed_label(sig_name) } else { sig_name.to_string() };
         let se_str = if is_fixed {
-            "FIXED".to_string()
+            "---".to_string()
         } else {
             match &result.se_sigma {
                 Some(se) if i < se.len() => format!("{:.6}", se[i]),
                 _ => "N/A".to_string(),
             }
         };
-        eprintln!("  SIGMA({}) = {:.6}  SE = {}", i + 1, s, se_str);
+        eprintln!("  {:<20} = {:.6}  SE = {}", label, s, se_str);
     }
 
     // IOV (KAPPA) estimates
@@ -127,21 +144,23 @@ pub fn print_results(result: &FitResult) {
         let n_kappa = iov.nrows();
         for i in 0..n_kappa {
             let var = iov[(i, i)];
-            let cv = if var > 0.0 { var.sqrt() * 100.0 } else { 0.0 };
             let is_fixed = result.kappa_fixed.get(i).copied().unwrap_or(false);
+            let name = result.kappa_names.get(i).map(|s| s.as_str()).unwrap_or("KAPPA");
+            let label = if is_fixed { fixed_label(name) } else { name.to_string() };
             let se_str = if is_fixed {
-                "FIXED".to_string()
+                "---".to_string()
             } else {
                 match &result.se_kappa {
                     Some(se) if i < se.len() => format!("{:.6}", se[i]),
                     _ => "N/A".to_string(),
                 }
             };
-            let name = result.kappa_names.get(i).map(|s| s.as_str()).unwrap_or("KAPPA");
-            eprintln!(
-                "  {} = {:.6}  (CV% = {:.1})  SE = {}",
-                name, var, cv, se_str
-            );
+            if show_cv {
+                let cv = if var > 0.0 { var.sqrt() * 100.0 } else { 0.0 };
+                eprintln!("  {:<20} = {:.6}  (CV% = {:.1})  SE = {}", label, var, cv, se_str);
+            } else {
+                eprintln!("  {:<20} = {:.6}  SE = {}", label, var, se_str);
+            }
         }
         // Off-diagonal covariances/correlations (block_kappa)
         let has_offdiag =
@@ -186,18 +205,14 @@ pub fn print_results(result: &FitResult) {
         if let Some(ref ci) = result.sir_ci_omega {
             let n_eta = result.omega.nrows();
             for i in 0..n_eta.min(ci.len()) {
-                eprintln!(
-                    "  OMEGA({},{}) : [{:.6}, {:.6}]",
-                    i + 1,
-                    i + 1,
-                    ci[i].0,
-                    ci[i].1
-                );
+                let name = result.eta_names.get(i).map(|s| s.as_str()).unwrap_or("ETA");
+                eprintln!("  {} : [{:.6}, {:.6}]", name, ci[i].0, ci[i].1);
             }
         }
         if let Some(ref ci) = result.sir_ci_sigma {
             for (i, (lo, hi)) in ci.iter().enumerate() {
-                eprintln!("  SIGMA({}) : [{:.6}, {:.6}]", i + 1, lo, hi);
+                let name = result.sigma_names.get(i).map(|s| s.as_str()).unwrap_or("EPS");
+                eprintln!("  {} : [{:.6}, {:.6}]", name, lo, hi);
             }
         }
     }
@@ -207,7 +222,8 @@ pub fn print_results(result: &FitResult) {
         eprintln!("\n--- Shrinkage ---");
         for (k, &sh) in result.shrinkage_eta.iter().enumerate() {
             if sh.is_finite() {
-                eprintln!("  ETA{} shrinkage: {:.1}%", k + 1, sh * 100.0);
+                let name = result.eta_names.get(k).map(|s| s.as_str()).unwrap_or("ETA");
+                eprintln!("  {} shrinkage: {:.1}%", name, sh * 100.0);
             }
         }
         if result.shrinkage_eps.is_finite() {
@@ -416,7 +432,8 @@ pub fn write_estimates_yaml(result: &FitResult, path: &str) -> Result<(), String
         let cv_pct = if var > 0.0 { var.sqrt() * 100.0 } else { 0.0 };
         let is_fixed = result.omega_fixed.get(i).copied().unwrap_or(false);
         let se = result.se_omega.as_ref().and_then(|v| v.get(i).copied());
-        writeln!(f, "  omega_{}_{}:", i + 1, i + 1).map_err(|e| e.to_string())?;
+        let key = result.eta_names.get(i).cloned().unwrap_or_else(|| format!("omega_{}_{}", i + 1, i + 1));
+        writeln!(f, "  {}:", key).map_err(|e| e.to_string())?;
         writeln!(f, "    variance: {:.6}", var).map_err(|e| e.to_string())?;
         writeln!(f, "    cv_pct: {:.2}", cv_pct).map_err(|e| e.to_string())?;
         if is_fixed {
@@ -441,18 +458,26 @@ pub fn write_estimates_yaml(result: &FitResult, path: &str) -> Result<(), String
                 } else {
                     0.0
                 };
-                writeln!(f, "  omega_{}_{}:", i + 1, j + 1).map_err(|e| e.to_string())?;
+                let name_i = result.eta_names.get(i).cloned().unwrap_or_else(|| format!("eta_{}", i + 1));
+                let name_j = result.eta_names.get(j).cloned().unwrap_or_else(|| format!("eta_{}", j + 1));
+                writeln!(f, "  {}__{}:", name_i, name_j).map_err(|e| e.to_string())?;
                 writeln!(f, "    covariance: {:.6}", cov).map_err(|e| e.to_string())?;
                 writeln!(f, "    correlation: {:.6}", corr).map_err(|e| e.to_string())?;
             }
         }
     }
 
-    writeln!(f, "\nsigma:").map_err(|e| e.to_string())?;
+    let err_type_str = match result.error_model {
+        ErrorModel::Additive => "additive",
+        ErrorModel::Proportional => "proportional",
+        ErrorModel::Combined => "combined",
+    };
+    writeln!(f, "\nsigma:  # error model: {}", err_type_str).map_err(|e| e.to_string())?;
     for (i, &s) in result.sigma.iter().enumerate() {
         let is_fixed = result.sigma_fixed.get(i).copied().unwrap_or(false);
         let se = result.se_sigma.as_ref().and_then(|v| v.get(i).copied());
-        writeln!(f, "  sigma_{}:", i + 1).map_err(|e| e.to_string())?;
+        let key = result.sigma_names.get(i).cloned().unwrap_or_else(|| format!("sigma_{}", i + 1));
+        writeln!(f, "  {}:", key).map_err(|e| e.to_string())?;
         writeln!(f, "    estimate: {:.6}", s).map_err(|e| e.to_string())?;
         if is_fixed {
             writeln!(f, "    fixed: true").map_err(|e| e.to_string())?;
@@ -538,7 +563,8 @@ pub fn write_estimates_yaml(result: &FitResult, path: &str) -> Result<(), String
         if let Some(ref ci) = result.sir_ci_omega {
             writeln!(f, "  ci_omega:").map_err(|e| e.to_string())?;
             for (i, (lo, hi)) in ci.iter().enumerate() {
-                writeln!(f, "    omega_{}{}:", i + 1, i + 1).map_err(|e| e.to_string())?;
+                let key = result.eta_names.get(i).cloned().unwrap_or_else(|| format!("omega_{}_{}", i + 1, i + 1));
+                writeln!(f, "    {}:", key).map_err(|e| e.to_string())?;
                 writeln!(f, "      lower: {:.6}", lo).map_err(|e| e.to_string())?;
                 writeln!(f, "      upper: {:.6}", hi).map_err(|e| e.to_string())?;
             }
@@ -546,7 +572,8 @@ pub fn write_estimates_yaml(result: &FitResult, path: &str) -> Result<(), String
         if let Some(ref ci) = result.sir_ci_sigma {
             writeln!(f, "  ci_sigma:").map_err(|e| e.to_string())?;
             for (i, (lo, hi)) in ci.iter().enumerate() {
-                writeln!(f, "    sigma_{}:", i + 1).map_err(|e| e.to_string())?;
+                let key = result.sigma_names.get(i).cloned().unwrap_or_else(|| format!("sigma_{}", i + 1));
+                writeln!(f, "    {}:", key).map_err(|e| e.to_string())?;
                 writeln!(f, "      lower: {:.6}", lo).map_err(|e| e.to_string())?;
                 writeln!(f, "      upper: {:.6}", hi).map_err(|e| e.to_string())?;
             }
