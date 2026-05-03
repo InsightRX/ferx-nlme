@@ -1444,6 +1444,13 @@ fn build_omega_matrix(
         }
     }
 
+    // Build free_mask: diagonal entries always free; within-block off-diagonals
+    // free; cross-block and standalone-vs-block off-diagonals are structural zeros.
+    let mut free_mask = nalgebra::DMatrix::from_element(n, n, false);
+    for i in 0..n {
+        free_mask[(i, i)] = true;
+    }
+
     // Fill block entries from block specs (lower triangle, row-wise)
     for block in block_omegas {
         let block_n = block.names.len();
@@ -1458,12 +1465,14 @@ fn build_omega_matrix(
                 })?;
                 matrix[(i, j)] = block.lower_triangle[val_idx];
                 matrix[(j, i)] = block.lower_triangle[val_idx]; // symmetric
+                free_mask[(i, j)] = true;
+                free_mask[(j, i)] = true;
                 val_idx += 1;
             }
         }
     }
 
-    Ok(OmegaMatrix::from_matrix(matrix, eta_names.to_vec(), false))
+    Ok(OmegaMatrix::from_matrix_with_mask(matrix, eta_names.to_vec(), false, free_mask))
 }
 
 /// Build the per-eta `omega_fixed` flags from parsed diagonal + block specs.

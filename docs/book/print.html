@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "ayu";
-            window.path_to_searchindex_js = "searchindex-1ccd44c3.js";
+            window.path_to_searchindex_js = "searchindex-7cf97de9.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-911e3088.js"></script>
@@ -1152,7 +1152,7 @@ of <code>0</code>.</p>
 <tr><td><code>global_search</code></td><td><code>true</code>, <code>false</code></td><td><code>false</code></td><td>Run gradient-free pre-search before local optimization</td></tr>
 <tr><td><code>global_maxeval</code></td><td>integer</td><td>auto</td><td>Max evaluations for global search</td></tr>
 <tr><td><code>bloq_method</code></td><td><code>drop</code>, <code>m3</code></td><td><code>drop</code></td><td>How to handle rows with <code>CENS=1</code>. <code>m3</code> enables Beal’s M3 likelihood (see <a href="#bloq-m3-method">BLOQ example</a>).</td></tr>
-<tr><td><code>mu_referencing</code></td><td><code>true</code>, <code>false</code></td><td><code>true</code></td><td>Re-centre inner-loop ETA estimates on the current population mean (auto-detected from <code>[individual_parameters]</code>). See the <a href="#do-i-need-to-use-mu-referencing-in-my-model-definitions-like-in-nonmem--nlmixr2">FAQ entry</a> for details. Set <code>false</code> to reproduce pre-automatic-mu behaviour.</td></tr>
+<tr><td><code>mu_referencing</code></td><td><code>true</code>, <code>false</code></td><td><code>true</code></td><td>Re-centre inner-loop ETA estimates on the current population mean (auto-detected from <code>[individual_parameters]</code>). See the <a href="#do-i-need-to-use-mu-referencing-in-my-model-definitions-like-in-nonmem--nlmixr2">FAQ entry</a> for details. Set <code>false</code> to reproduce pre-automatic-mu behaviour. <strong>Note:</strong> has no effect when <code>method = saem</code> — the closed-form EM M-step update is not yet implemented; a warning is emitted when set.</td></tr>
 <tr><td><code>iov_column</code></td><td>string</td><td>—</td><td>Name of the occasion column in the dataset (e.g. <code>OCC</code>). Required when the model uses <code>kappa</code> or <code>block_kappa</code> declarations. The column must contain integer occasion indices. Case-insensitive. Only supported with <code>foce</code> / <code>focei</code> — not <code>saem</code>. See <a href="#inter-occasion-variability-iov">IOV documentation</a>.</td></tr>
 <tr><td><code>optimizer_trace</code></td><td><code>true</code>, <code>false</code></td><td><code>false</code></td><td>Write a per-iteration CSV to <code>/tmp/ferx_trace_&lt;pid&gt;_&lt;ts&gt;.csv</code>. The path is stored in <code>FitResult::trace_path</code>. Useful for diagnosing convergence problems or comparing optimizers. See <a href="#optimizer-trace">Optimizer Trace</a>.</td></tr>
 </tbody>

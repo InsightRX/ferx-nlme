@@ -109,6 +109,7 @@ pub fn unpack_params(v: &[f64], template: &ModelParameters) -> ModelParameters {
         chol: l,
         eta_names: template.omega.eta_names.clone(),
         diagonal: template.omega.diagonal,
+        free_mask: template.omega.free_mask.clone(),
     };
 
     // Sigma
@@ -153,6 +154,7 @@ pub fn unpack_params(v: &[f64], template: &ModelParameters) -> ModelParameters {
                 chol: l,
                 eta_names: iov_tmpl.eta_names.clone(),
                 diagonal: false,
+                free_mask: iov_tmpl.free_mask.clone(),
             })
         }
     } else {
@@ -987,12 +989,7 @@ mod tests {
         mat[(1, 0)] = 0.002;
         mat[(1, 1)] = 0.005;
         let chol = mat.clone().cholesky().unwrap().l();
-        let omega_iov = OmegaMatrix {
-            matrix: mat,
-            chol,
-            eta_names: vec!["KAPPA_CL".into(), "KAPPA_V".into()],
-            diagonal: false,
-        };
+        let omega_iov = OmegaMatrix::from_matrix(mat, vec!["KAPPA_CL".into(), "KAPPA_V".into()], false);
         let sigma = SigmaVector {
             values: vec![0.02],
             names: vec!["PROP_ERR".into()],
