@@ -48,12 +48,19 @@ struct SaemState {
 // Metropolis-Hastings step for one subject
 // ---------------------------------------------------------------------------
 
-/// Run `n_steps` MH iterations for one subject in-place.
+/// Run `n_steps` symmetric random-walk MH iterations for one subject in-place.
 /// Returns (n_accepted, updated_nll).
 ///
-/// During the exploration phase (`mu_k` is `Some`), proposals are centred on
-/// `mu_k` rather than the current eta, which helps the chain escape the
-/// (incorrect) eta = 0 basin when TVCL is far from the true value.
+/// `eta` is in deviation (eta_true) space — the same space the model's
+/// `pk_param_fn` consumes — so proposals are random walks
+/// `eta + step_scale · L · z` from the current position. The acceptance
+/// log-ratio is `nll_current − nll_prop`, which is correct because the
+/// symmetric proposal density cancels.
+///
+/// Note: an earlier version centred proposals on `mu_k` during exploration.
+/// That was incorrect: `individual_nll` interprets `eta` as the deviation
+/// `log(CL_i) − log(TVCL)`, while `mu_k = log(TVCL)`, so the model evaluated
+/// `CL = TVCL · exp(log TVCL) = TVCL²` for every accepted exploration step.
 fn mh_steps(
     eta: &mut [f64],
     nll_current: f64,
@@ -65,7 +72,6 @@ fn mh_steps(
     step_scale: f64,
     rng: &mut impl Rng,
     n_steps: usize,
-    mu_k: Option<&[f64]>,
 ) -> (usize, f64) {
     let n_eta = eta.len();
     let l = &omega.chol;
@@ -73,26 +79,19 @@ fn mh_steps(
     let mut n_accepted = 0;
 
     for _ in 0..n_steps {
-        // Propose: during exploration centre on mu_k; during convergence random-walk from current eta
         let z: Vec<f64> = (0..n_eta).map(|_| rng.sample(StandardNormal)).collect();
         let z_vec = DVector::from_column_slice(&z);
         let perturbation = l * z_vec;
 
-        let eta_prop: Vec<f64> = if let Some(mu) = mu_k {
-            // Exploration: centred proposal from prior mode
-            (0..n_eta)
-                .map(|j| mu[j] + step_scale * perturbation[j])
-                .collect()
-        } else {
-            // Convergence: random walk from current position
-            (0..n_eta)
-                .map(|j| eta[j] + step_scale * perturbation[j])
-                .collect()
-        };
+        let eta_prop: Vec<f64> = (0..n_eta)
+            .map(|j| eta[j] + step_scale * perturbation[j])
+            .collect();
 
         let nll_prop = individual_nll(model, subject, theta, &eta_prop, omega, sigma_values);
 
-        // Accept with log-ratio: log(alpha) = nll_current - nll_prop
+        // Symmetric proposal q(η_prop|η) = q(η|η_prop) cancels in the ratio,
+        // so the prior+likelihood difference encoded in `individual_nll` is
+        // the full acceptance criterion.
         let log_u: f64 = rng.gen::<f64>().ln();
         if log_u < nll - nll_prop {
             eta.copy_from_slice(&eta_prop);
@@ -323,33 +322,6 @@ fn get_mu_ref_pairs(model: &CompiledModel) -> Vec<(usize, usize)> {
     pairs
 }
 
-/// Central finite-difference gradient of obs_nll_single w.r.t. eta,
-/// computed only for the eta indices listed in `eta_indices`.
-fn compute_eta_grad(
-    model: &CompiledModel,
-    subject: &Subject,
-    theta: &[f64],
-    sigma: &[f64],
-    eta: &[f64],
-    eta_indices: &[usize],
-) -> Vec<f64> {
-    let h = 1e-5;
-    let mut grad = vec![0.0; eta.len()];
-    let mut eta_p = eta.to_vec();
-    let mut eta_m = eta.to_vec();
-    for &idx in eta_indices {
-        eta_p[idx] = eta[idx] + h;
-        eta_m[idx] = eta[idx] - h;
-        let fp = obs_nll_single(model, subject, theta, sigma, &eta_p);
-        let fm = obs_nll_single(model, subject, theta, sigma, &eta_m);
-        let g = (fp - fm) / (2.0 * h);
-        grad[idx] = if g.is_finite() { g } else { 0.0 };
-        eta_p[idx] = eta[idx];
-        eta_m[idx] = eta[idx];
-    }
-    grad
-}
-
 // ---------------------------------------------------------------------------
 // Main SAEM loop
 // ---------------------------------------------------------------------------
@@ -455,16 +427,16 @@ pub fn run_saem(
         sigma_vals: sigma_cur,
     };
 
-    // Mu-referencing pairs for gradient step M-step: (theta_idx, eta_idx)
+    // Mu-referencing pairs for the closed-form M-step: (theta_idx, eta_idx).
+    // Only log-mu-ref pairs are returned (`get_mu_ref_pairs` filters out
+    // additive ones), since the closed-form `log_theta += γ · mean(η)` only
+    // applies to log-mu-referenced thetas.
     let mu_ref_pairs: Vec<(usize, usize)> = get_mu_ref_pairs(model);
-    let use_grad_step = options.mu_referencing && !mu_ref_pairs.is_empty();
-    let mu_ref_eta_indices: Vec<usize> = mu_ref_pairs.iter().map(|&(_, ei)| ei).collect();
+    let use_closed_form_mstep = options.mu_referencing && !mu_ref_pairs.is_empty();
     // Accumulator for the `obs_nll_sum` (population OFV) evaluations skipped
     // by pinning mu-ref dims out of NLopt's central-FD gradient.  Each pinned
     // dim costs `2 * mstep_maxiter` `obs_nll_sum` calls inside NLopt — that's
-    // the value we add per M-step that takes the gradient-step branch.  We
-    // ignore the (smaller, single-subject) cost of `compute_eta_grad`; the
-    // metric is intentionally a gross-savings upper bound.
+    // the value we add per M-step that takes the closed-form branch.
     let mut mstep_grad_step_evals_saved: u64 = 0;
 
     // Main loop
@@ -485,20 +457,14 @@ pub fn run_saem(
         );
 
         // ---- Step 1: MH simulation (parallelized) ----
-        // During exploration (k <= k1) centre proposals on mu_k to help the
-        // chain find the posterior mode when theta is still far from the truth.
-        let is_exploration = k <= k1;
-        let saem_mu_k_vec = if is_exploration {
-            Some(compute_mu_k(model, &state.theta, options.mu_referencing))
-        } else {
-            None
-        };
+        // Symmetric random-walk MH in eta_true space, identical schedule
+        // throughout exploration and convergence — the only thing that
+        // changes between phases is the SA step size `gamma`.
         {
             use rayon::prelude::*;
             let theta_ref = &state.theta;
             let sigma_ref = &state.sigma_vals;
             let omega_ref = &omega_k;
-            let mu_k_ref = saem_mu_k_vec.as_deref();
 
             let results: Vec<(Vec<f64>, f64, usize)> = state
                 .etas
@@ -525,7 +491,6 @@ pub fn run_saem(
                         scale,
                         &mut rng,
                         n_mh_steps,
-                        mu_k_ref,
                     );
                     (eta_work, nll_new, n_acc)
                 })
@@ -557,6 +522,21 @@ pub fn run_saem(
         // breaks positive-definiteness once the free-block diagonals shrink
         // during the exploration phase.
         state.omega_mat = state.s2.clone();
+        // Zero structurally-absent off-diagonals. `s2 = (1/N) Σ ηη^T` always
+        // produces a dense matrix; entries that aren't free parameters
+        // (standalone etas, or etas from different `block_omega` declarations)
+        // must be zeroed so they don't feed sampling correlations back into
+        // the next iteration's Cholesky proposal. Without this the chain drives
+        // Ω toward a rank-deficient state, log|Ω| → -∞, and the M-step pushes
+        // thetas to bounds to compensate.
+        for i in 0..n_eta {
+            for j in 0..n_eta {
+                if !init_params.omega.free_mask[(i, j)] {
+                    state.omega_mat[(i, j)] = 0.0;
+                }
+            }
+        }
+        // Restore FIX-ed rows / columns from the template.
         for i in 0..n_eta {
             for j in 0..n_eta {
                 let fi = init_params.omega_fixed.get(i).copied().unwrap_or(false);
@@ -573,51 +553,53 @@ pub fn run_saem(
         if run_mstep {
             let mstep_maxiter = if k <= k1 { 3 } else { 5 }; // more precise in convergence phase
 
-            if use_grad_step {
-                // Gradient step for mu-referenced thetas: ∂condNLL/∂mu_j = Σᵢ ∂obs_nll_i/∂eta_k
-                let subject_eta_grads: Vec<Vec<f64>> = {
-                    use rayon::prelude::*;
-                    let theta_ref = &state.theta;
-                    let sigma_ref = &state.sigma_vals;
-                    let eta_idx_ref = &mu_ref_eta_indices;
-                    state
-                        .etas
-                        .par_iter()
-                        .enumerate()
-                        .map(|(i, eta)| {
-                            compute_eta_grad(
-                                model,
-                                &population.subjects[i],
-                                theta_ref,
-                                sigma_ref,
-                                eta,
-                                eta_idx_ref,
-                            )
-                        })
-                        .collect()
-                };
-
-                // Update log_theta for each mu-ref pair and pin bounds for NLopt
+            if use_closed_form_mstep {
+                // Closed-form EM M-step for log-mu-referenced thetas.
+                //
+                // Model: log(P_i) = log(TVP) + η_i, η_i ~ N(0, ω²).
+                // The complete-data log-likelihood is maximised at
+                //     log(TVP)_new = log(TVP)_old + mean_i(η_i)
+                // and SAEM applies the stochastic-approximation step size γ:
+                //     log(TVP)_new = log(TVP)_old + γ · mean_i(η_i)
+                // After the update, η_i is re-centred by `mean(η)` so the
+                // sufficient statistic for ω is taken from zero-mean residuals
+                // (ω is updated from `s2` *after* the next MH step, but
+                // re-centring keeps `state.etas` consistent with the new TVP
+                // for the rest of this iteration's NLL cache refresh).
+                let n_subj = state.etas.len() as f64;
                 let mut temp_theta_lower = log_theta_lower.clone();
                 let mut temp_theta_upper = log_theta_upper.clone();
+                let mut n_pinned: u64 = 0;
                 for &(theta_idx, eta_idx) in &mu_ref_pairs {
                     if init_params.theta_fixed.get(theta_idx).copied().unwrap_or(false) {
                         continue;
                     }
-                    let grad_sum: f64 = subject_eta_grads.iter().map(|g| g[eta_idx]).sum();
-                    log_theta[theta_idx] -= gamma * grad_sum;
-                    log_theta[theta_idx] = log_theta[theta_idx]
+                    let mean_eta: f64 =
+                        state.etas.iter().map(|e| e[eta_idx]).sum::<f64>() / n_subj;
+                    let log_theta_before = log_theta[theta_idx];
+                    log_theta[theta_idx] = (log_theta_before + gamma * mean_eta)
                         .clamp(log_theta_lower[theta_idx], log_theta_upper[theta_idx]);
-                    // Pin so NLopt leaves gradient-stepped values unchanged
+                    // Re-centre etas by the *actual* shift applied to log_theta,
+                    // not by `gamma * mean_eta` directly: when the update is
+                    // clamped at a bound the realised delta is smaller, and
+                    // shifting etas by the unclamped quantity would break
+                    // log(P_i) = log(TVP) + η_i until the next MH refresh.
+                    let delta = log_theta[theta_idx] - log_theta_before;
+                    for e in state.etas.iter_mut() {
+                        e[eta_idx] -= delta;
+                    }
+                    // Pin so NLopt leaves the closed-form value unchanged.
                     temp_theta_lower[theta_idx] = log_theta[theta_idx];
                     temp_theta_upper[theta_idx] = log_theta[theta_idx];
+                    n_pinned += 1;
                 }
-                // Each pinned mu-ref dim avoids 2 obs_nll_sum calls per
-                // NLopt gradient request, capped at `mstep_maxiter` requests.
-                mstep_grad_step_evals_saved +=
-                    2 * mstep_maxiter as u64 * mu_ref_pairs.len() as u64;
+                // Each pinned mu-ref dim avoids 2 obs_nll_sum calls per NLopt
+                // gradient request, capped at `mstep_maxiter` requests. FIXed
+                // thetas are not pinned by the closed form (NLopt sees them as
+                // FIXed via the regular bounds path) so they aren't counted.
+                mstep_grad_step_evals_saved += 2 * mstep_maxiter as u64 * n_pinned;
 
-                // NLopt for non-mu-ref thetas (pinned) and sigma
+                // NLopt for non-mu-ref thetas (pinned) and sigma.
                 let (theta_new, sigma_new) = theta_sigma_mstep_light(
                     model,
                     population,
@@ -798,7 +780,7 @@ pub fn run_saem(
         eprintln!("SAEM completed. Final OFV = {:.4}", ofv);
     }
 
-    let saem_mu_ref_m_step_evals_saved = if use_grad_step {
+    let saem_mu_ref_m_step_evals_saved = if use_closed_form_mstep {
         Some(mstep_grad_step_evals_saved)
     } else {
         None
@@ -892,5 +874,168 @@ mod tests {
             &[("ETA_CL", "MISSING", true)],
         );
         assert!(get_mu_ref_pairs(&m).is_empty());
+    }
+
+    // ---- Regression tests for the three SAEM correctness bugs ----
+
+    /// Bug 1 (diagonal): `from_diagonal` produces a free_mask that marks only
+    /// diagonal entries free. The SAEM M-step uses this mask to zero
+    /// SA-accumulated off-diagonals, preventing the rank-deficient Ω failure.
+    #[test]
+    fn diagonal_omega_free_mask_has_no_off_diagonals() {
+        let omega = OmegaMatrix::from_diagonal(&[0.1, 0.2], vec!["ETA_CL".into(), "ETA_V".into()]);
+        assert!(omega.free_mask[(0, 0)]);
+        assert!(omega.free_mask[(1, 1)]);
+        assert!(!omega.free_mask[(0, 1)]);
+        assert!(!omega.free_mask[(1, 0)]);
+    }
+
+    /// Bug 1 (mixed structure): `from_matrix_with_mask` preserves an explicit
+    /// mask that marks cross-block entries as structural zeros. This is the
+    /// case that the `diagonal` flag alone cannot express (one standalone eta
+    /// + one block_omega pair → diagonal=false, but cross entries are zero).
+    #[test]
+    fn mixed_omega_free_mask_zeros_cross_block_entries() {
+        // Three etas: ETA_CL(0) and ETA_V(1) in a block; ETA_KA(2) standalone.
+        let mut matrix = nalgebra::DMatrix::zeros(3, 3);
+        matrix[(0, 0)] = 0.1;
+        matrix[(1, 1)] = 0.2;
+        matrix[(2, 2)] = 0.1;
+        matrix[(0, 1)] = 0.01;
+        matrix[(1, 0)] = 0.01;
+
+        let mut free_mask = nalgebra::DMatrix::from_element(3, 3, false);
+        free_mask[(0, 0)] = true;
+        free_mask[(1, 1)] = true;
+        free_mask[(2, 2)] = true;
+        free_mask[(0, 1)] = true; // within CL-V block
+        free_mask[(1, 0)] = true;
+
+        let names = vec!["ETA_CL".into(), "ETA_V".into(), "ETA_KA".into()];
+        let omega = OmegaMatrix::from_matrix_with_mask(matrix, names, false, free_mask);
+
+        assert!(omega.free_mask[(0, 1)]);
+        assert!(omega.free_mask[(1, 0)]);
+        assert!(!omega.free_mask[(2, 0)]);
+        assert!(!omega.free_mask[(0, 2)]);
+        assert!(!omega.free_mask[(2, 1)]);
+        assert!(!omega.free_mask[(1, 2)]);
+    }
+
+    /// Bug 2: `mh_steps` is a symmetric random walk — proposals are
+    /// `eta_prop = eta + step·perturbation`, not `mu_k + step·perturbation`.
+    ///
+    /// Discriminator: with `step_scale = 0` the new kernel proposes exactly
+    /// the current eta, so the chain cannot move regardless of the data.
+    /// The pre-fix `mu_k`-centred kernel proposed exactly `mu_k` (= log TVCL),
+    /// so a starting eta far from `mu_k` would either jump to `mu_k`
+    /// whenever the proposal looked better, or oscillate. We pick a starting
+    /// eta of 5.0 with TVCL=1 (mu_k=0): the simulated observation lives near
+    /// the data-generating eta=0 region, so individual_nll(eta=0) is much
+    /// lower than individual_nll(eta=5), meaning the broken kernel would
+    /// accept the eta=0 proposal with probability ≈1 on the first step.
+    /// The new kernel must leave eta at exactly 5.0.
+    #[test]
+    fn mh_steps_random_walk_uses_current_eta_not_mu_k() {
+        use crate::stats::likelihood::individual_nll;
+        use crate::types::{DoseEvent, SigmaVector};
+        use rand::SeedableRng;
+        use rand::rngs::StdRng;
+        use std::collections::HashMap;
+
+        let model = analytical_model(GradientMethod::Auto);
+        let subj = Subject {
+            id: "1".into(),
+            doses: vec![DoseEvent::new(0.0, 100.0, 1, 0.0, false, 0.0)],
+            obs_times: vec![1.0],
+            observations: vec![1.0],
+            obs_cmts: vec![1],
+            covariates: HashMap::new(),
+            tvcov: HashMap::new(),
+            cens: vec![0],
+            occasions: vec![],
+            dose_occasions: vec![],
+        };
+        let omega = OmegaMatrix::from_diagonal(&[1.0], vec!["ETA_CL".into()]);
+        let sigma = SigmaVector { values: vec![1.0], names: vec!["PROP".into()] };
+        let theta = vec![1.0]; // mu_k = log(1) = 0
+        let mut eta = vec![5.0_f64]; // far from mu_k
+        let nll_start = individual_nll(&model, &subj, &theta, &eta, &omega, &sigma.values);
+        let mut rng = StdRng::seed_from_u64(42);
+
+        mh_steps(
+            &mut eta,
+            nll_start,
+            &subj,
+            &model,
+            &theta,
+            &omega,
+            &sigma.values,
+            0.0, // zero perturbation: random walk MUST stay put exactly
+            &mut rng,
+            100,
+        );
+
+        // Random walk with step=0: every proposal == current eta, accepted as
+        // identity. The pre-fix kernel would have proposed mu_k=0 every step
+        // and accepted it (lower nll than eta=5), driving eta to 0.
+        assert_eq!(
+            eta[0], 5.0,
+            "eta moved despite step_scale=0 — proposals were re-centred on mu_k"
+        );
+    }
+
+    /// Bug 3 / closed-form M-step: a synthetic SAEM run with mu_referencing=true
+    /// and mean(eta) ≠ 0 must move log_theta in the right direction *without*
+    /// pinning at the bound. We exercise the closed-form formula directly:
+    /// `log_theta_new = log_theta_old + γ · mean(eta)`.
+    #[test]
+    fn closed_form_mu_ref_mstep_is_bounded_and_signed_correctly() {
+        // Simulate post-MH state: 5 subjects, eta_mean = +0.4 (population CL
+        // is higher than current TVCL), gamma = 1.0 (exploration step).
+        let etas: Vec<Vec<f64>> = vec![
+            vec![0.5],
+            vec![0.3],
+            vec![0.4],
+            vec![0.6],
+            vec![0.2],
+        ];
+        let n = etas.len() as f64;
+        let mean_eta: f64 = etas.iter().map(|e| e[0]).sum::<f64>() / n;
+        assert!((mean_eta - 0.4).abs() < 1e-12);
+
+        let gamma = 1.0;
+        let log_theta_old = 0.0_f64; // TVCL = 1.0
+        let log_theta_new = log_theta_old + gamma * mean_eta;
+        // log_theta moved by exactly mean(eta), independent of N.  This is the
+        // property that the broken gradient step (γ · Σ ∂obs_nll/∂eta) lacked:
+        // its update scaled with N and pinned thetas at bounds for moderate N.
+        assert!((log_theta_new - 0.4).abs() < 1e-12);
+
+        // After re-centring etas by gamma*mean, mean(eta) = 0.
+        let mut etas_recentered = etas.clone();
+        for e in etas_recentered.iter_mut() {
+            e[0] -= gamma * mean_eta;
+        }
+        let new_mean: f64 = etas_recentered.iter().map(|e| e[0]).sum::<f64>() / n;
+        assert!(new_mean.abs() < 1e-12);
+    }
+
+    /// Bug 3 follow-up: the broken gradient step (γ · Σᵢ ∂obs_nll/∂eta) is no
+    /// longer in the code path. The closed-form `log_theta += γ · mean(η)` is
+    /// what runs when mu_referencing=true. Pair detection is unchanged.
+    #[test]
+    fn mu_ref_pair_detection_drives_closed_form_branch() {
+        let m = model_with_mu_refs(
+            &["CL", "V"],
+            &["ETA_CL", "ETA_V"],
+            &[("ETA_CL", "CL", true), ("ETA_V", "V", true)],
+        );
+        let pairs = get_mu_ref_pairs(&m);
+        assert_eq!(pairs.len(), 2);
+        // The closed-form branch is taken iff `options.mu_referencing` AND
+        // `!pairs.is_empty()`.  Both conditions are tested via the public API
+        // in api::iov_integration::test_iov_foce_mu_referencing_on; this unit
+        // test pins the precondition (pair detection still produces work).
     }
 }

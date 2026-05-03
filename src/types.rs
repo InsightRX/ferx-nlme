@@ -193,10 +193,22 @@ pub struct OmegaMatrix {
     pub chol: DMatrix<f64>,
     pub eta_names: Vec<String>,
     pub diagonal: bool,
+    /// Which (i,j) entries are free parameters (not structural zeros).
+    /// Diagonal entries are always free. Off-diagonals are free only when
+    /// both etas belong to the same `block_omega` declaration; cross-block
+    /// and standalone-vs-block entries are structural zeros and stay false.
+    /// Used by the SAEM M-step to zero sampling correlations that bleed into
+    /// structurally-absent entries via `(1/N) Σ ηη^T`.
+    pub free_mask: DMatrix<bool>,
 }
 
 impl OmegaMatrix {
-    pub fn from_matrix(m: DMatrix<f64>, names: Vec<String>, diagonal: bool) -> Self {
+    pub fn from_matrix_with_mask(
+        m: DMatrix<f64>,
+        names: Vec<String>,
+        diagonal: bool,
+        free_mask: DMatrix<bool>,
+    ) -> Self {
         let n = m.nrows();
         let chol = match m.clone().cholesky() {
             Some(c) => c.l(),
@@ -213,7 +225,29 @@ impl OmegaMatrix {
             chol,
             eta_names: names,
             diagonal,
+            free_mask,
         }
+    }
+
+    pub fn from_matrix(m: DMatrix<f64>, names: Vec<String>, diagonal: bool) -> Self {
+        let n = m.nrows();
+        // Infer free_mask: diagonal entries always free; for non-diagonal
+        // matrices, off-diagonals are free iff non-zero. This is the correct
+        // inference when reconstructing an OmegaMatrix from a final estimate
+        // matrix where the original block structure has already been imposed.
+        // For initial parsing of `block_omega` declarations, use
+        // `from_matrix_with_mask` directly so cross-block zeros are preserved.
+        let mut free_mask = DMatrix::from_element(n, n, false);
+        for i in 0..n {
+            for j in 0..n {
+                if i == j {
+                    free_mask[(i, j)] = true;
+                } else if !diagonal && m[(i, j)] != 0.0 {
+                    free_mask[(i, j)] = true;
+                }
+            }
+        }
+        Self::from_matrix_with_mask(m, names, diagonal, free_mask)
     }
 
     pub fn from_diagonal(variances: &[f64], names: Vec<String>) -> Self {
