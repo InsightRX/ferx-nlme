@@ -388,6 +388,9 @@ pub struct CompiledModel {
     /// `options.gradient_method` themselves. A mismatch is not detected —
     /// `find_ebe` reads this field, not `options`.
     pub gradient_method: GradientMethod,
+    /// Warnings generated at parse time (e.g. mu-referencing disabled for
+    /// conditional parameters).  Prepended to `FitResult.warnings` by `fit()`.
+    pub parse_warnings: Vec<String>,
 }
 
 /// Inner-loop (per-subject EBE) gradient method.
@@ -1000,6 +1003,7 @@ pub(crate) mod test_helpers {
             bloq_method: BloqMethod::Drop,
             referenced_covariates: vec![],
             gradient_method,
+            parse_warnings: Vec::new(),
         }
     }
 }
