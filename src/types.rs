@@ -359,6 +359,24 @@ pub struct CompiledModel {
     pub eta_names: Vec<String>,
     /// IOV kappa names (length == n_kappa). Empty when no IOV.
     pub kappa_names: Vec<String>,
+    /// Names of the individual parameters declared at the top level of the
+    /// `[individual_parameters]` block, in declaration order. Parallel to
+    /// `pk_indices`; for analytical models the i-th name is the variable
+    /// whose value lands in `PkParams.values[pk_indices[i]]`. For ODE
+    /// models the i-th name is written sequentially into slot `i` by
+    /// `pk_param_fn`. Used by the FFI to label per-subject EBE individual
+    /// parameter values (e.g. `CL`, `V`, `Ka`).
+    ///
+    /// Bound: `pk_param_fn` writes at most `MAX_PK_PARAMS` slots (the size
+    /// of the fixed `PkParams.values` array). For analytical models the
+    /// parser already routes assignments through that fixed slot table, so
+    /// excess names are not possible. For ODE models with more than
+    /// `MAX_PK_PARAMS` top-level `[individual_parameters]` assignments,
+    /// names beyond index `MAX_PK_PARAMS - 1` will appear in this list but
+    /// `pk_param_fn` won't store their values — downstream consumers will
+    /// read either zero or NaN for those slots. In practice no PK model
+    /// approaches this limit.
+    pub indiv_param_names: Vec<String>,
     pub default_params: ModelParameters,
     /// Detected mu-referencing relationships: eta_name → (theta_name, log_transformed).
     /// Populated by the parser; empty map means no mu-referencing detected.
@@ -1006,6 +1024,7 @@ pub(crate) mod test_helpers {
             theta_names: vec!["CL".into()],
             eta_names: vec!["ETA_CL".into()],
             kappa_names: Vec::new(),
+            indiv_param_names: vec!["CL".into()],
             default_params: ModelParameters {
                 theta: vec![1.0],
                 theta_names: vec!["CL".into()],

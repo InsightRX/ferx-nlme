@@ -525,6 +525,7 @@ pub fn parse_full_model(content: &str) -> Result<ParsedModel, String> {
         theta_names,
         eta_names: eta_names_bsv,
         kappa_names,
+        indiv_param_names: indiv_var_names.clone(),
         default_params,
         tv_fn,
         pk_indices,
@@ -4495,5 +4496,47 @@ if (1 > 0) {
         let w = &parsed.model.parse_warnings[0];
         assert!(w.contains("CL"), "warning should mention CL");
         assert!(w.contains("Mu-referencing disabled"), "warning should mention mu-referencing");
+    }
+
+    #[test]
+    fn test_indiv_param_names_populated_in_declaration_order() {
+        // CompiledModel.indiv_param_names must hold every top-level
+        // [individual_parameters] assignment, in source-declaration order.
+        // Downstream consumers (the R FFI's per-subject EBE table) rely on
+        // this list to label the columns of `individual_estimates`, and on
+        // its alignment with `pk_indices` to read each value out of the
+        // PkParams slot.
+        let model_str = "
+[parameters]
+  theta TVCL(1.0)
+  theta TVV(10.0)
+  theta TVKA(2.0)
+  omega ETA_CL ~ 0.1
+  omega ETA_V  ~ 0.1
+  omega ETA_KA ~ 0.1
+  sigma EPS ~ 0.01
+
+[individual_parameters]
+  CL = TVCL * exp(ETA_CL)
+  V  = TVV  * exp(ETA_V)
+  KA = TVKA * exp(ETA_KA)
+
+[structural_model]
+  pk one_cpt_oral(cl=CL, v=V, ka=KA)
+
+[error_model]
+  DV ~ proportional(EPS)
+";
+        let parsed = super::parse_full_model(model_str).unwrap();
+        assert_eq!(
+            parsed.model.indiv_param_names,
+            vec!["CL".to_string(), "V".to_string(), "KA".to_string()]
+        );
+        // The list must be parallel to pk_indices so the FFI can route each
+        // name to its PkParams slot for analytical models.
+        assert_eq!(
+            parsed.model.indiv_param_names.len(),
+            parsed.model.pk_indices.len()
+        );
     }
 }

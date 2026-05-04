@@ -670,6 +670,7 @@ mod tests {
             parse_warnings: Vec::new(),
             n_kappa: 0,
             kappa_names: Vec::new(),
+            indiv_param_names: vec!["CL".into(), "V".into()],
         }
     }
 
