@@ -653,6 +653,7 @@ mod tests {
             n_epsilon: 1,
             theta_names,
             eta_names,
+            indiv_param_names: vec!["CL".into(), "V".into(), "KA".into()],
             default_params,
             mu_refs: refs,
             tv_fn: None,

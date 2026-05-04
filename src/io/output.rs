@@ -256,11 +256,6 @@ pub fn print_results(result: &FitResult) {
 /// Generate SDTAB-like output as vectors of (header, values) pairs
 pub fn sdtab(result: &FitResult, population: &Population) -> Vec<(String, Vec<f64>)> {
     let n_total: usize = result.subjects.iter().map(|s| s.ipred.len()).sum();
-    let n_eta = if result.subjects.is_empty() {
-        0
-    } else {
-        result.subjects[0].eta.len()
-    };
 
     let any_cens = result
         .subjects
@@ -279,7 +274,6 @@ pub fn sdtab(result: &FitResult, population: &Population) -> Vec<(String, Vec<f6
     let mut iwres_vec = Vec::with_capacity(n_total);
     let mut ebe_ofv_col = Vec::with_capacity(n_total);
     let mut n_obs_col = Vec::with_capacity(n_total);
-    let mut eta_cols: Vec<Vec<f64>> = (0..n_eta).map(|_| Vec::with_capacity(n_total)).collect();
 
     for (si, sr) in result.subjects.iter().enumerate() {
         let subj = &population.subjects[si];
@@ -295,9 +289,6 @@ pub fn sdtab(result: &FitResult, population: &Population) -> Vec<(String, Vec<f6
             iwres_vec.push(sr.iwres[j]);
             ebe_ofv_col.push(sr.ofv_contribution);
             n_obs_col.push(sr.n_obs as f64);
-            for k in 0..n_eta {
-                eta_cols[k].push(sr.eta[k]);
-            }
         }
     }
 
@@ -320,9 +311,6 @@ pub fn sdtab(result: &FitResult, population: &Population) -> Vec<(String, Vec<f6
         ("EBE_OFV".to_string(), ebe_ofv_col),
         ("N_OBS".to_string(), n_obs_col),
     ]);
-    for k in 0..n_eta {
-        cols.push((format!("ETA{}", k + 1), eta_cols[k].clone()));
-    }
 
     cols
 }

@@ -1245,6 +1245,7 @@ mod iov_integration {
             kappa_names: vec!["KAPPA_CL".into()],
             theta_names: vec!["TVCL".into(), "TVV".into()],
             eta_names: vec!["ETA_CL".into()],
+            indiv_param_names: vec!["CL".into(), "V".into()],
             default_params,
             mu_refs: HashMap::new(),
             tv_fn: None,
