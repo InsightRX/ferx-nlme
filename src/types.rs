@@ -366,6 +366,16 @@ pub struct CompiledModel {
     /// models the i-th name is written sequentially into slot `i` by
     /// `pk_param_fn`. Used by the FFI to label per-subject EBE individual
     /// parameter values (e.g. `CL`, `V`, `Ka`).
+    ///
+    /// Bound: `pk_param_fn` writes at most `MAX_PK_PARAMS` slots (the size
+    /// of the fixed `PkParams.values` array). For analytical models the
+    /// parser already routes assignments through that fixed slot table, so
+    /// excess names are not possible. For ODE models with more than
+    /// `MAX_PK_PARAMS` top-level `[individual_parameters]` assignments,
+    /// names beyond index `MAX_PK_PARAMS - 1` will appear in this list but
+    /// `pk_param_fn` won't store their values — downstream consumers will
+    /// read either zero or NaN for those slots. In practice no PK model
+    /// approaches this limit.
     pub indiv_param_names: Vec<String>,
     pub default_params: ModelParameters,
     /// Detected mu-referencing relationships: eta_name → (theta_name, log_transformed).
